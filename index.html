@@ -1205,7 +1205,8 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-function doLogin() {
+window.doLogin = function() {
+  if (!window._auth) { alert('App loading... please wait 2 seconds and try again'); return; }
   var btn = document.getElementById('login-btn');
   btn.textContent = 'Connecting...';
   btn.disabled = true;
