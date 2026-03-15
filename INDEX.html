@@ -1,0 +1,3698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CashewPro — Jai Shree Cashew Industries</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- FIREBASE -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  try {
+    var app = firebase.initializeApp({
+      apiKey: "AIzaSyBGnxMF7XxDMpGdmmaplBY8JQw6Wog7kUo",
+      authDomain: "cashew-pro.firebaseapp.com",
+      projectId: "cashew-pro",
+      storageBucket: "cashew-pro.firebasestorage.app",
+      messagingSenderId: "335706191722",
+      appId: "1:335706191722:web:4389649d7a61cd82229713"
+    });
+    window._auth = firebase.auth();
+    window._db = firebase.firestore();
+    window._fbReady = true;
+    console.log('✅ Firebase ready');
+
+    // Check redirect result first
+    window._auth.getRedirectResult().then(function(result) {
+      if (result && result.user) {
+        console.log('Redirect success:', result.user.email);
+      }
+    }).catch(function(e) {
+      console.log('Redirect check done:', e.code);
+    });
+
+    // Auth state listener - use window. to ensure function is found
+    window._auth.onAuthStateChanged(function(user) {
+      if (user) {
+        window.currentUser = user;
+        if(window.showApp) window.showApp(user);
+        else setTimeout(function(){ if(window.showApp) window.showApp(user); }, 500);
+      } else {
+        if(window.showLogin) window.showLogin();
+      }
+    });
+
+  } catch(e) {
+    console.error('Firebase error:', e);
+    var err = document.getElementById('lerr');
+    if (err) {
+      err.style.display = 'block';
+      err.textContent = 'Error: ' + e.message + ' — Refresh page (F5)';
+    }
+  }
+});
+</script>
+
+<style>
+:root{
+  --bg:#f0f4f8;--s:#fff;--s2:#f8fafc;--s3:#f1f5f9;
+  --b:#e2e8f0;--b2:#cbd5e1;
+  --t:#0f172a;--t2:#475569;--t3:#94a3b8;
+  --g:#166534;--gh:#15803d;--gs:#f0fdf4;--gb:#bbf7d0;
+  --am:#b45309;--ams:#fffbeb;--amb:#fde68a;
+  --rd:#dc2626;--rds:#fef2f2;--rdb:#fecaca;
+  --bl:#1d4ed8;--bls:#eff6ff;--blb:#bfdbfe;
+  --pu:#6d28d9;--pus:#f5f3ff;
+  --r:7px;--r2:11px;--r3:15px;
+  --sh:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+  --sh2:0 4px 8px rgba(0,0,0,.08);
+  --sh3:0 10px 25px rgba(0,0,0,.12),0 4px 6px rgba(0,0,0,.05);
+}
+[data-dark]{
+  --bg:#0d1117;--s:#161b22;--s2:#1c2128;--s3:#21262d;
+  --b:#30363d;--b2:#484f58;
+  --t:#e6edf3;--t2:#8b949e;--t3:#6e7681;
+  --gs:rgba(22,101,52,.2);--gb:rgba(74,222,128,.3);
+  --ams:rgba(180,83,9,.18);--rds:rgba(220,38,38,.18);--bls:rgba(29,78,216,.18);--pus:rgba(109,40,217,.18);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;font-family:'IBM Plex Sans',sans-serif;font-size:13px;background:var(--bg);color:var(--t)}
+
+/* LAYOUT */
+#app{display:flex;height:100vh;overflow:hidden}
+.sb{width:220px;flex-shrink:0;background:var(--s);border-right:1px solid var(--b);display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.tb{height:48px;background:var(--s);border-bottom:1px solid var(--b);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0;z-index:10}
+.page{flex:1;overflow-y:auto;padding:14px 16px 70px}
+.panel{display:none}.panel.on{display:block}
+
+/* SIDEBAR */
+.sb-logo{padding:13px 12px 10px;border-bottom:1px solid var(--b);display:flex;align-items:center;gap:9px}
+.sl-ic{width:32px;height:32px;background:linear-gradient(135deg,var(--g),#22c55e);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.sl-nm{font-size:12px;font-weight:700;line-height:1.25}
+.sl-sb{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.7px;margin-top:1px}
+.sb-sec{padding:7px 5px 1px}
+.sb-lbl{font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.7px;padding:0 7px;margin-bottom:2px}
+.nv{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:var(--r);cursor:pointer;font-size:12px;font-weight:500;color:var(--t2);transition:all .12s;margin-bottom:1px}
+.nv:hover{background:var(--s2);color:var(--t)}
+.nv.on{background:var(--gs);color:var(--g);font-weight:600}
+[data-dark] .nv.on{color:#4ade80}
+.ni{width:16px;text-align:center;font-size:13px;flex-shrink:0}
+.nbdg{margin-left:auto;background:var(--rd);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;min-width:16px;text-align:center}
+.sb-foot{margin-top:auto;padding:8px 5px;border-top:1px solid var(--b)}
+.urow{display:flex;align-items:center;gap:7px;padding:5px 6px}
+.ava{width:26px;height:26px;border-radius:50%;background:var(--g);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;overflow:hidden}
+.ava img{width:100%;height:100%;object-fit:cover}
+.unm{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.url2{font-size:9px;color:var(--t3)}
+
+/* TOPBAR */
+.pg-t{font-size:14px;font-weight:700}
+.pg-s{font-size:11px;color:var(--t3);margin-left:2px}
+.tbr{margin-left:auto;display:flex;gap:6px;align-items:center}
+.ib{width:30px;height:30px;border-radius:var(--r);background:var(--s2);border:1px solid var(--b);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--t2);transition:all .12s}
+.ib:hover{border-color:var(--g);color:var(--g)}
+
+/* STAT CARDS */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.sc{background:var(--s);border:1px solid var(--b);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--sh);position:relative;overflow:hidden}
+.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:var(--r2) var(--r2) 0 0}
+.sc.cg::after{background:var(--g)}.sc.cr::after{background:var(--rd)}.sc.ca::after{background:var(--am)}.sc.cb::after{background:var(--bl)}.sc.cp::after{background:var(--pu)}
+.sc-l{font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.sc-v{font-size:19px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+.sc.cg .sc-v{color:var(--g)}.sc.cr .sc-v{color:var(--rd)}.sc.ca .sc-v{color:var(--am)}.sc.cb .sc-v{color:var(--bl)}.sc.cp .sc-v{color:var(--pu)}
+.sc-s{font-size:10px;color:var(--t3);margin-top:2px}
+
+/* CARD */
+.card{background:var(--s);border:1px solid var(--b);border-radius:var(--r2);box-shadow:var(--sh);margin-bottom:14px}
+.ch{padding:11px 14px;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-height:44px}
+.ct{font-size:13px;font-weight:700}
+.cb2{padding:14px}
+
+/* FORM */
+.fg{display:flex;flex-direction:column;gap:3px}
+.fg label{font-size:9px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.3px}
+.fg label .r{color:var(--rd)}
+input[type=text],input[type=number],input[type=date],input[type=email],select,textarea{background:var(--s2);border:1px solid var(--b2);border-radius:6px;color:var(--t);padding:6px 8px;font-size:12px;font-family:'IBM Plex Sans',sans-serif;width:100%;transition:border-color .12s,box-shadow .12s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g);box-shadow:0 0 0 3px rgba(22,101,52,.1)}
+.fca{background:rgba(22,101,52,.08)!important;border-color:var(--g)!important;color:var(--g)!important;font-family:'IBM Plex Mono',monospace!important;font-weight:600!important}
+.fai{border-color:var(--am)!important;background:var(--ams)!important}
+input::placeholder,textarea::placeholder{color:var(--t3)}
+select option{background:var(--s)}
+.gr{display:grid;gap:8px}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}.g4{grid-template-columns:1fr 1fr 1fr 1fr}.g5{grid-template-columns:repeat(5,1fr)}
+.s2{grid-column:span 2}.s3{grid-column:span 3}.s4{grid-column:span 4}
+.dvd{height:1px;background:var(--b);margin:10px 0}
+.stl{font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.8px;padding-bottom:6px;border-bottom:1px solid var(--b);margin-bottom:9px}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:5px 11px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;transition:all .12s;white-space:nowrap}
+.bp{background:var(--g);color:#fff}.bp:hover{background:var(--gh)}
+.bs{background:var(--s2);color:var(--t2);border:1px solid var(--b2)}.bs:hover{border-color:var(--g);color:var(--g)}
+.brd{background:var(--rd);color:#fff}.brd:hover{background:#b91c1c}
+.ba{background:var(--am);color:#fff}.ba:hover{background:#92400e}
+.bbl{background:var(--bl);color:#fff}.bbl:hover{background:#1e40af}
+.bpu{background:var(--pu);color:#fff}
+.bgh{background:transparent;color:var(--t2);border:1px solid transparent}.bgh:hover{background:var(--s2)}
+.btn-sm{padding:3px 8px;font-size:10px}.btn-lg{padding:9px 16px;font-size:13px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.br2{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+/* TABLE */
+.tw{overflow-x:auto;border-radius:var(--r2);border:1px solid var(--b)}
+table{width:100%;border-collapse:collapse;min-width:600px}
+thead{background:var(--s2);position:sticky;top:0;z-index:2}
+th{padding:7px 9px;text-align:left;font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--b);white-space:nowrap;user-select:none;cursor:pointer}
+th:hover{color:var(--t2)}
+td{padding:7px 9px;border-bottom:1px solid var(--b);font-size:12px;white-space:nowrap;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:rgba(22,101,52,.025)}
+tbody tr.sel td{background:rgba(22,101,52,.08)!important}
+.mn{font-family:'IBM Plex Mono',monospace;font-size:11px}
+.tp{color:var(--g);font-weight:600}.tr{color:var(--rd);font-weight:600}.tam{color:var(--am);font-weight:600}.tbl{color:var(--bl);font-weight:600}
+
+/* BADGES */
+.bdg{display:inline-flex;align-items:center;padding:2px 7px;border-radius:12px;font-size:9px;font-weight:700;letter-spacing:.2px;text-transform:uppercase}
+.bd-due{background:var(--rds);color:var(--rd);border:1px solid var(--rdb)}
+.bd-pt{background:var(--ams);color:var(--am);border:1px solid var(--amb)}
+.bd-pd{background:var(--gs);color:var(--g);border:1px solid var(--gb)}
+.bd-ret{background:var(--pus);color:var(--pu)}
+.bd-bnc{background:var(--rds);color:var(--rd)}
+.bd-adv{background:var(--bls);color:var(--bl)}
+
+/* MODAL */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center;padding:12px}
+.mo.on{display:flex}
+.mo-box{background:var(--s);border:1px solid var(--b);border-radius:var(--r3);max-width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:var(--sh3)}
+.mo-hd{padding:13px 16px;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.mo-ti{font-size:14px;font-weight:700}
+.mo-cl{background:none;border:none;font-size:18px;cursor:pointer;color:var(--t3);padding:3px 6px;border-radius:5px;line-height:1}
+.mo-cl:hover{background:var(--s2);color:var(--t)}
+.mo-bd{padding:16px;overflow-y:auto;flex:1}
+.mo-ft{padding:11px 16px;border-top:1px solid var(--b);display:flex;justify-content:flex-end;gap:7px;flex-shrink:0}
+
+/* UPLOAD ZONE */
+.upz{border:2px dashed var(--b2);border-radius:var(--r2);padding:22px;text-align:center;cursor:pointer;transition:all .2s;background:var(--s2)}
+.upz:hover,.upz.drag{border-color:var(--g);background:rgba(22,101,52,.05)}
+.up-ic{font-size:28px;margin-bottom:6px}
+.up-t{font-size:13px;font-weight:600;color:var(--t2);margin-bottom:3px}
+.up-s{font-size:11px;color:var(--t3)}
+
+
+.uf-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.uf-bar input,.uf-bar select{max-width:145px;font-size:11px;padding:5px 7px}
+.uf-bar .uf-lbl{font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.sum-strip{padding:7px 14px;font-size:11px;border-bottom:1px solid var(--b);display:none;flex-wrap:wrap;gap:14px;align-items:center}
+.sum-strip.on{display:flex}
+.sum-chip{display:inline-flex;flex-direction:column}
+.sum-chip-l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px}
+.sum-chip-v{font-size:13px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+
+/* MISC */
+.prog{height:4px;background:var(--b);border-radius:2px;overflow:hidden;margin-top:4px}
+.prog-f{height:100%;background:var(--g);border-radius:2px;transition:width .3s}
+.spin{width:14px;height:14px;border:2px solid rgba(22,101,52,.2);border-top-color:var(--g);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+#toasts{position:fixed;bottom:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.toast{background:var(--s);border:1px solid var(--b);border-radius:var(--r2);padding:10px 14px;box-shadow:var(--sh3);font-size:12px;display:flex;align-items:center;gap:8px;min-width:220px;animation:tin .25s ease;pointer-events:auto}
+.toast.ok{border-left:3px solid var(--g)}.toast.err{border-left:3px solid var(--rd)}.toast.inf{border-left:3px solid var(--bl)}
+@keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.fbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.fbar input,.fbar select{max-width:150px}
+.tot-box{background:var(--gs);border:1px solid var(--gb);border-radius:var(--r2);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+[data-dark] .tot-box{background:rgba(22,101,52,.12);border-color:rgba(22,101,52,.3)}
+.tot-l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.tot-v{font-size:22px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:var(--g)}
+.rtabs{display:flex;gap:2px;background:var(--s2);border-radius:var(--r2);padding:3px;width:fit-content;margin-bottom:12px;border:1px solid var(--b)}
+.rtab{padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500;color:var(--t3);transition:all .12s}
+.rtab.on{background:var(--s);color:var(--t);font-weight:600;box-shadow:var(--sh)}
+#sum-bar{position:fixed;bottom:0;left:220px;right:0;background:var(--s);border-top:2px solid var(--g);padding:8px 16px;display:none;align-items:center;gap:16px;z-index:99;box-shadow:0 -4px 12px rgba(0,0,0,.08)}
+#sum-bar.on{display:flex}
+.sum-i{display:flex;flex-direction:column}
+.sum-l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px}
+.sum-v{font-size:14px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:var(--g)}
+.ai-badge{display:inline-flex;align-items:center;gap:4px;background:var(--ams);color:var(--am);border:1px solid var(--amb);border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700}
+.color-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
+.hidden{display:none!important}
+.fc-row{display:flex;align-items:center;gap:6px;margin-bottom:6px;background:var(--s2);border-radius:var(--r);padding:4px 8px;border:1px solid var(--b)}
+
+/* LOGIN */
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f4024,#166534,#22c55e)}
+.lc{background:#fff;border-radius:var(--r3);padding:36px 32px;width:340px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,.25)}
+.l-logo{font-size:44px;margin-bottom:6px}
+.l-title{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:3px}
+.l-sub{font-size:12px;color:#64748b;margin-bottom:24px;line-height:1.5}
+.g-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;background:#fff;border:2px solid #e2e8f0;border-radius:var(--r2);font-size:13px;font-weight:600;color:#374151;cursor:pointer;transition:all .15s;font-family:'IBM Plex Sans',sans-serif}
+.g-btn:hover{border-color:var(--g);box-shadow:0 4px 12px rgba(22,101,52,.15)}
+.g-btn img{width:18px}
+
+@media(max-width:768px){
+  .sb{display:none}
+  #sum-bar{left:0}
+  .stats{grid-template-columns:1fr 1fr}
+  .g4,.g5{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr}
+}
+
+/* UNIVERSAL FILTERS */
+.uf-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 14px;border-bottom:1px solid var(--b);background:var(--s2)}
+.uf-bar input,.uf-bar select{max-width:145px;font-size:11px;padding:5px 7px}
+.uf-bar .sep{width:1px;height:20px;background:var(--b2);margin:0 2px}
+.sum-strip{padding:7px 14px;font-size:11px;border-bottom:1px solid var(--b);display:none;flex-wrap:wrap;gap:14px;background:var(--s2)}
+.sum-strip.on{display:flex}
+.sum-chip-l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;display:block}
+.sum-chip-v{font-size:13px;font-weight:700;font-family:'IBM Plex Mono',monospace}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f4024,#166534,#22c55e)">
+  <div style="background:#fff;border-radius:16px;padding:40px 36px;width:340px;text-align:center;box-shadow:0 25px 50px rgba(0,0,0,.25)">
+    <div style="font-size:48px;margin-bottom:8px">🌿</div>
+    <div style="font-size:22px;font-weight:700;color:#0f172a;margin-bottom:4px">CashewPro</div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:28px">Jai Shree Cashew Industries<br>Professional Accounting Suite</div>
+    
+    <div id="login-status" style="margin-bottom:12px;font-size:12px;color:#64748b;min-height:20px"></div>
+    
+    <button id="login-btn" 
+      style="display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:14px;background:#fff;border:2px solid #e2e8f0;border-radius:12px;font-size:15px;font-weight:700;color:#374151;cursor:pointer;font-family:inherit;transition:all .15s;box-shadow:0 2px 8px rgba(0,0,0,.1)"
+      onmouseover="this.style.borderColor='#166534';this.style.boxShadow='0 4px 16px rgba(22,101,52,.3)'"
+      onmouseout="this.style.borderColor='#e2e8f0';this.style.boxShadow='0 2px 8px rgba(0,0,0,.1)'"
+      id="gbtn">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:22px">
+      <span id="login-btn-text">Sign in with Google</span>
+    </button>
+    
+    <div id="lerr" style="margin-top:12px;font-size:11px;color:#dc2626;display:none;padding:8px;background:#fef2f2;border-radius:6px"></div>
+    <div style="margin-top:16px;font-size:10px;color:#94a3b8">🔒 Secured · Data saved in Google Cloud</div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none">
+
+  <!-- SIDEBAR -->
+  <div class="sb">
+    <div class="sb-logo">
+      <div class="sl-ic">🌿</div>
+      <div><div class="sl-nm">CashewPro</div><div class="sl-sb">Jai Shree Cashew</div></div>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl">Main</div>
+      <div class="nv on" onclick="nav('dashboard')"><span class="ni">📊</span> Dashboard</div>
+      <div class="nv" onclick="nav('scan')"><span class="ni">📸</span> AI Scan Bill</div>
+      <div class="nv" onclick="nav('manual')"><span class="ni">✏️</span> Manual Entry</div>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl">Sales & Payments</div>
+      <div class="nv" onclick="nav('bills')"><span class="ni">📋</span> All Bills <span class="nbdg" id="nb-due">0</span></div>
+      <div class="nv" onclick="nav('due')"><span class="ni">⏳</span> Due List</div>
+      <div class="nv" onclick="nav('receive')"><span class="ni">💰</span> Receive Payment</div>
+      <div class="nv" onclick="nav('advance')"><span class="ni">⬆️</span> Advance Payment</div>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl">Records</div>
+      <div class="nv" onclick="nav('ledger')"><span class="ni">📒</span> Party Ledger</div>
+      <div class="nv" onclick="nav('cheques')"><span class="ni">🏦</span> Cheques</div>
+      <div class="nv" onclick="nav('returns')"><span class="ni">↩️</span> Sales Returns</div>
+      <div class="nv" onclick="nav('expenses')"><span class="ni">💸</span> Expenses</div>
+      <div class="nv" onclick="nav('cashbook')"><span class="ni">💵</span> Cash Book</div>
+      <div class="nv" onclick="nav('purchase')"><span class="ni">🛒</span> Purchase Bills</div>
+      <div class="nv" onclick="nav('bank')"><span class="ni">🏛️</span> Bank Match</div>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl">Reports</div>
+      <div class="nv" onclick="nav('reports')"><span class="ni">📈</span> Reports</div>
+      <div class="nv" onclick="nav('backup')"><span class="ni">💾</span> Backup & Export</div>
+      <div class="nv" onclick="nav('settings')"><span class="ni">⚙️</span> Settings</div>
+    </div>
+
+    <div class="sb-foot">
+      <div class="urow">
+        <div class="ava" id="u-ava">J</div>
+        <div style="min-width:0">
+          <div class="unm" id="u-nm">Loading...</div>
+          <div class="url2">Owner · CashewPro</div>
+        </div>
+      </div>
+      <button class="btn bs btn-sm" onclick="doLogout()" style="width:100%;margin-top:6px">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- MAIN AREA -->
+  <div class="main">
+    <!-- TOPBAR -->
+    <div class="tb">
+      <div><span class="pg-t" id="pg-title">Dashboard</span><span class="pg-s" id="pg-sub"></span></div>
+      <div class="tbr">
+        <div class="ib" onclick="toggleTheme()" id="theme-btn" title="Toggle Theme">🌙</div>
+        <div class="ib" onclick="nav('scan')" title="New Bill">➕</div>
+        <button class="btn bp btn-sm" onclick="nav('receive')">💰 Receive</button>
+      </div>
+    </div>
+
+    <!-- PAGE CONTENT -->
+    <div class="page">
+
+      <!-- ========== DASHBOARD ========== -->
+      <div class="panel on" id="panel-dashboard">
+        <div class="stats">
+          <div class="sc cb"><div class="sc-l">Total Bills</div><div class="sc-v" id="d-total">0</div><div class="sc-s" id="d-total-s">₹0 total value</div></div>
+          <div class="sc cr"><div class="sc-l">Total Due</div><div class="sc-v" id="d-due">₹0</div><div class="sc-s" id="d-due-s">0 bills</div></div>
+          <div class="sc ca"><div class="sc-l">Partial Pending</div><div class="sc-v" id="d-partial">₹0</div><div class="sc-s" id="d-partial-s">0 bills</div></div>
+          <div class="sc cg"><div class="sc-l">Total Received</div><div class="sc-v" id="d-recv">₹0</div><div class="sc-s" id="d-recv-s">0 paid</div></div>
+        </div>
+        <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+          <div class="sc cp"><div class="sc-l">Advance Held</div><div class="sc-v" id="d-adv">₹0</div><div class="sc-s">Unlinked advances</div></div>
+          <div class="sc cr"><div class="sc-l">Cheques Pending</div><div class="sc-v" id="d-chq">0</div><div class="sc-s">Not cleared</div></div>
+          <div class="sc ca"><div class="sc-l">Interest Accrued</div><div class="sc-v" id="d-int">₹0</div><div class="sc-s">Overdue interest</div></div>
+        </div>
+        <div class="card">
+          <div class="ch"><div class="ct">⏳ Top Due Bills</div><button class="btn bs btn-sm" onclick="nav('due')">View All</button></div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Party</th><th>Grade</th><th>Bill Amt</th><th>Received</th><th>Balance</th><th>Days</th><th>Status</th><th>Action</th>
+          </tr></thead><tbody id="d-due-body"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="ch"><div class="ct">🏦 Cheques Due</div></div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Party</th><th>Cheque No</th><th>Bank</th><th>Amount</th><th>Status</th><th>Action</th>
+          </tr></thead><tbody id="d-chq-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== AI SCAN ========== -->
+      <div class="panel" id="panel-scan">
+        <!-- TABS -->
+        <div class="rtabs" style="margin-bottom:14px">
+          <div class="rtab on" id="scan-tab-excel" onclick="switchScanTab('excel')">📊 Excel Upload</div>
+          <div class="rtab" id="scan-tab-photo" onclick="switchScanTab('photo')">📸 Photo/PDF Scan</div>
+          <div class="rtab" id="scan-tab-manual" onclick="switchScanTab('manual')">✏️ Manual Entry</div>
+        </div>
+
+        <!-- EXCEL TAB -->
+        <div id="scan-excel-tab">
+          <div class="card" style="margin-bottom:14px">
+            <div class="ch">
+              <div class="ct">📊 Excel se Bills Import</div>
+              <div class="br2">
+                <button class="btn bs btn-sm" onclick="downloadExcelTemplate()">📥 Template Download</button>
+                <label class="btn bp btn-sm" style="cursor:pointer">
+                  📂 Excel Upload
+                  <input type="file" id="excel-upload" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleExcelUpload(this)">
+                </label>
+              </div>
+            </div>
+            <div class="cb2">
+              <div id="excel-upload-info" style="font-size:12px;color:var(--t3);margin-bottom:10px">
+                💡 <strong>3 tarike se bills import karo:</strong><br>
+                1️⃣ Excel Template download → bharo → upload<br>
+                2️⃣ <strong style="color:var(--g)">Claude se paste</strong> — PDF Claude ko bhejo → data copy karo → yahan paste karo<br>
+                3️⃣ CSV/Excel file directly upload
+              </div>
+              <!-- CLAUDE PASTE BOX -->
+              <div style="background:var(--gs);border:1px solid var(--gb);border-radius:var(--r2);padding:14px;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">📋 Claude se Data Paste Karo</div>
+                <div style="font-size:11px;color:var(--t3);margin-bottom:8px">
+                  PDF ya bank statement Claude chat mein bhejo → Claude JSON dega → yahan paste karo
+                </div>
+                <textarea id="claude-paste-box" placeholder='Claude ka diya JSON yahan paste karo...'
+                  style="width:100%;height:80px;font-family:monospace;font-size:11px;resize:vertical;margin-bottom:8px"></textarea>
+                <button class="btn bp btn-sm" onclick="loadFromClaudePaste()">📥 Load Bills</button>
+                <button class="btn bs btn-sm" onclick="document.getElementById('claude-paste-box').value='';toast('Cleared','inf')">🗑 Clear</button>
+              </div>
+              <div id="excel-preview-wrap" style="display:none">
+                <div style="font-size:11px;color:var(--t3);margin-bottom:8px">
+                  ✅ <span id="excel-count">0</span> bills mili — jo save karni hain wo <strong>tick</strong> karo, jo nahi karni wo <strong>untick</strong> karo
+                </div>
+                <div style="display:flex;gap:8px;margin-bottom:10px">
+                  <button class="btn bs btn-sm" onclick="selectAllExcel(true)">✅ Sab Select</button>
+                  <button class="btn bs btn-sm" onclick="selectAllExcel(false)">❌ Sab Deselect</button>
+                  <button class="btn bp btn-sm" onclick="saveSelectedExcelBills()">💾 Selected Bills Save Karo</button>
+                  <span id="excel-selected-count" style="font-size:11px;color:var(--t3);line-height:30px"></span>
+                </div>
+                <div class="tw">
+                  <table>
+                    <thead><tr>
+                      <th><input type="checkbox" id="excel-chk-all" onchange="selectAllExcel(this.checked)"></th>
+                      <th>Bill No</th><th>Date</th><th>Party</th><th>Broker</th><th>Grade</th>
+                      <th>Wt(kg)</th><th>Rate</th><th>Taxable</th><th>CGST</th><th>SGST</th>
+                      <th>Round</th><th>Gross Amt</th><th>Type</th><th>Remarks</th><th>Action</th>
+                    </tr></thead>
+                    <tbody id="excel-preview-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PHOTO/PDF TAB -->
+        <div id="scan-photo-tab" style="display:none">
+          <div style="display:grid;grid-template-columns:360px 1fr;gap:16px">
+            <div>
+              <div class="card">
+                <div class="ch"><div class="ct">📸 Photo / PDF Upload</div></div>
+                <div class="cb2">
+                  <div class="upz" id="scan-upz" onclick="document.getElementById('scan-file').click()"
+                    ondragover="event.preventDefault();this.classList.add('drag')"
+                    ondragleave="this.classList.remove('drag')"
+                    ondrop="handleScanDrop(event)">
+                    <div class="up-ic">📄</div>
+                    <div class="up-t">Drop Bill Photo / PDF</div>
+                    <div class="up-s">JPG, PNG, PDF — click to browse</div>
+                  </div>
+                  <input type="file" id="scan-file" accept="image/*,.pdf" style="display:none" onchange="handleScanFile(this)">
+                  <div id="scan-prev-wrap" style="display:none;margin-top:10px">
+                    <img id="scan-prev" style="width:100%;border-radius:var(--r2);border:1px solid var(--b);max-height:300px;object-fit:contain">
+                  </div>
+                  <div id="scan-status" style="display:none;margin-top:8px;background:var(--s2);border:1px solid var(--b);border-radius:var(--r);padding:8px 10px;font-size:12px"></div>
+                  <div style="margin-top:10px;padding:10px;background:var(--ams);border-radius:var(--r);font-size:11px;color:var(--am)">
+                    ⚠️ AI Scan ke liye Anthropic API key chahiye. Settings mein add karein.
+                  </div>
+                  <button class="btn bs btn-sm" onclick="clearScan()" style="width:100%;margin-top:8px">🔄 Clear</button>
+                </div>
+              </div>
+            </div>
+            <div id="scan-form-area">
+              <div class="card">
+                <div class="ch">
+                  <div class="ct">📝 Bill Details <span id="ai-filled-badge" class="ai-badge hidden">✨ AI Filled</span></div>
+                  <div class="br2">
+                    <button class="btn bs btn-sm" onclick="clearBillForm()">Clear</button>
+                    <button class="btn bp" onclick="saveBillForm()">💾 Save Bill</button>
+                  </div>
+                </div>
+                <div class="cb2" id="bill-form-content"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MANUAL TAB -->
+        <div id="scan-manual-tab" style="display:none">
+          <div class="card">
+            <div class="ch">
+              <div class="ct">✏️ Manual Bill Entry</div>
+              <div class="br2">
+                <button class="btn bs btn-sm" onclick="clearBillForm()">Clear</button>
+                <button class="btn bp" onclick="saveBillForm()">💾 Save Bill</button>
+              </div>
+            </div>
+            <div class="cb2" id="manual-form-content2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== MANUAL ENTRY ========== -->
+      <div class="panel" id="panel-manual">
+        <div class="card">
+          <div class="ch">
+            <div class="ct">✏️ Manual Bill Entry</div>
+            <div class="br2">
+              <button class="btn bs btn-sm" onclick="clearBillForm()">Clear</button>
+              <button class="btn bp" onclick="saveBillForm()">💾 Save Bill</button>
+            </div>
+          </div>
+          <div class="cb2" id="manual-form-content"></div>
+        </div>
+      </div>
+
+      <!-- ========== ALL BILLS ========== -->
+      <div class="panel" id="panel-bills">
+        <div class="card">
+          <div class="ch"><div class="ct">📋 All Bills</div>
+            <div class="br2">
+              <button class="btn bs btn-sm" onclick="exportBillsExcel()">📊 Excel</button>
+              <button class="btn bs btn-sm" onclick="exportBillsPDF()">📄 PDF</button>
+            </div>
+          </div>
+          <div class="uf-bar">
+            <input type="text" id="bills-q" placeholder="🔍 Search anything..." oninput="renderBills()" style="max-width:180px">
+            <div class="sep"></div>
+            <select id="bills-status" onchange="renderBills()"><option value="all">All Status</option><option value="due">Due</option><option value="partial">Partial</option><option value="paid">Paid</option></select>
+            <select id="bills-grade" onchange="renderBills()"><option value="">All Grades</option></select>
+            <select id="bills-broker" onchange="renderBills()"><option value="">All Brokers</option></select>
+            <select id="bills-party" onchange="renderBills()"><option value="">All Parties</option></select>
+            <select id="bills-type" onchange="renderBills()"><option value="">Cash+Credit</option><option value="cash">Cash Only</option><option value="credit">Credit Only</option></select>
+            <div class="sep"></div>
+            <select id="bills-month" onchange="renderBills()"><option value="">All Months</option></select>
+            <div class="sep"></div>
+            <select id="bills-sort" onchange="renderBills()">
+              <option value="date-desc">Date ↓ New</option>
+              <option value="date-asc">Date ↑ Old</option>
+              <option value="party-asc">Party A-Z</option>
+              <option value="broker-asc">Broker A-Z</option>
+              <option value="bal-desc">Balance ↓</option>
+              <option value="bal-asc">Balance ↑</option>
+              <option value="amt-desc">Amt ↓</option>
+              <option value="amt-asc">Amt ↑</option>
+            </select>
+            <button class="btn bs btn-sm" onclick="clearBillsFilter()">✕ Clear</button>
+          </div>
+          <div class="sum-strip" id="bills-sum-strip">
+            <div><span class="sum-chip-l">Bills</span><span class="sum-chip-v" id="bss-count">0</span></div>
+            <div><span class="sum-chip-l">Total Amt</span><span class="sum-chip-v tp" id="bss-amt">₹0</span></div>
+            <div><span class="sum-chip-l">Received</span><span class="sum-chip-v tp" id="bss-recv">₹0</span></div>
+            <div><span class="sum-chip-l">Balance</span><span class="sum-chip-v tam" id="bss-bal">₹0</span></div>
+            <div><span class="sum-chip-l">Selected</span><span class="sum-chip-v" id="bss-sel">0</span></div>
+          </div>
+          <div id="bills-sum-bar" style="padding:8px 14px;background:var(--gs);border-bottom:1px solid var(--gb);font-size:11px;display:none">
+            <span id="bills-sum-text"></span>
+          </div>
+          <div class="tw"><table id="bills-table">
+            <thead><tr>
+              <th><input type="checkbox" id="bills-chk-all" onchange="toggleAllBills(this)"></th>
+              <th>Date</th><th>Party</th><th>Broker</th><th>Grade</th><th>Wt(kg)</th><th>Rate</th>
+              <th>CGST</th><th>SGST</th><th>Net Amt</th><th>Recv'd</th><th>Balance</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="bills-body"></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <!-- ========== DUE LIST ========== -->
+      <div class="panel" id="panel-due">
+        <div class="card">
+          <div class="ch">
+            <div class="ct">⏳ Due Payments</div>
+            <div class="br2" style="flex-wrap:wrap;gap:5px">
+              <input type="text" id="due-q" placeholder="Search party..." oninput="renderDue()" style="max-width:130px">
+              <select id="due-filter" onchange="renderDue()" style="max-width:110px">
+                <option value="all">All Pending</option>
+                <option value="due">Fully Due</option>
+                <option value="partial">Partial</option>
+              </select>
+              <select id="due-broker" onchange="renderDue()" style="max-width:130px">
+                <option value="">All Brokers</option>
+              </select>
+              <select id="due-party" onchange="renderDue()" style="max-width:150px">
+                <option value="">All Parties</option>
+              </select>
+              <select id="due-grade" onchange="renderDue()" style="max-width:110px">
+                <option value="">All Grades</option>
+              </select>
+              <select id="due-month" onchange="renderDue()" style="max-width:120px">
+                <option value="">All Months</option>
+              </select>
+              <select id="due-sort" onchange="renderDue()" style="max-width:140px">
+                <option value="bal-desc">Balance ↓ High</option>
+                <option value="bal-asc">Balance ↑ Low</option>
+                <option value="party-asc">Party A-Z</option>
+                <option value="broker-asc">Broker A-Z</option>
+                <option value="days-desc">Days ↓ Oldest</option>
+                <option value="days-asc">Days ↑ Newest</option>
+                <option value="amt-desc">Bill Amt ↓</option>
+              </select>
+              <button class="btn bs btn-sm" onclick="exportDueExcel()">📊 Excel</button>
+              <button class="btn bs btn-sm" onclick="resetDueFilters()">🔄 Reset</button>
+            </div>
+          </div>
+          <!-- Due Summary Bar -->
+          <div id="due-summary-bar" style="padding:8px 14px;background:var(--rds);border-bottom:1px solid var(--rdb);font-size:12px;display:flex;gap:16px;flex-wrap:wrap">
+            <span>Total Due: <strong id="due-sum-total" style="color:var(--rd)">₹0</strong></span>
+            <span>Bills: <strong id="due-sum-count">0</strong></span>
+            <span>Parties: <strong id="due-sum-parties">0</strong></span>
+            <span>Brokers: <strong id="due-sum-brokers">0</strong></span>
+          </div>
+          <div class="tw"><table><thead><tr>
+            <th>Bill No</th><th onclick="setDueSort('date')" style="cursor:pointer">Date ↕</th>
+            <th onclick="setDueSort('party')" style="cursor:pointer">Party ↕</th>
+            <th onclick="setDueSort('broker')" style="cursor:pointer">Broker ↕</th>
+            <th>Grade</th><th>Bill Amt</th>
+            <th onclick="setDueSort('recv')" style="cursor:pointer">Recv'd ↕</th>
+            <th onclick="setDueSort('bal')" style="cursor:pointer">Balance ↕</th>
+            <th onclick="setDueSort('days')" style="cursor:pointer">Days ↕</th>
+            <th>Interest</th><th>Status</th><th>Action</th>
+          </tr></thead><tbody id="due-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== RECEIVE PAYMENT ========== -->
+      <div class="panel" id="panel-receive">
+        <div class="card">
+          <div class="ch"><div class="ct">💰 Receive Payment — Multiple Bills</div></div>
+          <div class="cb2">
+            <div class="gr g4" style="margin-bottom:12px">
+              <div class="fg"><label>Filter by Party</label><input type="text" id="recv-party" placeholder="Type party..." oninput="filterRecvBills()"></div>
+              <div class="fg"><label>Payment Date <span class="r">*</span></label><input type="date" id="recv-date"></div>
+              <div class="fg"><label>Payment Mode <span class="r">*</span></label>
+                <select id="recv-mode"><option>NEFT</option><option>RTGS</option><option>IMPS</option><option>UPI</option><option>CHEQUE</option><option>CASH</option></select>
+              </div>
+              <div class="fg"><label>Cheque No</label><input type="text" id="recv-chq" placeholder="If cheque"></div>
+              <div class="fg s2"><label>Remarks</label><input type="text" id="recv-rmk" placeholder="Optional"></div>
+              <div class="fg"><label>Bank Name</label><input type="text" id="recv-bank" placeholder="Bank"></div>
+            </div>
+            <div class="dvd"></div>
+            <div class="stl">Select Bills to Pay</div>
+            <div id="recv-bills-list" style="max-height:350px;overflow-y:auto"></div>
+            <div class="tot-box">
+              <div>
+                <div class="tot-l">Total Payment</div>
+                <div class="tot-v" id="recv-total">₹0.00</div>
+              </div>
+              <div class="br2">
+                <button class="btn bs" onclick="clearRecv()">Clear</button>
+                <button class="btn bp btn-lg" onclick="submitRecvPayment()">✅ Submit Payment</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== ADVANCE PAYMENT ========== -->
+      <div class="panel" id="panel-advance">
+        <div class="card">
+          <div class="ch"><div class="ct">⬆️ Advance Payments</div>
+            <div class="br2"><button class="btn bp btn-sm" onclick="openAdvModal()">+ Add Advance</button></div>
+          </div>
+          <div class="uf-bar">
+            <input type="text" id="adv-q" placeholder="🔍 Search party..." oninput="renderAdvances()" style="max-width:180px">
+            <div class="sep"></div>
+            <select id="adv-status-filter" onchange="renderAdvances()"><option value="all">All</option><option value="linked">Linked</option><option value="unlinked">Unlinked</option></select>
+            <select id="adv-mode-filter" onchange="renderAdvances()"><option value="">All Modes</option><option>NEFT</option><option>RTGS</option><option>IMPS</option><option>UPI</option><option>CASH</option></select>
+            <select id="adv-month" onchange="renderAdvances()"><option value="">All Months</option></select>
+            <div class="sep"></div>
+            <select id="adv-sort" onchange="renderAdvances()">
+              <option value="date-desc">Date ↓</option><option value="date-asc">Date ↑</option>
+              <option value="amt-desc">Amount ↓</option><option value="party-asc">Party A-Z</option>
+            </select>
+            <button class="btn bs btn-sm" onclick="exportAdvExcel()">📊 Excel</button>
+            <button class="btn bs btn-sm" onclick="clearAdvFilter()">✕ Clear</button>
+          </div>
+          <div class="sum-strip" id="adv-sum-strip">
+            <div><span class="sum-chip-l">Total</span><span class="sum-chip-v" id="ass-count">0</span></div>
+            <div><span class="sum-chip-l">Amount</span><span class="sum-chip-v tbl" id="ass-amt">₹0</span></div>
+            <div><span class="sum-chip-l">Unlinked</span><span class="sum-chip-v tam" id="ass-unlinked">₹0</span></div>
+          </div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Party</th><th>Amount</th><th>Mode</th><th>Remarks</th><th>Linked Bill</th><th>Status</th><th>Actions</th>
+          </tr></thead><tbody id="adv-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== PARTY LEDGER ========== -->
+      <div class="panel" id="panel-ledger">
+        <div style="display:grid;grid-template-columns:250px 1fr;gap:14px">
+          <div class="card" style="margin:0;max-height:calc(100vh - 120px);display:flex;flex-direction:column">
+            <div class="ch"><div class="ct">📒 Parties</div><input type="text" id="ledger-q" placeholder="Search..." oninput="filterLedgerParties()" style="max-width:110px;font-size:11px"></div>
+            <div id="ledger-party-list" style="overflow-y:auto;flex:1"></div>
+          </div>
+          <div class="card" style="margin:0;max-height:calc(100vh - 120px);display:flex;flex-direction:column">
+            <div class="ch">
+              <div>
+                <div class="ct" id="ledger-party-nm">Select a Party</div>
+                <div style="font-size:11px;color:var(--t3)" id="ledger-party-stats"></div>
+              </div>
+              <div class="br2">
+                <button class="btn bs btn-sm" onclick="exportLedgerExcel()">📊 Excel</button>
+                <button class="btn bs btn-sm" onclick="exportLedgerPDF()">📄 PDF</button>
+                <button class="btn bs btn-sm" onclick="sendWhatsApp()">📱 WhatsApp</button>
+              </div>
+            </div>
+            <div class="tw" style="border:none;border-radius:0;flex:1;overflow-y:auto">
+              <table><thead><tr>
+                <th>Date</th><th>Type</th><th>Details</th><th>Debit (₹)</th><th>Credit (₹)</th><th>Balance (₹)</th>
+              </tr></thead><tbody id="ledger-body"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== CHEQUES ========== -->
+      <div class="panel" id="panel-cheques">
+        <div class="card">
+          <div class="ch"><div class="ct">🏦 Cheque Management</div>
+            <div class="br2"><button class="btn bp btn-sm" onclick="openChequeModal()">+ Add Cheque</button></div>
+          </div>
+          <div class="uf-bar">
+            <input type="text" id="chq-q" placeholder="🔍 Party / Cheque No..." oninput="renderCheques()" style="max-width:180px">
+            <div class="sep"></div>
+            <select id="chq-filter" onchange="renderCheques()"><option value="all">All Cheques</option><option value="Received">Received</option><option value="Deposited">Deposited</option><option value="Cleared">Cleared</option><option value="Bounced">Bounced</option></select>
+            <select id="chq-party" onchange="renderCheques()"><option value="">All Parties</option></select>
+            <select id="chq-bank" onchange="renderCheques()"><option value="">All Banks</option></select>
+            <select id="chq-month" onchange="renderCheques()"><option value="">All Months</option></select>
+            <div class="sep"></div>
+            <select id="chq-sort" onchange="renderCheques()">
+              <option value="date-desc">Date ↓</option>
+              <option value="date-asc">Date ↑</option>
+              <option value="amt-desc">Amount ↓</option>
+              <option value="party-asc">Party A-Z</option>
+            </select>
+            <button class="btn bs btn-sm" onclick="exportChqExcel()">📊 Excel</button>
+            <button class="btn bs btn-sm" onclick="clearChqFilter()">✕ Clear</button>
+          </div>
+          <div class="sum-strip" id="chq-sum-strip">
+            <div><span class="sum-chip-l">Total</span><span class="sum-chip-v" id="css-count">0</span></div>
+            <div><span class="sum-chip-l">Amount</span><span class="sum-chip-v tp" id="css-amt">₹0</span></div>
+            <div><span class="sum-chip-l">Pending</span><span class="sum-chip-v tam" id="css-pending">0</span></div>
+            <div><span class="sum-chip-l">Bounced</span><span class="sum-chip-v tr" id="css-bounced">0</span></div>
+          </div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Party</th><th>Cheque No</th><th>Bank</th><th>Amount</th><th>Status</th><th>Return Reason</th><th>Linked Bill</th><th>Actions</th>
+          </tr></thead><tbody id="chq-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== SALES RETURNS ========== -->
+      <div class="panel" id="panel-returns">
+        <div class="card">
+          <div class="ch"><div class="ct">↩️ Sales Returns</div>
+            <div class="br2"><button class="btn bp btn-sm" onclick="openReturnModal()">+ Add Return</button></div>
+          </div>
+          <div class="uf-bar">
+            <input type="text" id="ret-q" placeholder="🔍 Search party/grade..." oninput="renderReturns()" style="max-width:180px">
+            <select id="ret-month" onchange="renderReturns()"><option value="">All Months</option></select>
+            <button class="btn bs btn-sm" onclick="exportRetExcel()">📊 Excel</button>
+            <button class="btn bs btn-sm" onclick="clearRetFilter()">✕ Clear</button>
+          </div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Original Bill</th><th>Party</th><th>Grade</th><th>Wt(kg)</th><th>Return Amt</th><th>Reason</th><th>Actions</th>
+          </tr></thead><tbody id="ret-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== EXPENSES ========== -->
+      <div class="panel" id="panel-expenses">
+        <div class="card">
+          <div class="ch"><div class="ct">💸 Expense Book</div>
+            <div class="br2">
+              <button class="btn bp btn-sm" onclick="openExpModal()">+ Add Expense</button>
+              <button class="btn bs btn-sm" onclick="exportExpExcel()">📊 Excel</button>
+            </div>
+          </div>
+          <div class="uf-bar">
+            <input type="text" id="exp-q" placeholder="🔍 Search description..." oninput="renderExpenses()" style="max-width:180px">
+            <div class="sep"></div>
+            <select id="exp-cat-filter" onchange="renderExpenses()">
+              <option value="all">All Categories</option>
+              <option>Transport</option><option>Electricity</option><option>Salary</option>
+              <option>Rent</option><option>Commission</option><option>Diesel</option><option>Repair</option><option>Other</option>
+            </select>
+            <select id="exp-mode-filter" onchange="renderExpenses()"><option value="">All Modes</option><option>CASH</option><option>NEFT</option><option>UPI</option><option>CHEQUE</option></select>
+            <select id="exp-month" onchange="renderExpenses()"><option value="">All Months</option></select>
+            <div class="sep"></div>
+            <select id="exp-sort" onchange="renderExpenses()">
+              <option value="date-desc">Date ↓</option>
+              <option value="date-asc">Date ↑</option>
+              <option value="amt-desc">Amount ↓</option>
+              <option value="cat-asc">Category A-Z</option>
+            </select>
+            <button class="btn bs btn-sm" onclick="clearExpFilter()">✕ Clear</button>
+          </div>
+          <div class="sum-strip" id="exp-sum-strip">
+            <div><span class="sum-chip-l">Entries</span><span class="sum-chip-v" id="ess-count">0</span></div>
+            <div><span class="sum-chip-l">Total</span><span class="sum-chip-v tr" id="ess-amt">₹0</span></div>
+          </div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Mode</th><th>Remarks</th><th>Actions</th>
+          </tr></thead><tbody id="exp-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== CASH BOOK ========== -->
+      <div class="panel" id="panel-cashbook">
+        <div class="card">
+          <div class="ch">
+            <div class="ct">💵 Cash Book</div>
+            <div class="br2">
+              <input type="month" id="cash-month" onchange="renderCashBook()">
+              <button class="btn bp btn-sm" onclick="openCashModal()">+ Cash Entry</button>
+              <button class="btn bs btn-sm" onclick="exportCashExcel()">📊 Excel</button>
+            </div>
+          </div>
+          <div id="cash-balance-bar" style="padding:8px 14px;background:var(--gs);border-bottom:1px solid var(--gb);font-size:12px"></div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Type</th><th>Description</th><th>Cash In</th><th>Cash Out</th><th>Balance</th><th>Actions</th>
+          </tr></thead><tbody id="cash-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== PURCHASE BILLS ========== -->
+      <div class="panel" id="panel-purchase">
+        <div class="card">
+          <div class="ch"><div class="ct">🛒 Purchase Bills</div>
+            <div class="br2">
+              <button class="btn bp btn-sm" onclick="openPurchaseModal()">+ Add Purchase</button>
+              <button class="btn bs btn-sm" onclick="exportPurchaseExcel()">📊 Excel</button>
+            </div>
+          </div>
+          <div class="uf-bar">
+            <input type="text" id="pur-q" placeholder="🔍 Search supplier/grade..." oninput="renderPurchases()" style="max-width:180px">
+            <div class="sep"></div>
+            <select id="pur-status-filter" onchange="renderPurchases()"><option value="all">All</option><option value="Unpaid">Unpaid</option><option value="Partial">Partial</option><option value="Paid">Paid</option></select>
+            <select id="pur-grade-filter" onchange="renderPurchases()"><option value="">All Grades</option></select>
+            <select id="pur-month" onchange="renderPurchases()"><option value="">All Months</option></select>
+            <div class="sep"></div>
+            <select id="pur-sort" onchange="renderPurchases()">
+              <option value="date-desc">Date ↓</option><option value="date-asc">Date ↑</option>
+              <option value="amt-desc">Amount ↓</option><option value="supplier-asc">Supplier A-Z</option>
+            </select>
+            <button class="btn bs btn-sm" onclick="clearPurFilter()">✕ Clear</button>
+          </div>
+          <div class="sum-strip" id="pur-sum-strip">
+            <div><span class="sum-chip-l">Bills</span><span class="sum-chip-v" id="pss-count">0</span></div>
+            <div><span class="sum-chip-l">Total</span><span class="sum-chip-v tp" id="pss-amt">₹0</span></div>
+            <div><span class="sum-chip-l">Unpaid</span><span class="sum-chip-v tr" id="pss-unpaid">₹0</span></div>
+          </div>
+          <div class="tw"><table><thead><tr>
+            <th>Date</th><th>Supplier</th><th>Grade</th><th>Wt(kg)</th><th>Rate</th><th>Net Amt</th><th>Status</th><th>Actions</th>
+          </tr></thead><tbody id="pur-body"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ========== BANK MATCH ========== -->
+      <div class="panel" id="panel-bank">
+        <div class="card">
+          <div class="ch"><div class="ct">🏛️ Bank Statement Match</div></div>
+          <div class="cb2">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              <div>
+                <div class="stl">Upload ICICI PDF Statement</div>
+                <div class="upz" onclick="document.getElementById('bank-pdf').click()">
+                  <div class="up-ic">📄</div><div class="up-t">Drop PDF / Image Here</div><div class="up-s">ICICI Bank Statement PDF or Photo</div>
+                </div>
+                <input type="file" id="bank-pdf" accept=".pdf,image/*" style="display:none" onchange="handleBankPDF(this)">
+                <div id="bank-status" style="margin-top:8px;font-size:11px;color:var(--t3)"></div>
+              </div>
+              <div>
+                <div class="stl">Manual Credit Entry</div>
+                <div class="fg" style="margin-bottom:8px"><label>Party / Remarks</label><input type="text" id="bk-party" placeholder="Party name"></div>
+                <div class="fg" style="margin-bottom:8px"><label>Amount (₹)</label><input type="number" id="bk-amt" placeholder="0"></div>
+                <div class="fg" style="margin-bottom:8px"><label>Date</label><input type="date" id="bk-date"></div>
+                <div class="fg" style="margin-bottom:12px"><label>Mode</label>
+                  <select id="bk-mode"><option>NEFT</option><option>RTGS</option><option>IMPS</option><option>UPI</option><option>CHEQUE</option></select>
+                </div>
+                <button class="btn ba" onclick="addBankCredit()">+ Add Credit</button>
+              </div>
+            </div>
+            <div id="bank-credits-wrap" style="margin-top:16px;display:none">
+              <div class="stl">Extracted Credits — Match to Bills</div>
+              <div id="bank-credits-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== REPORTS ========== -->
+      <div class="panel" id="panel-reports">
+        <div class="rtabs">
+          <div class="rtab on" onclick="switchReport('party',this)">Party Outstanding</div>
+          <div class="rtab" onclick="switchReport('grade',this)">Grade-wise Sales</div>
+          <div class="rtab" onclick="switchReport('broker',this)">Broker Commission</div>
+          <div class="rtab" onclick="switchReport('sales',this)">Sales Overview</div>
+          <div class="rtab" onclick="switchReport('gst',this)">GST Summary</div>
+        </div>
+        <div id="report-content"></div>
+      </div>
+
+      <!-- ========== BACKUP ========== -->
+      <div class="panel" id="panel-backup">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="card" style="margin:0">
+            <div class="ch"><div class="ct">💾 Export & Backup</div></div>
+            <div class="cb2">
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <button class="btn bp btn-lg" onclick="backupJSON()" style="width:100%">📁 Full Backup (JSON)</button>
+                <button class="btn ba btn-lg" onclick="exportAllExcel()" style="width:100%">📊 Export All — Excel</button>
+                <button class="btn bbl btn-lg" onclick="exportAllPDF()" style="width:100%">📄 Export All — PDF</button>
+                <button class="btn bs btn-lg" onclick="exportBillsPrintPDF()" style="width:100%">🖨️ Print Bills (Selected)</button>
+              </div>
+              <div class="dvd"></div>
+              <div style="font-size:11px;color:var(--t3);line-height:1.7">
+                💡 <strong>Tip:</strong> Weekly ek baar Full Backup lo.<br>
+                Data Firebase mein already safe hai.<br>
+                Backup file apne phone/computer mein save karo.
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin:0">
+            <div class="ch"><div class="ct">🔄 Restore / Import</div></div>
+            <div class="cb2">
+              <div class="stl">Restore from JSON Backup</div>
+              <div class="upz" onclick="document.getElementById('restore-file').click()">
+                <div class="up-ic">📂</div>
+                <div class="up-t">Select Backup File</div>
+                <div class="up-s">.json backup file</div>
+              </div>
+              <input type="file" id="restore-file" accept=".json" style="display:none" onchange="restoreBackup(this)">
+              <div id="restore-status" style="margin-top:8px;font-size:11px;color:var(--t3)"></div>
+              <div class="dvd"></div>
+              <div class="stl">Import from Excel</div>
+              <div class="upz" onclick="document.getElementById('import-excel').click()">
+                <div class="up-ic">📊</div>
+                <div class="up-t">Select Excel File</div>
+                <div class="up-s">.xlsx file (Bills data)</div>
+              </div>
+              <input type="file" id="import-excel" accept=".xlsx" style="display:none" onchange="importExcel(this)">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== SETTINGS ========== -->
+      <div class="panel" id="panel-settings">
+        <div class="card">
+          <div class="ch"><div class="ct">⚙️ Settings</div><button class="btn bp btn-sm" onclick="saveSettings()">💾 Save</button></div>
+          <div class="cb2">
+            <div class="stl">Company Information</div>
+            <div class="gr g3" style="margin-bottom:12px">
+              <div class="fg"><label>Company Name</label><input type="text" id="s-company" placeholder="Jai Shree Cashew Industries"></div>
+              <div class="fg"><label>GST Number</label><input type="text" id="s-gst" placeholder="GSTIN"></div>
+              <div class="fg"><label>Phone</label><input type="text" id="s-phone" placeholder="Phone number"></div>
+              <div class="fg s3"><label>Address</label><input type="text" id="s-address" placeholder="Full address"></div>
+            </div>
+            <div class="dvd"></div>
+            <div class="stl">Interest & Finance</div>
+            <div class="gr g4">
+              <div class="fg"><label>Interest Rate (%/month)</label><input type="number" id="s-interest" placeholder="0" step="0.1"></div>
+              <div class="fg"><label>Grace Period (days)</label><input type="number" id="s-grace" placeholder="30"></div>
+              <div class="fg"><label>Default Broker Margin (₹/kg)</label><input type="number" id="s-broker-margin" placeholder="0" step="0.5"></div>
+            </div>
+            <div class="dvd"></div>
+            <div class="stl">Grades (Custom)</div>
+            <div id="grades-list" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="new-grade-inp" placeholder="Add grade e.g. W320" style="max-width:200px">
+              <button class="btn bs btn-sm" onclick="addCustomGrade()">+ Add</button>
+            </div>
+            <div class="dvd"></div>
+            <div class="stl">Additional Gmail (Backup Login)</div>
+            <div style="font-size:12px;color:var(--t3);margin-bottom:8px">Firebase Console → Authentication → Users → Add user</div>
+            <button class="btn bbl btn-sm" onclick="window.open('https://console.firebase.google.com','_blank')">Open Firebase Console</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end page -->
+  </div><!-- end main -->
+</div><!-- end app -->
+
+<!-- MODALS -->
+<!-- Payment Modal -->
+<div class="mo" id="pay-modal">
+  <div class="mo-box" style="width:520px">
+    <div class="mo-hd"><div class="mo-ti">💰 Bill Payment</div><button class="mo-cl" onclick="closeModal('pay-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div id="pay-modal-info" style="background:var(--s2);border:1px solid var(--b);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.9"></div>
+      <div id="pay-modal-hist" style="margin-bottom:12px"></div>
+      <div class="stl">Add Payment</div>
+      <div class="gr g2" style="margin-bottom:8px">
+        <div class="fg"><label>Date <span class="r">*</span></label><input type="date" id="pm-date"></div>
+        <div class="fg"><label>Amount (₹) <span class="r">*</span></label><input type="number" id="pm-amt" placeholder="0"></div>
+        <div class="fg"><label>Mode</label>
+          <select id="pm-mode"><option>NEFT</option><option>RTGS</option><option>IMPS</option><option>UPI</option><option>CHEQUE</option><option>CASH</option></select>
+        </div>
+        <div class="fg"><label>Cheque No</label><input type="text" id="pm-chq" placeholder="If cheque"></div>
+        <div class="fg s2"><label>Remarks</label><input type="text" id="pm-rmk" placeholder="Optional"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('pay-modal')">Cancel</button>
+      <button class="btn bp" onclick="submitSinglePayment()">💰 Add Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cheque Modal -->
+<div class="mo" id="chq-modal">
+  <div class="mo-box" style="width:500px">
+    <div class="mo-hd"><div class="mo-ti">🏦 Cheque Entry</div><button class="mo-cl" onclick="closeModal('chq-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div class="gr g2">
+        <div class="fg"><label>Party <span class="r">*</span></label><input type="text" id="ch-party" style="text-transform:uppercase"></div>
+        <div class="fg"><label>Cheque No <span class="r">*</span></label><input type="text" id="ch-no"></div>
+        <div class="fg"><label>Bank</label><input type="text" id="ch-bank" placeholder="HDFC, SBI..."></div>
+        <div class="fg"><label>Date <span class="r">*</span></label><input type="date" id="ch-date"></div>
+        <div class="fg"><label>Amount (₹) <span class="r">*</span></label><input type="number" id="ch-amt"></div>
+        <div class="fg"><label>Status</label>
+          <select id="ch-status"><option>Received</option><option>Deposited</option><option>Cleared</option><option>Bounced</option></select>
+        </div>
+        <div class="fg s2"><label>Bounce Reason</label><input type="text" id="ch-bounce" placeholder="If bounced"></div>
+        <div class="fg s2"><label>Linked Bill ID</label><input type="text" id="ch-bill" placeholder="Optional"></div>
+        <div class="fg s2"><label>Remarks</label><input type="text" id="ch-rmk" placeholder="Optional"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('chq-modal')">Cancel</button>
+      <button class="btn bp" onclick="saveCheque()">Save Cheque</button>
+    </div>
+  </div>
+</div>
+
+<!-- Advance Modal -->
+<div class="mo" id="adv-modal">
+  <div class="mo-box" style="width:460px">
+    <div class="mo-hd"><div class="mo-ti">⬆️ Advance Payment</div><button class="mo-cl" onclick="closeModal('adv-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div class="gr g2">
+        <div class="fg"><label>Party <span class="r">*</span></label><input type="text" id="adv-party" style="text-transform:uppercase"></div>
+        <div class="fg"><label>Date <span class="r">*</span></label><input type="date" id="adv-date"></div>
+        <div class="fg"><label>Amount (₹) <span class="r">*</span></label><input type="number" id="adv-amt"></div>
+        <div class="fg"><label>Mode</label>
+          <select id="adv-mode"><option>NEFT</option><option>RTGS</option><option>IMPS</option><option>UPI</option><option>CASH</option></select>
+        </div>
+        <div class="fg s2"><label>Remarks</label><input type="text" id="adv-rmk" placeholder="Optional"></div>
+        <div class="fg s2"><label>Link to Bill ID (optional)</label><input type="text" id="adv-bill" placeholder="Bill ID if known"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('adv-modal')">Cancel</button>
+      <button class="btn bp" onclick="saveAdvance()">Save Advance</button>
+    </div>
+  </div>
+</div>
+
+<!-- Return Modal -->
+<div class="mo" id="ret-modal">
+  <div class="mo-box" style="width:480px">
+    <div class="mo-hd"><div class="mo-ti">↩️ Sales Return</div><button class="mo-cl" onclick="closeModal('ret-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div class="gr g2">
+        <div class="fg s2"><label>Select Bill</label><select id="ret-bill"><option value="">Select original bill...</option></select></div>
+        <div class="fg"><label>Return Date <span class="r">*</span></label><input type="date" id="ret-date"></div>
+        <div class="fg"><label>Grade</label><input type="text" id="ret-grade" style="text-transform:uppercase"></div>
+        <div class="fg"><label>Weight (kg)</label><input type="number" id="ret-wt" oninput="calcReturnAmt()"></div>
+        <div class="fg"><label>Rate (₹/kg)</label><input type="number" id="ret-rate" oninput="calcReturnAmt()"></div>
+        <div class="fg"><label>Return Amount</label><input type="number" id="ret-amt" class="fca" readonly></div>
+        <div class="fg s2"><label>Reason</label><input type="text" id="ret-reason" placeholder="Reason for return"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('ret-modal')">Cancel</button>
+      <button class="btn bp" onclick="saveReturn()">Save Return</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expense Modal -->
+<div class="mo" id="exp-modal">
+  <div class="mo-box" style="width:460px">
+    <div class="mo-hd"><div class="mo-ti">💸 Add Expense</div><button class="mo-cl" onclick="closeModal('exp-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div class="gr g2">
+        <div class="fg"><label>Date <span class="r">*</span></label><input type="date" id="exp-date"></div>
+        <div class="fg"><label>Category <span class="r">*</span></label>
+          <select id="exp-cat"><option>Transport</option><option>Electricity</option><option>Salary</option><option>Rent</option><option>Commission</option><option>Diesel</option><option>Repair</option><option>Other</option></select>
+        </div>
+        <div class="fg s2"><label>Description <span class="r">*</span></label><input type="text" id="exp-desc" placeholder="Details"></div>
+        <div class="fg"><label>Amount (₹) <span class="r">*</span></label><input type="number" id="exp-amt"></div>
+        <div class="fg"><label>Mode</label>
+          <select id="exp-mode"><option>CASH</option><option>NEFT</option><option>UPI</option><option>CHEQUE</option></select>
+        </div>
+        <div class="fg s2"><label>Remarks</label><input type="text" id="exp-rmk" placeholder="Optional"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('exp-modal')">Cancel</button>
+      <button class="btn bp" onclick="saveExpense()">Save Expense</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cash Entry Modal -->
+<div class="mo" id="cash-modal">
+  <div class="mo-box" style="width:420px">
+    <div class="mo-hd"><div class="mo-ti">💵 Cash Entry</div><button class="mo-cl" onclick="closeModal('cash-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div class="gr g2">
+        <div class="fg"><label>Date <span class="r">*</span></label><input type="date" id="cash-date"></div>
+        <div class="fg"><label>Type <span class="r">*</span></label>
+          <select id="cash-type"><option value="in">Cash In</option><option value="out">Cash Out</option></select>
+        </div>
+        <div class="fg s2"><label>Description <span class="r">*</span></label><input type="text" id="cash-desc" placeholder="Details"></div>
+        <div class="fg"><label>Amount (₹) <span class="r">*</span></label><input type="number" id="cash-amt"></div>
+        <div class="fg"><label>Remarks</label><input type="text" id="cash-rmk" placeholder="Optional"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('cash-modal')">Cancel</button>
+      <button class="btn bp" onclick="saveCashEntry()">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Purchase Modal -->
+<div class="mo" id="pur-modal">
+  <div class="mo-box" style="width:520px">
+    <div class="mo-hd"><div class="mo-ti">🛒 Purchase Bill</div><button class="mo-cl" onclick="closeModal('pur-modal')">✕</button></div>
+    <div class="mo-bd">
+      <div class="gr g3">
+        <div class="fg"><label>Date <span class="r">*</span></label><input type="date" id="pur-date"></div>
+        <div class="fg s2"><label>Supplier <span class="r">*</span></label><input type="text" id="pur-supplier" style="text-transform:uppercase"></div>
+        <div class="fg"><label>Grade</label><input type="text" id="pur-grade" style="text-transform:uppercase"></div>
+        <div class="fg"><label>Weight (kg)</label><input type="number" id="pur-wt" oninput="calcPurAmt()"></div>
+        <div class="fg"><label>Rate (₹/kg)</label><input type="number" id="pur-rate" oninput="calcPurAmt()"></div>
+        <div class="fg"><label>Net Amount</label><input type="number" id="pur-amt" class="fca" readonly></div>
+        <div class="fg"><label>CGST (₹)</label><input type="number" id="pur-cgst" placeholder="0" oninput="calcPurAmt()"></div>
+        <div class="fg"><label>SGST (₹)</label><input type="number" id="pur-sgst" placeholder="0" oninput="calcPurAmt()"></div>
+        <div class="fg"><label>Status</label><select id="pur-status"><option>Unpaid</option><option>Partial</option><option>Paid</option></select></div>
+        <div class="fg s3"><label>Remarks</label><input type="text" id="pur-rmk" placeholder="Optional"></div>
+      </div>
+    </div>
+    <div class="mo-ft">
+      <button class="btn bs" onclick="closeModal('pur-modal')">Cancel</button>
+      <button class="btn bp" onclick="savePurchase()">Save Purchase</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bill View Modal -->
+<div class="mo" id="bill-view-modal">
+  <div class="mo-box" style="width:700px">
+    <div class="mo-hd"><div class="mo-ti">📋 Bill Details</div>
+      <div class="br2">
+        <button class="btn bs btn-sm" onclick="printBill()">🖨️ Print</button>
+        <button class="btn bs btn-sm" onclick="exportSinglePDF()">📄 PDF</button>
+        <button class="mo-cl" onclick="closeModal('bill-view-modal')">✕</button>
+      </div>
+    </div>
+    <div class="mo-bd" id="bill-view-content"></div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<div id="sum-bar">
+  <div class="sum-i"><div class="sum-l">Selected</div><div class="sum-v" id="sum-count">0</div></div>
+  <div class="sum-i"><div class="sum-l">Net Amount</div><div class="sum-v" id="sum-net">₹0</div></div>
+  <div class="sum-i"><div class="sum-l">Received</div><div class="sum-v" id="sum-recv">₹0</div></div>
+  <div class="sum-i"><div class="sum-l">Balance</div><div class="sum-v" id="sum-bal">₹0</div></div>
+  <button class="btn bs btn-sm" onclick="clearSelection()">✕ Clear</button>
+  <button class="btn bp btn-sm" onclick="paySelected()">💰 Pay Selected</button>
+  <button class="btn ba btn-sm" onclick="exportSelected()">📊 Export</button>
+  <button class="btn brd btn-sm" onclick="deleteSelected()">🗑 Delete Selected</button>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ═══════════════════════════════════════════
+// DATA & STATE
+// ═══════════════════════════════════════════
+let bills=[],cheques=[],advances=[],returns=[],expenses=[],cashEntries=[],purchases=[];
+let settings={company:'JAI SHREE CASHEW INDUSTRIES',interest:0,grace:30,brokerMargin:0,grades:['W180','W210','W240','W320','W450','SW','LWP','Scorched']};
+let currentUser=null,currentPayBillId=null,selectedBills=new Set();
+let scanBase64=null,currentLedgerParty=null,currentReportTab='party';
+let unsubBills=null,unsubCheques=null,unsubAdvances=null,unsubReturns=null,unsubExpenses=null,unsubCash=null,unsubPurchases=null;
+
+// ═══════════════════════════════════════════
+// FIREBASE HELPERS
+// ═══════════════════════════════════════════
+function fb(){return window._fb}
+function uid(){return currentUser?.uid}
+function col(name){return window._db.collection('users/'+uid()+'/'+name)}
+function docRef(name,id){return window._db.collection('users/'+uid()+'/'+name).doc(id)}
+function settDoc(){return window._db.collection('users/'+uid()+'/meta').doc('settings')}
+function today(){return new Date().toISOString().split('T')[0]}
+function nowMs(){return Date.now()}
+function genId(){return 'B'+Date.now().toString(36).toUpperCase().slice(-8)}
+
+// ═══════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════
+// Auth listener moved to Firebase init
+
+// handleLoginClick removed - using doLogin directly
+
+window.doLogin = function() {
+  var btn = document.getElementById('login-btn');
+  var txt = document.getElementById('login-btn-text');
+  var status = document.getElementById('login-status');
+  var err = document.getElementById('lerr');
+
+  if (!window._auth) {
+    if (err) { err.style.display='block'; err.textContent='Page refresh karo (F5)'; }
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (txt) txt.textContent = 'Connecting...';
+  if (status) status.textContent = '⏳ Google se connect ho raha hai...';
+  if (err) err.style.display = 'none';
+
+  var provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  window._auth.signInWithPopup(provider)
+    .then(function(result) {
+      console.log('Login success:', result.user.email);
+    })
+    .catch(function(e) {
+      console.log('Popup failed, trying redirect:', e.code);
+      if (e.code === 'auth/popup-blocked' || 
+          e.code === 'auth/cancelled-popup-request' ||
+          e.code === 'auth/popup-closed-by-user') {
+        if (status) status.textContent = '⏳ Google pe redirect ho raha hai...';
+        window._auth.signInWithRedirect(provider);
+      } else {
+        if (btn) btn.disabled = false;
+        if (txt) txt.textContent = 'Sign in with Google';
+        if (status) status.textContent = '';
+        if (err) { err.style.display='block'; err.textContent='Error: '+e.message; }
+      }
+    });
+};
+
+window.doLogout=async function(){
+  unsubAll();
+  await window._auth.signOut()
+};
+
+function unsubAll(){
+  [unsubBills,unsubCheques,unsubAdvances,unsubReturns,unsubExpenses,unsubCash,unsubPurchases].forEach(u=>u&&u())
+}
+
+window.showLogin=function showLogin(){
+  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('app').style.display='none'
+}
+
+window.showApp=function showApp(user){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  document.getElementById('u-nm').textContent=user.displayName||user.email;
+  if(user.photoURL){document.getElementById('u-ava').innerHTML=`<img src="${user.photoURL}">`}
+  else{document.getElementById('u-ava').textContent=(user.displayName||'U')[0].toUpperCase()}
+  applyTheme(localStorage.getItem('cp-theme')||'light');
+  loadSettings();
+  startListeners();
+  initForms();
+  setDefaultDates();
+  nav('dashboard')
+}
+
+// ═══════════════════════════════════════════
+// REALTIME LISTENERS
+// ═══════════════════════════════════════════
+function startListeners(){
+  
+  unsubBills=col('bills').orderBy('date','desc').onSnapshot(snap=>{bills=snap.docs.map(d=>({id:d.id,...d.data()}));refreshAll()});
+  unsubCheques=col('cheques').onSnapshot(snap=>{cheques=snap.docs.map(d=>({id:d.id,...d.data()}));renderCheques();updateDashboard()});
+  unsubAdvances=col('advances').onSnapshot(snap=>{advances=snap.docs.map(d=>({id:d.id,...d.data()}));renderAdvances();updateDashboard()});
+  unsubReturns=col('returns').onSnapshot(snap=>{returns=snap.docs.map(d=>({id:d.id,...d.data()}));renderReturns()});
+  unsubExpenses=col('expenses').onSnapshot(snap=>{expenses=snap.docs.map(d=>({id:d.id,...d.data()}));renderExpenses()});
+  unsubCash=col('cashbook').onSnapshot(snap=>{cashEntries=snap.docs.map(d=>({id:d.id,...d.data()}));renderCashBook()});
+  unsubPurchases=col('purchases').onSnapshot(snap=>{purchases=snap.docs.map(d=>({id:d.id,...d.data()}));renderPurchases()})
+}
+
+// ═══════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════
+async function loadSettings(){
+  try{
+    const snap=await settDoc().get();
+    if(snap.exists())settings={...settings,...snap.data()};
+  }catch(e){}
+  applySettings()
+}
+
+function applySettings(){
+  ['s-company','s-gst','s-phone','s-address'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.value=settings[id.replace('s-','')||id]||''
+  });
+  if(document.getElementById('s-interest'))document.getElementById('s-interest').value=settings.interest||'';
+  if(document.getElementById('s-grace'))document.getElementById('s-grace').value=settings.grace||30;
+  if(document.getElementById('s-broker-margin'))document.getElementById('s-broker-margin').value=settings.brokerMargin||'';
+  renderGradesList();
+  populateGradeSelects()
+}
+
+window.saveSettings=async function(){
+  settings={
+    ...settings,
+    company:v('s-company')||'JAI SHREE CASHEW INDUSTRIES',
+    gst:v('s-gst'),phone:v('s-phone'),address:v('s-address'),
+    interest:parseFloat(v('s-interest'))||0,
+    grace:parseInt(v('s-grace'))||30,
+    brokerMargin:parseFloat(v('s-broker-margin'))||0
+  };
+  await settDoc().set(settings);
+  toast('Settings saved!','ok')
+};
+
+window.addCustomGrade=function(){
+  const g=document.getElementById('new-grade-inp').value.trim().toUpperCase();
+  if(!g||settings.grades.includes(g))return;
+  settings.grades.push(g);
+  document.getElementById('new-grade-inp').value='';
+  renderGradesList();populateGradeSelects()
+};
+
+function renderGradesList(){
+  const el=document.getElementById('grades-list');
+  if(!el)return;
+  el.innerHTML=settings.grades.map(g=>`<div style="display:inline-flex;align-items:center;gap:4px;background:var(--s2);border:1px solid var(--b);border-radius:5px;padding:3px 8px;font-size:11px">
+    ${g}<button onclick="removeGrade('${g}')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:12px;padding:0 2px">✕</button>
+  </div>`).join('')
+}
+
+window.removeGrade=function(g){
+  settings.grades=settings.grades.filter(x=>x!==g);
+  renderGradesList();populateGradeSelects()
+};
+
+function populateGradeSelects(){
+  document.querySelectorAll('.grade-select').forEach(sel=>{
+    const cur=sel.value;
+    sel.innerHTML='<option value="">Select grade</option>'+settings.grades.map(g=>`<option ${g===cur?'selected':''}>${g}</option>`).join('')
+  });
+  const bgf=document.getElementById('bills-grade');
+  if(bgf){bgf.innerHTML='<option value="">All Grades</option>'+settings.grades.map(g=>`<option>${g}</option>`).join('')}
+  // Populate broker filter
+  const bbf=document.getElementById('bills-broker');
+  if(bbf){
+    const brokers=[...new Set(bills.filter(b=>b.broker).map(b=>b.broker.toUpperCase()))].sort();
+    bbf.innerHTML='<option value="">All Brokers</option>'+brokers.map(br=>`<option value="${br}">${br}</option>`).join('')
+  }
+}
+
+
+// ═══════════════════════════════════════════
+// UNIVERSAL FILTER HELPERS
+// ═══════════════════════════════════════════
+function getMonths(arr,dateField){
+  const months=[...new Set(arr.map(x=>x[dateField]?.substring(0,7)).filter(Boolean))].sort().reverse();
+  return months
+}
+
+function populateSelect(id,options,placeholder){
+  const el=document.getElementById(id);if(!el)return;
+  const cur=el.value;
+  el.innerHTML=`<option value="">${placeholder}</option>`+options.map(o=>`<option value="${o}" ${cur===o?'selected':''}>${o}</option>`).join('');
+}
+
+function showSumStrip(id,show){
+  const el=document.getElementById(id);if(el)el.classList.toggle('on',show)
+}
+
+// Clear filter helpers
+window.clearBillsFilter=function(){
+  ['bills-q','bills-status','bills-grade','bills-broker','bills-party','bills-type','bills-month','bills-sort'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='bills-status'?'all':id==='bills-sort'?'date-desc':''
+  });renderBills()
+};
+window.clearDueFilter=function(){
+  ['due-q','due-filter','due-broker','due-party','due-grade','due-month','due-sort'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='due-filter'?'all':id==='due-sort'?'bal-desc':''
+  });renderDue()
+};
+window.clearChqFilter=function(){
+  ['chq-q','chq-filter','chq-party','chq-bank','chq-month','chq-sort'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='chq-filter'?'all':id==='chq-sort'?'date-desc':''
+  });renderCheques()
+};
+window.clearExpFilter=function(){
+  ['exp-q','exp-cat-filter','exp-mode-filter','exp-month','exp-sort'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='exp-cat-filter'?'all':id==='exp-sort'?'date-desc':''
+  });renderExpenses()
+};
+window.clearAdvFilter=function(){
+  ['adv-q','adv-status-filter','adv-mode-filter','adv-month','adv-sort'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='adv-status-filter'?'all':id==='adv-sort'?'date-desc':''
+  });renderAdvances()
+};
+window.clearPurFilter=function(){
+  ['pur-q','pur-status-filter','pur-grade-filter','pur-month','pur-sort'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='pur-status-filter'?'all':id==='pur-sort'?'date-desc':''
+  });renderPurchases()
+};
+window.clearRetFilter=function(){
+  ['ret-q','ret-month'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});renderReturns()
+};
+
+// Export cheques/advances
+window.exportChqExcel=function(){
+  const ws=XLSX.utils.json_to_sheet(cheques.map(c=>({Date:c.date,Party:c.party,ChequeNo:c.chequeNo,Bank:c.bank,Amount:c.amount,Status:c.status,BounceReason:c.bounceReason||'',LinkedBill:c.linkedBillId||''})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Cheques');
+  XLSX.writeFile(wb,'Cheques_'+today()+'.xlsx');toast('✅ Excel exported!','ok')
+};
+window.exportAdvExcel=function(){
+  const ws=XLSX.utils.json_to_sheet(advances.map(a=>({Date:a.date,Party:a.party,Amount:a.amount,Mode:a.mode,Linked:a.linked?'Yes':'No',LinkedBill:a.linkedBillId||'',Remarks:a.remarks||''})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Advances');
+  XLSX.writeFile(wb,'Advances_'+today()+'.xlsx');toast('✅ Excel exported!','ok')
+};
+window.exportRetExcel=function(){
+  const ws=XLSX.utils.json_to_sheet(returns.map(r=>({Date:r.date,Party:r.party,Grade:r.grade,Weight:r.weight,ReturnAmt:r.retAmt,Reason:r.reason||''})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Returns');
+  XLSX.writeFile(wb,'Returns_'+today()+'.xlsx');toast('✅ Excel exported!','ok')
+};
+
+// ═══════════════════════════════════════════
+// BILL FORM
+// ═══════════════════════════════════════════
+function initForms(){
+  const billFormHTML=`
+  <div class="stl">Party & Basic Info</div>
+  <div class="gr g4" style="margin-bottom:10px">
+    <div class="fg"><label>Bill Date <span class="r">*</span></label><input type="date" id="bf-date"></div>
+    <div class="fg s2"><label>Party Name <span class="r">*</span></label><input type="text" id="bf-party" placeholder="PARTY NAME" style="text-transform:uppercase"></div>
+    <div class="fg"><label>Broker Name</label><input type="text" id="bf-broker" placeholder="Broker" style="text-transform:uppercase"></div>
+    <div class="fg"><label>Broker Rate (₹/kg)</label><input type="number" id="bf-broker-rate" placeholder="0" step="0.5" oninput="calcBrokerDiff()"></div>
+    <div class="fg"><label>Broker Diff (₹)</label><input type="number" id="bf-broker-diff" placeholder="0" step="0.01"></div>
+    <div class="fg"><label>Transport</label><input type="text" id="bf-transport" placeholder="Transporter" style="text-transform:uppercase"></div>
+    <div class="fg"><label>Station</label><input type="text" id="bf-station" placeholder="City" style="text-transform:uppercase"></div>
+    <div class="fg"><label>Payment Mode</label>
+      <select id="bf-pymt"><option value="">Select</option><option>NEFT</option><option>RTGS</option><option>CHEQUE</option><option>IMPS</option><option>UPI</option><option>CASH</option></select>
+    </div>
+  </div>
+  <div class="dvd"></div>
+  <div class="stl">Grades & Rates <button class="btn bs btn-sm" onclick="addGradeRow()" style="margin-left:8px">+ Add Grade</button></div>
+  <div id="grade-rows"></div>
+  <div class="dvd"></div>
+  <div class="stl">Taxes & Charges</div>
+  <div class="gr g5" style="margin-bottom:10px">
+    <div class="fg"><label>Taxable Value</label><input type="number" id="bf-taxable" class="fca" readonly></div>
+    <div class="fg"><label>CGST (₹)</label><input type="number" id="bf-cgst" placeholder="0" oninput="calcNet()"></div>
+    <div class="fg"><label>SGST (₹)</label><input type="number" id="bf-sgst" placeholder="0" oninput="calcNet()"></div>
+    <div class="fg"><label>IGST (₹)</label><input type="number" id="bf-igst" placeholder="0" oninput="calcNet()"></div>
+    <div class="fg"><label>Packing (₹)</label><input type="number" id="bf-packing" placeholder="0" oninput="calcNet()"></div>
+    <div class="fg"><label>STP Rate (₹/kg)</label><input type="number" id="bf-stp" placeholder="0" step="0.5"></div>
+    <div class="fg"><label>Round Off</label><input type="number" id="bf-round" placeholder="0" oninput="calcNet()"></div>
+  </div>
+  <div class="fg" style="margin-bottom:10px"><label>Remarks</label><input type="text" id="bf-remarks" placeholder="Optional remarks"></div>
+  <div class="tot-box">
+    <div><div class="tot-l">Net Bill Amount</div><div class="tot-v" id="bf-net-disp">₹0</div></div>
+    <div style="font-size:11px;color:var(--t3);text-align:right">Taxable + CGST + SGST<br>+ IGST + Packing + Round</div>
+  </div>`;
+
+  // Render form only once - avoid duplicate IDs
+  // Find the first visible or empty container
+  const targets=['bill-form-content','manual-form-content','manual-form-content2'];
+  let rendered=false;
+  targets.forEach(function(id){
+    const el=document.getElementById(id);
+    if(el){
+      el.innerHTML=billFormHTML;
+      if(!rendered){
+        rendered=true;
+        addGradeRow();
+      }
+    }
+  });
+  populateGradeSelects();
+}
+
+let gradeRowCount=0;
+window.addGradeRow=function(gr){
+  const container=document.getElementById('grade-rows');
+  if(!container){console.log('grade-rows not found');return;}
+  const i=gradeRowCount++;
+  const div=document.createElement('div');
+  div.className='gr g5';
+  div.id='gr-row-'+i;
+  div.style='margin-bottom:8px;align-items:flex-end';
+  // Grade as text input (type freely) + datalist for suggestions
+  const gradeOptions=((window.settings&&settings.grades)||['W180','W210','W240','W320','W450','SW','LWP']).map(g=>`<option value="${g}">`).join('');
+  div.innerHTML=
+    '<div class="fg"><label>Grade</label>'+
+    '<input type="text" id="gr-grade-'+i+'" list="grade-list-'+i+'" placeholder="W320, SW..." value="'+(gr&&gr.grade?gr.grade:'')+'" oninput="calcNet()" style="text-transform:uppercase">'+
+    '<datalist id="grade-list-'+i+'">'+gradeOptions+'</datalist></div>'+
+    '<div class="fg"><label>Weight (kg)</label><input type="number" id="gr-wt-'+i+'" placeholder="0" value="'+(gr&&gr.weight?gr.weight:'')+'" oninput="calcNet()"></div>'+
+    '<div class="fg"><label>Rate (₹/kg)</label><input type="number" id="gr-rate-'+i+'" placeholder="0" value="'+(gr&&gr.rate?gr.rate:'')+'" step="0.01" oninput="calcNet()"></div>'+
+    '<div class="fg"><label>Taxable (₹)</label><input type="number" id="gr-tax-'+i+'" placeholder="0" value="'+(gr&&gr.taxable?gr.taxable:'')+'" readonly style="background:var(--s2)"></div>'+
+    '<div class="fg" style="padding-top:22px"><button class="btn brd btn-sm" onclick="removeGradeRow('+i+')" type="button">✕</button></div>';
+  container.appendChild(div);
+  calcNet();
+};
+
+window.removeGradeRow=function(i){
+  const el=document.getElementById('gr-row-'+i);
+  if(el)el.remove();calcNet()
+};
+
+function getGradeRows(){
+  const rows=[];
+  const container=document.getElementById('grade-rows');
+  if(!container)return rows;
+  container.querySelectorAll('[id^="gr-row-"]').forEach(function(row){
+    const i=row.id.replace('gr-row-','');
+    const grade=(document.getElementById('gr-grade-'+i)||{value:''}).value.trim().toUpperCase();
+    const weight=parseFloat((document.getElementById('gr-wt-'+i)||{value:0}).value)||0;
+    const rate=parseFloat((document.getElementById('gr-rate-'+i)||{value:0}).value)||0;
+    const taxable=weight*rate;
+    if(grade&&weight>0&&rate>0)rows.push({grade,weight,rate,taxable});
+  });
+  return rows;
+}
+
+function calcNet(){
+  const container=document.getElementById('grade-rows');
+  let taxable=0;
+  if(container){
+    container.querySelectorAll('[id^="gr-row-"]').forEach(function(row){
+      const i=row.id.replace('gr-row-','');
+      const w=parseFloat((document.getElementById('gr-wt-'+i)||{value:0}).value)||0;
+      const rt=parseFloat((document.getElementById('gr-rate-'+i)||{value:0}).value)||0;
+      const tx=document.getElementById('gr-tax-'+i);
+      const val=w&&rt?Math.round(w*rt*100)/100:0;
+      if(tx)tx.value=val||'';
+      taxable+=val;
+    });
+  }
+  const cgst=parseFloat(v('bf-cgst'))||0;
+  const sgst=parseFloat(v('bf-sgst'))||0;
+  const igst=parseFloat(v('bf-igst'))||0;
+  const packing=parseFloat(v('bf-packing'))||0;
+  const round=parseFloat(v('bf-round'))||0;
+  const net=taxable+cgst+sgst+igst+packing+round;
+  const te=document.getElementById('bf-taxable');if(te)te.value=taxable?taxable.toFixed(2):'';
+  const nd=document.getElementById('bf-net-disp');if(nd)nd.textContent='₹'+fmt(net);
+  calcBrokerDiff();
+}
+
+function calcBrokerDiff(){
+  const brokerRate=parseFloat(v('bf-broker-rate'))||0;
+  if(!brokerRate)return;
+  const rows=getGradeRows();
+  if(!rows.length)return;
+  const avgRate=rows.reduce((s,r)=>s+r.rate*r.weight,0)/rows.reduce((s,r)=>s+r.weight,0);
+  const diff=(avgRate-brokerRate)*rows.reduce((s,r)=>s+r.weight,0);
+  const el=document.getElementById('bf-broker-diff');
+  if(el&&!el.value)el.value=diff?diff.toFixed(2):'';
+}
+
+window.clearBillForm=function(){
+  gradeRowCount=0;
+  const container=document.getElementById('grade-rows');
+  if(container)container.innerHTML='';
+  ['bf-party','bf-broker','bf-broker-rate','bf-broker-diff','bf-transport','bf-station',
+   'bf-taxable','bf-cgst','bf-sgst','bf-igst','bf-packing','bf-stp','bf-round','bf-remarks'].forEach(id=>{
+    const el=document.getElementById(id);if(el){el.value='';el.classList.remove('fai')}
+  });
+  const nd=document.getElementById('bf-net-disp');if(nd)nd.textContent='₹0';
+  const dt=document.getElementById('bf-date');if(dt)dt.value=today();
+  const py=document.getElementById('bf-pymt');if(py)py.value='';
+  const badge=document.getElementById('ai-filled-badge');if(badge)badge.classList.add('hidden');
+  addGradeRow()
+};
+
+window.saveBillForm=async function(){
+  if(!window._auth||!window._auth.currentUser){toast('Login karo pehle!','err');return}
+  const date=v('bf-date');
+  const party=(v('bf-party')||'').trim().toUpperCase();
+  const rows=getGradeRows();
+  if(!date){toast('Bill Date required!','err');return}
+  if(!party){toast('Party Name required!','err');return}
+  if(!rows.length){toast('Kam se kam ek Grade add karo!','err');return}
+  const taxable=rows.reduce((s,r)=>s+r.taxable,0);
+  const cgst=parseFloat(v('bf-cgst'))||0;const sgst=parseFloat(v('bf-sgst'))||0;
+  const igst=parseFloat(v('bf-igst'))||0;const packing=parseFloat(v('bf-packing'))||0;
+  const round=parseFloat(v('bf-round'))||0;
+  const netAmt=taxable+cgst+sgst+igst+packing+round;
+  const bill={
+    date,party,broker:v('bf-broker').toUpperCase(),brokerRate:parseFloat(v('bf-broker-rate'))||0,
+    brokerDiff:parseFloat(v('bf-broker-diff'))||0,transport:v('bf-transport').toUpperCase(),
+    station:v('bf-station').toUpperCase(),pymt:v('bf-pymt'),stp:parseFloat(v('bf-stp'))||0,
+    remarks:v('bf-remarks'),rows,taxable,cgst,sgst,igst,packing,round,netAmt,
+    payments:[],createdAt:new Date().toISOString()
+  };
+  try{
+    await col('bills').add(bill);
+    toast('✅ Bill saved! '+party+' — ₹'+fmt(netAmt),'ok');
+    clearBillForm();clearScan()
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+
+// ═══════════════════════════════════════════
+// SCAN TAB SWITCHING
+// ═══════════════════════════════════════════
+window.switchScanTab=function(tab){
+  ['excel','photo','manual'].forEach(t=>{
+    document.getElementById('scan-'+t+'-tab').style.display=t===tab?'block':'none';
+    document.getElementById('scan-tab-'+t).classList.toggle('on',t===tab);
+  });
+  if(tab==='manual'||tab==='photo'){
+    setTimeout(()=>{
+      const fc=document.getElementById('bill-form-content');
+      const mc=document.getElementById('manual-form-content2');
+      if(tab==='photo'&&fc&&!fc.innerHTML.trim())initForms();
+      if(tab==='manual'&&mc&&!mc.innerHTML.trim()){mc.innerHTML=document.getElementById('bill-form-content')?.innerHTML||'';if(!mc.innerHTML.trim())initForms()}
+    },100)
+  }
+};
+
+
+// ═══════════════════════════════════════════
+// CLAUDE PASTE IMPORT
+// ═══════════════════════════════════════════
+window.loadFromClaudePaste=function(){
+  const raw=document.getElementById('claude-paste-box').value.trim();
+  if(!raw){toast('Kuch paste nahi kiya!','err');return}
+  try{
+    // Try to extract JSON array from text
+    let data;
+    const arrMatch=raw.match(/\[[\s\S]*\]/);
+    const objMatch=raw.match(/\{[\s\S]*\}/);
+    if(arrMatch)data=JSON.parse(arrMatch[0]);
+    else if(objMatch)data=[JSON.parse(objMatch[0])];
+    else throw new Error('Valid JSON nahi mila');
+
+    if(!Array.isArray(data))data=[data];
+    
+    excelBills=data.map((b,i)=>{
+      const weight=parseFloat(b.weight||b.Weight||b.wt||0);
+      const rate=parseFloat(b.rate||b.Rate||b.rate_per_kg||0);
+      const taxable=parseFloat(b.taxable||b.Taxable||(weight*rate)||0);
+      const cgst=parseFloat(b.cgst||b.CGST||0);
+      const sgst=parseFloat(b.sgst||b.SGST||0);
+      const igst=parseFloat(b.igst||b.IGST||0);
+      const packing=parseFloat(b.packing||b.Packing||0);
+      const round=parseFloat(b.round||b.round_off||0);
+      const netAmt=parseFloat(b.netAmt||b.net_amt||b.net||b.total||(taxable+cgst+sgst+igst+packing+round)||0);
+      const grade=(b.grade||b.Grade||'').toString().toUpperCase();
+      const party=(b.party||b.Party||b.buyer||'').toString().toUpperCase();
+      let date=b.date||b.Date||today();
+      // Fix date format
+      if(date&&date.includes('/')){
+        const p=date.split('/');
+        if(p[0].length<=2)date=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+      }
+      return{
+        _idx:i,_selected:true,
+        date,party,
+        broker:(b.broker||b.Broker||'').toString().toUpperCase(),
+        grade,weight,rate,
+        stp:parseFloat(b.stp||b.STP||0),
+        taxable,cgst,sgst,igst,packing,round,netAmt,
+        transport:(b.transport||b.Transport||'').toString().toUpperCase(),
+        station:(b.station||b.Station||'').toString().toUpperCase(),
+        pymt:b.pymt||b.payment_mode||b.mode||'',
+        remarks:b.remarks||b.Remarks||'',
+        billType:b.type||b.billType||'credit',
+        rows:[{grade,weight,rate,taxable}]
+      }
+    }).filter(b=>b.party||b.netAmt>0);
+
+    if(!excelBills.length){toast('Koi valid bill nahi mili!','err');return}
+    renderExcelPreview();
+    document.getElementById('claude-paste-box').value='';
+    toast('✅ '+excelBills.length+' bills load hui! Select karo jo save karni hain.','ok')
+  }catch(err){
+    toast('Parse error: '+err.message+' — Sahi JSON paste karo','err')
+  }
+};
+
+// ═══════════════════════════════════════════
+// EXCEL UPLOAD & SELECT
+// ═══════════════════════════════════════════
+let excelBills=[];
+
+window.downloadExcelTemplate=function(){
+  const headers=[
+    'Bill_No',
+    'Date(DD-MM-YYYY)',
+    'Party_Name',
+    'Party_Address',
+    'Broker_Name',
+    'Transport',
+    'Grade_Name',
+    'Weight_kg',
+    'Rate_per_kg',
+    'Amount_Without_Tax',
+    'Other_Charges',
+    'GST_Rate_Percent',
+    'CGST',
+    'SGST',
+    'Round_Off',
+    'Gross_Amount',
+    'STP_Rate',
+    'Remarks_Rate',
+    'Show_Remarks_In_Print(YES/NO)',
+    'Cash_or_Credit',
+    'Payment_Mode(NEFT/RTGS/CHEQUE/UPI/CASH)',
+    'Station'
+  ];
+  const sample=[
+    'INV001',
+    '12-03-2026',
+    'SHARMA TRADERS',
+    'JAIPUR, RAJASTHAN',
+    'RAMESH BROKER',
+    'FAST LOGISTICS',
+    'W320',
+    '100',
+    '450',
+    '45000',
+    '50',
+    '5',
+    '1137.50',
+    '1137.50',
+    '-0.75',
+    '47324.25',
+    '420',
+    'Rate includes premium',
+    'NO',
+    'CREDIT',
+    'NEFT',
+    'JAIPUR'
+  ];
+  const sample2=[
+    'INV002',
+    '12-03-2026',
+    'VERMA STORE',
+    'AJMER, RAJASTHAN',
+    'SURESH BROKER',
+    'VRL LOGISTICS',
+    'W240',
+    '50',
+    '400',
+    '20000',
+    '0',
+    '5',
+    '500',
+    '500',
+    '0',
+    '21000',
+    '380',
+    '',
+    'YES',
+    'CASH',
+    'CASH',
+    'AJMER'
+  ];
+  const ws=XLSX.utils.aoa_to_sheet([headers,sample,sample2]);
+  ws['!cols']=headers.map(()=>({wch:22}));
+  // Style header row
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Bills');
+  // Add instructions sheet
+  const instrHeaders=['Field','Description','Example'];
+  const instrData=[
+    ['Bill_No','Unique bill number','INV001'],
+    ['Date','DD-MM-YYYY format','12-03-2026'],
+    ['Party_Name','Buyer name (UPPERCASE)','SHARMA TRADERS'],
+    ['Party_Address','Buyer address','JAIPUR, RAJASTHAN'],
+    ['Broker_Name','Broker name if any','RAMESH BROKER'],
+    ['Transport','Transporter name','FAST LOGISTICS'],
+    ['Grade_Name','Cashew grade','W320, W240, SW, LWP'],
+    ['Weight_kg','Weight in kg','100'],
+    ['Rate_per_kg','Rate per kg without tax','450'],
+    ['Amount_Without_Tax','Weight x Rate','45000'],
+    ['Other_Charges','Packing/misc charges','50'],
+    ['GST_Rate_Percent','GST % (5 or 12)','5'],
+    ['CGST','CGST amount','1137.50'],
+    ['SGST','SGST amount (same state)','1137.50'],
+    ['Round_Off','Round off amount','-0.75'],
+    ['Gross_Amount','Final bill amount','47324.25'],
+    ['STP_Rate','STP rate per kg','420'],
+    ['Remarks_Rate','Internal rate remarks','Rate includes premium'],
+    ['Show_Remarks_In_Print','Print remarks or not (YES/NO)','NO'],
+    ['Cash_or_Credit','Bill type','CASH or CREDIT'],
+    ['Payment_Mode','Payment method','NEFT/RTGS/CHEQUE/UPI/CASH'],
+    ['Station','Delivery city','JAIPUR'],
+  ];
+  const ws2=XLSX.utils.aoa_to_sheet([instrHeaders,...instrData]);
+  ws2['!cols']=[{wch:25},{wch:40},{wch:25}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Instructions');
+  XLSX.writeFile(wb,'CashewPro_Bill_Template.xlsx');
+  toast('✅ Template downloaded! Instructions sheet bhi dekho.','ok')
+};
+
+window.handleExcelUpload=function(input){
+  if(!input.files[0])return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!rows.length){toast('Excel mein koi data nahi mila!','err');return}
+      excelBills=rows.map((r,i)=>{
+        // Parse date DD-MM-YYYY or YYYY-MM-DD or Excel serial
+        let date=r['Date(DD-MM-YYYY)']||r['Date']||r['date']||'';
+        if(typeof date==='number'){
+          const d=new Date((date-25569)*86400000);
+          date=d.toISOString().split('T')[0];
+        } else if(date&&date.toString().includes('-')){
+          let parts=date.toString().split('-');
+          if(parts[0].length===2)date=`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+        } else if(date&&date.toString().includes('/')){
+          let parts=date.toString().split('/');
+          if(parts[0].length<=2)date=`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+        }
+        const weight=parseFloat(r['Weight_kg']||r['Weight']||0);
+        const rate=parseFloat(r['Rate_per_kg']||r['Rate']||0);
+        const taxable=parseFloat(r['Amount_Without_Tax']||r['Taxable']||(weight*rate)||0);
+        const cgst=parseFloat(r['CGST']||0);
+        const sgst=parseFloat(r['SGST']||0);
+        const igst=parseFloat(r['IGST']||0);
+        const packing=parseFloat(r['Other_Charges']||r['Packing']||0);
+        const round=parseFloat(r['Round_Off']||0);
+        const netAmt=parseFloat(r['Gross_Amount']||r['Net_Amount']||(taxable+cgst+sgst+igst+packing+round)||0);
+        const gstRate=parseFloat(r['GST_Rate_Percent']||5);
+        const grade=(r['Grade_Name']||r['Grade']||'').toString().toUpperCase();
+        const party=(r['Party_Name']||r['Party']||'').toString().toUpperCase();
+        const billType=(r['Cash_or_Credit']||r['Type']||'credit').toString().toLowerCase();
+        const showRemarks=(r['Show_Remarks_In_Print(YES/NO)']||r['Show_Remarks']||'NO').toString().toUpperCase()==='YES';
+        return{
+          _idx:i,_selected:true,
+          billNo:r['Bill_No']||r['bill_no']||'',
+          date:date||today(),
+          party,
+          partyAddress:(r['Party_Address']||'').toString(),
+          broker:(r['Broker_Name']||r['Broker']||'').toString().toUpperCase(),
+          grade,weight,rate,taxable,
+          otherCharges:packing,
+          gstRate,cgst,sgst,igst,packing,round,netAmt,
+          grossAmount:netAmt,
+          stp:parseFloat(r['STP_Rate']||0),
+          remarksRate:r['Remarks_Rate']||'',
+          showRemarksInPrint:showRemarks,
+          transport:(r['Transport']||'').toString().toUpperCase(),
+          station:(r['Station']||'').toString().toUpperCase(),
+          pymt:(r['Payment_Mode(NEFT/RTGS/CHEQUE/UPI/CASH)']||r['Payment_Mode']||r['Mode']||'').toString(),
+          billType:billType==='cash'?'cash':'credit',
+          rows:[{grade,weight,rate,taxable}]
+        }
+      }).filter(b=>b.party||b.netAmt>0);
+      renderExcelPreview();
+      toast('✅ '+excelBills.length+' bills mili! Select karo jo save karni hain.','ok')
+    }catch(err){toast('Excel error: '+err.message,'err')}
+  };
+  reader.readAsArrayBuffer(input.files[0])
+};
+
+function renderExcelPreview(){
+  const wrap=document.getElementById('excel-preview-wrap');
+  const tbody=document.getElementById('excel-preview-body');
+  if(!wrap||!tbody)return;
+  wrap.style.display='block';
+  document.getElementById('excel-count').textContent=excelBills.length;
+  updateExcelSelectedCount();
+  tbody.innerHTML=excelBills.map((b,i)=>`
+    <tr id="excel-row-${i}" style="opacity:${b._selected?1:0.4}">
+      <td><input type="checkbox" ${b._selected?'checked':''} onchange="toggleExcelBill(${i},this.checked)" id="excel-chk-${i}"></td>
+      <td style="font-family:monospace;font-size:11px">${b.billNo||'-'}</td>
+      <td>${b.date}</td>
+      <td><strong>${b.party}</strong>${b.partyAddress?`<br><span style="font-size:10px;color:var(--t3)">${b.partyAddress}</span>`:''}</td>
+      <td style="font-size:11px">${b.broker||'-'}</td>
+      <td>${b.grade}</td>
+      <td class="mn">${b.weight} kg</td>
+      <td class="mn">₹${b.rate}</td>
+      <td class="mn">₹${fmt(b.taxable)}</td>
+      <td class="mn">${b.cgst||'-'}</td>
+      <td class="mn">${b.sgst||'-'}</td>
+      <td class="mn">${b.round||0}</td>
+      <td class="mn tp" style="font-weight:700">₹${fmt(b.netAmt)}</td>
+      <td><span class="bdg ${b.billType==='cash'?'bd-adv':'bd-pd'}">${b.billType==='cash'?'CASH':'CREDIT'}</span></td>
+      <td style="font-size:10px;color:var(--t3)">${b.remarksRate||''} ${b.showRemarksInPrint?'🖨️':''}</td>
+      <td>
+        <button class="btn bs btn-sm" onclick="editExcelBill(${i})" title="Edit">✏️</button>
+        <button class="btn brd btn-sm" onclick="removeExcelBill(${i})" title="Remove">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function updateExcelSelectedCount(){
+  const sel=excelBills.filter(b=>b._selected).length;
+  const el=document.getElementById('excel-selected-count');
+  if(el)el.textContent=`${sel} of ${excelBills.length} selected`;
+}
+
+window.toggleExcelBill=function(i,checked){
+  if(excelBills[i])excelBills[i]._selected=checked;
+  const row=document.getElementById('excel-row-'+i);
+  if(row)row.style.opacity=checked?'1':'0.4';
+  updateExcelSelectedCount();
+};
+
+window.selectAllExcel=function(checked){
+  excelBills.forEach((b,i)=>{b._selected=checked;const el=document.getElementById('excel-chk-'+i);if(el)el.checked=checked});
+  const ca=document.getElementById('excel-chk-all');if(ca)ca.checked=checked;
+  renderExcelPreview();
+};
+
+window.removeExcelBill=function(i){
+  excelBills.splice(i,1);renderExcelPreview()
+};
+
+window.editExcelBill=function(i){
+  const b=excelBills[i];if(!b)return;
+  // Switch to form view with this bill's data
+  switchScanTab('photo');
+  setTimeout(()=>{
+    fillBillForm(b);
+    toast('Bill form mein load ho gayi — edit karo aur save karo','inf')
+  },200)
+};
+
+window.saveSelectedExcelBills=async function(){
+  const selected=excelBills.filter(b=>b._selected);
+  if(!selected.length){toast('Koi bill select nahi hai!','err');return}
+  if(!window._auth||!window._auth.currentUser){toast('Login karo pehle!','err');return}
+  if(!confirm(`${selected.length} bills save karni hain?`))return;
+
+  const btn=document.querySelector('[onclick="saveSelectedExcelBills()"]');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Saving...'}
+
+  let saved=0;let errors=0;
+  const uid=window._auth.currentUser.uid;
+  const colRef=window._db.collection('users/'+uid+'/bills');
+
+  for(const b of selected){
+    try{
+      const grade=b.grade||'';
+      const weight=parseFloat(b.weight)||0;
+      const rate=parseFloat(b.rate)||0;
+      const taxable=parseFloat(b.taxable)||(weight*rate);
+      const rows=b.rows&&b.rows.length?b.rows:[{grade,weight,rate,taxable}];
+
+      const bill={
+        billNo:b.billNo||'',
+        date:b.date||'',
+        party:(b.party||'').toString().toUpperCase().trim(),
+        partyAddress:b.partyAddress||'',
+        broker:(b.broker||'').toString().toUpperCase().trim(),
+        brokerRate:parseFloat(b.brokerRate)||0,
+        brokerDiff:0,
+        transport:(b.transport||'').toString().toUpperCase().trim(),
+        station:(b.station||'').toString().toUpperCase().trim(),
+        pymt:b.pymt||'',
+        stp:parseFloat(b.stp)||0,
+        remarksRate:b.remarksRate||b.remarks||'',
+        showRemarksInPrint:b.showRemarksInPrint||false,
+        billType:(b.billType||'credit').toLowerCase(),
+        rows:rows,
+        taxable:taxable,
+        otherCharges:parseFloat(b.packing||b.otherCharges)||0,
+        gstRate:parseFloat(b.gstRate)||5,
+        cgst:parseFloat(b.cgst)||0,
+        sgst:parseFloat(b.sgst)||0,
+        igst:parseFloat(b.igst)||0,
+        packing:parseFloat(b.packing||b.otherCharges)||0,
+        round:parseFloat(b.round)||0,
+        grossAmount:parseFloat(b.netAmt)||0,
+        netAmt:parseFloat(b.netAmt)||0,
+        payments:[],
+        createdAt:new Date().toISOString()
+      };
+
+      await colRef.add(bill);
+      saved++;
+    }catch(err){
+      errors++;
+      console.error('Save error bill',b.billNo,err);
+    }
+  }
+
+  if(btn){btn.disabled=false;btn.textContent='💾 Selected Bills Save Karo'}
+
+  if(saved>0){
+    toast('✅ '+saved+' bills save ho gayi!'+( errors?' ('+errors+' errors)':''),'ok');
+    excelBills=excelBills.filter(b=>!b._selected);
+    renderExcelPreview();
+  } else {
+    toast('❌ Save failed! Console mein error dekho.','err');
+  }
+};
+
+
+window.populateDueFilters=function(){
+  const pending=bills.filter(b=>getStatus(b).status!=='paid');
+  const brokers=[...new Set(pending.filter(b=>b.broker).map(b=>b.broker.toUpperCase()))].sort();
+  const parties=[...new Set(pending.map(b=>b.party))].sort();
+  const months=getMonths(pending,'date');
+  const grades=[...new Set(pending.flatMap(b=>b.rows?.map(r=>r.grade)||[]))].sort();
+  populateSelect('due-broker',brokers,'All Brokers');
+  populateSelect('due-party',parties,'All Parties');
+  populateSelect('due-month',months,'All Months');
+  populateSelect('due-grade',grades,'All Grades');
+};
+
+window.waReminder=function(id){
+  const b=bills.find(x=>x.id===id);if(!b)return;
+  const s=getStatus(b);
+  const days=daysSince(b.date);
+  const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+  const msg=encodeURIComponent(`*JAI SHREE CASHEW INDUSTRIES*\n\nDear ${b.party},\n\nPayment Reminder:\nBill Date: ${b.date}\nGrade: ${gr}\nBill Amount: ₹${fmt(b.netAmt)}\nReceived: ₹${fmt(s.recv)}\n*Outstanding: ₹${fmt(s.bal)}*\nDays Pending: ${days} days\n\nKindly arrange payment.\nThank you.`);
+  window.open('https://wa.me/?text='+msg,'_blank')
+};
+// ═══════════════════════════════════════════
+// AI SCAN
+// ═══════════════════════════════════════════
+function handleScanDrop(e){
+  e.preventDefault();document.getElementById('scan-upz').classList.remove('drag');
+  const f=e.dataTransfer.files[0];if(f)processScanFile(f)
+}
+window.handleScanFile=function(input){if(input.files[0])processScanFile(input.files[0])};
+
+async function processScanFile(file){
+  const isPDF=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+  if(isPDF){
+    setScanStatus('⏳ PDF se image extract ho rahi hai...','loading');
+    document.getElementById('scan-upz').style.display='none';
+    document.getElementById('scan-ai-btn').disabled=true;
+    try{
+      const arrBuf=await file.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:arrBuf}).promise;
+      const page=await pdf.getPage(1);
+      const scale=2.0;
+      const vp=page.getViewport({scale});
+      const canvas=document.createElement('canvas');
+      canvas.width=vp.width;canvas.height=vp.height;
+      const ctx=canvas.getContext('2d');
+      await page.render({canvasContext:ctx,viewport:vp}).promise;
+      const imgData=canvas.toDataURL('image/jpeg',0.92);
+      scanBase64=imgData.split(',')[1];
+      document.getElementById('scan-prev').src=imgData;
+      document.getElementById('scan-prev-wrap').style.display='block';
+      document.getElementById('scan-ai-btn').disabled=false;
+      setScanStatus('✅ PDF ready! AI scan karo.','');
+      toast('PDF loaded — page 1 of '+pdf.numPages,'ok');
+    }catch(err){
+      setScanStatus('❌ PDF error: '+err.message,'');
+      document.getElementById('scan-upz').style.display='block';
+      toast('PDF load failed: '+err.message,'err')
+    }
+  } else {
+    const reader=new FileReader();
+    reader.onload=e=>{
+      scanBase64=e.target.result.split(',')[1];
+      document.getElementById('scan-prev').src=e.target.result;
+      document.getElementById('scan-prev-wrap').style.display='block';
+      document.getElementById('scan-upz').style.display='none';
+      document.getElementById('scan-ai-btn').disabled=false;
+      setScanStatus('','')
+    };
+    reader.readAsDataURL(file)
+  }
+}
+
+function setScanStatus(msg,type){
+  const el=document.getElementById('scan-status');
+  if(!msg){el.style.display='none';return}
+  el.style.display='flex';
+  el.innerHTML=type==='loading'?`<div class="spin"></div><span>${msg}</span>`:`<span>${msg}</span>`
+}
+
+window.clearScan=function(){
+  scanBase64=null;
+  document.getElementById('scan-prev-wrap').style.display='none';
+  document.getElementById('scan-upz').style.display='block';
+  document.getElementById('scan-ai-btn').disabled=true;
+  document.getElementById('scan-file').value='';
+  setScanStatus('','');
+  const badge=document.getElementById('ai-filled-badge');if(badge)badge.classList.add('hidden')
+};
+
+window.runAIScan=async function(){
+  if(!scanBase64)return;
+  const btn=document.getElementById('scan-ai-btn');
+  btn.disabled=true;btn.textContent='⏳ Scanning...';
+  setScanStatus('Claude AI bill analyze kar raha hai...','loading');
+  const prompt=`You are reading a cashew industry sales bill/invoice from India. Extract ALL fields precisely and return ONLY a valid JSON object. No explanation, no markdown, just JSON.
+
+{
+  "date": "YYYY-MM-DD",
+  "party": "BUYER NAME IN UPPERCASE",
+  "broker": "broker name or empty",
+  "transport": "transporter name or empty",
+  "station": "delivery city or empty",
+  "pymt": "NEFT/RTGS/CHEQUE/UPI/CASH or empty",
+  "stp": 0,
+  "cgst": 0,
+  "sgst": 0,
+  "igst": 0,
+  "packing": 0,
+  "round": 0,
+  "brokerRate": 0,
+  "remarks": "",
+  "rows": [
+    {"grade": "W320", "weight": 100, "rate": 450}
+  ]
+}`;
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',max_tokens:1000,
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:scanBase64}},
+          {type:'text',text:prompt}
+        ]}]
+      })
+    });
+    const data=await res.json();
+    const text=data.content?.find(c=>c.type==='text')?.text||'';
+    const match=text.match(/\{[\s\S]*\}/);
+    if(!match)throw new Error('JSON not found');
+    const d=JSON.parse(match[0]);
+    fillBillForm(d);
+    setScanStatus('✅ '+Object.keys(d).filter(k=>d[k]).length+' fields extracted! Verify and save.','');
+    const badge=document.getElementById('ai-filled-badge');if(badge)badge.classList.remove('hidden');
+    toast('AI scan complete! Verify karo.','ok')
+  }catch(e){
+    setScanStatus('❌ Error: '+e.message+' — Manual fill karein','');
+    toast('AI scan failed: '+e.message,'err')
+  }
+  btn.disabled=false;btn.innerHTML='🔄 Rescan'
+};
+
+function fillBillForm(d){
+  const fields={
+    'bf-date':d.date||today(),'bf-party':(d.party||'').toUpperCase(),
+    'bf-broker':(d.broker||'').toUpperCase(),'bf-broker-rate':d.brokerRate||'',
+    'bf-transport':(d.transport||'').toUpperCase(),'bf-station':(d.station||'').toUpperCase(),
+    'bf-cgst':d.cgst||'','bf-sgst':d.sgst||'','bf-igst':d.igst||'',
+    'bf-packing':d.packing||'','bf-stp':d.stp||'','bf-round':d.round||'',
+    'bf-remarks':d.remarks||''
+  };
+  Object.entries(fields).forEach(([id,val])=>{
+    const el=document.getElementById(id);
+    if(el){el.value=val;if(val)el.classList.add('fai')}
+  });
+  if(d.pymt){const py=document.getElementById('bf-pymt');if(py)py.value=d.pymt}
+  gradeRowCount=0;
+  const container=document.getElementById('grade-rows');if(container)container.innerHTML='';
+  if(d.rows&&d.rows.length)d.rows.forEach(r=>addGradeRow(r));
+  else addGradeRow();
+  calcNet()
+}
+
+// ═══════════════════════════════════════════
+// STATUS HELPERS
+// ═══════════════════════════════════════════
+function getStatus(bill){
+  const recv=(bill.payments||[]).reduce((s,p)=>s+(p.amount||0),0);
+  const retAmt=returns.filter(r=>r.billId===bill.id).reduce((s,r)=>s+(r.retAmt||0),0);
+  const net=bill.netAmt-retAmt;
+  const bal=net-recv;
+  if(recv<=0)return{status:'due',recv:0,bal:net,net};
+  if(bal<=0.5)return{status:'paid',recv,bal:0,net};
+  return{status:'partial',recv,bal,net}
+}
+
+function calcInterest(bill){
+  if(!settings.interest)return 0;
+  const s=getStatus(bill);
+  if(s.status==='paid')return 0;
+  const days=daysSince(bill.date)-(settings.grace||30);
+  if(days<=0)return 0;
+  const months=days/30;
+  return Math.round(s.bal*(settings.interest/100)*months)
+}
+
+function daysSince(d){return Math.floor((Date.now()-new Date(d).getTime())/86400000)}
+function fmt(n){return Math.abs(n||0).toLocaleString('en-IN',{maximumFractionDigits:0})}
+function fmtD(d){if(!d)return'';const dt=new Date(d);return dt.toLocaleDateString('en-IN')}
+function v(id){return(document.getElementById(id)||{}).value||''}
+
+function statusBadge(s){
+  const m={due:'bd-due',partial:'bd-pt',paid:'bd-pd'};
+  return`<span class="bdg ${m[s]||'bd-due'}">${s}</span>`
+}
+
+// ═══════════════════════════════════════════
+// REFRESH ALL
+// ═══════════════════════════════════════════
+function refreshAll(){
+  updateDashboard();renderBills();renderDue();renderLedgerParties();
+  populateReceiveBills();populateReturnBills();updateBadges()
+}
+
+function updateBadges(){
+  const due=bills.filter(b=>getStatus(b).status!=='paid').length;
+  const el=document.getElementById('nb-due');if(el)el.textContent=due
+}
+
+// ═══════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════
+function updateDashboard(){
+  let totalBills=bills.length,totalAmt=0,dueAmt=0,partialAmt=0,recvAmt=0;
+  let dueCount=0,partialCount=0,paidCount=0;
+  bills.forEach(b=>{
+    const s=getStatus(b);totalAmt+=b.netAmt;
+    if(s.status==='due'){dueAmt+=s.bal;dueCount++}
+    else if(s.status==='partial'){partialAmt+=s.bal;partialCount++;recvAmt+=s.recv}
+    else{recvAmt+=b.netAmt;paidCount++}
+  });
+  const advTotal=advances.filter(a=>!a.linked).reduce((s,a)=>s+(a.amount||0),0);
+  const chqPending=cheques.filter(c=>c.status!=='Cleared').length;
+  let totalInterest=bills.filter(b=>getStatus(b).status!=='paid').reduce((s,b)=>s+calcInterest(b),0);
+
+  setText('d-total',totalBills);setText('d-total-s','₹'+fmt(totalAmt)+' total');
+  setText('d-due','₹'+fmt(dueAmt));setText('d-due-s',dueCount+' bills');
+  setText('d-partial','₹'+fmt(partialAmt));setText('d-partial-s',partialCount+' bills');
+  setText('d-recv','₹'+fmt(recvAmt));setText('d-recv-s',paidCount+' paid');
+  setText('d-adv','₹'+fmt(advTotal));setText('d-chq',chqPending);setText('d-int','₹'+fmt(totalInterest));
+
+  // Top due bills
+  const pending=bills.filter(b=>getStatus(b).status!=='paid').slice(0,8);
+  const tbody=document.getElementById('d-due-body');
+  if(tbody)tbody.innerHTML=pending.length?pending.map(b=>{
+    const s=getStatus(b);const days=daysSince(b.date);
+    const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+    return`<tr>
+      <td>${b.date}</td><td><strong>${b.party}</strong></td><td>${gr}</td>
+      <td class="mn tp">₹${fmt(b.netAmt)}</td><td class="mn tp">₹${fmt(s.recv)}</td>
+      <td class="mn tam">₹${fmt(s.bal)}</td>
+      <td><span class="${days>30?'tr':days>15?'tam':'tp'}">${days}d</span></td>
+      <td>${statusBadge(s.status)}</td>
+      <td><button class="btn ba btn-sm" onclick="openPayModal('${b.id}')">💰</button></td>
+    </tr>`
+  }).join(''):'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--t3)">No pending bills 🎉</td></tr>';
+
+  // Cheques
+  const pendingChq=cheques.filter(c=>['Received','Deposited'].includes(c.status)).slice(0,5);
+  const cbody=document.getElementById('d-chq-body');
+  if(cbody)cbody.innerHTML=pendingChq.length?pendingChq.map(c=>`<tr>
+    <td>${c.date}</td><td>${c.party}</td><td class="mn">${c.chequeNo}</td><td>${c.bank||''}</td>
+    <td class="mn tp">₹${fmt(c.amount)}</td><td><span class="bdg bd-pt">${c.status}</span></td>
+    <td><button class="btn bs btn-sm" onclick="updateChequeStatus('${c.id}')">Update</button></td>
+  </tr>`).join(''):'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--t3)">No pending cheques</td></tr>'
+}
+
+function setText(id,val){const el=document.getElementById(id);if(el)el.textContent=val}
+
+// ═══════════════════════════════════════════
+// ALL BILLS
+// ═══════════════════════════════════════════
+function renderBills(){
+  // Populate dynamic filters
+  const allBrokers=[...new Set(bills.filter(b=>b.broker).map(b=>b.broker.toUpperCase()))].sort();
+  const allParties=[...new Set(bills.map(b=>b.party))].sort();
+  const allGrades=[...new Set(bills.flatMap(b=>b.rows?.map(r=>r.grade)||[]))].sort();
+  const allMonths=getMonths(bills,'date');
+  populateSelect('bills-broker',allBrokers,'All Brokers');
+  populateSelect('bills-party',allParties,'All Parties');
+  populateSelect('bills-grade',allGrades,'All Grades');
+  populateSelect('bills-month',allMonths,'All Months');
+  const bgf=document.getElementById('bills-grade');
+  if(bgf)bgf.innerHTML='<option value="">All Grades</option>'+allGrades.map(g=>`<option>${g}</option>`).join('');
+
+  const q=(v('bills-q')||'').toLowerCase();
+  const sf=v('bills-status');const gf=v('bills-grade');
+  const bf=v('bills-broker');const pf=v('bills-party');
+  const tf=v('bills-type');const mf=v('bills-month');
+  const sortBy=v('bills-sort')||'date-desc';
+
+  let data=bills.filter(b=>{
+    const s=getStatus(b);
+    if(sf!=='all'&&s.status!==sf)return false;
+    if(gf&&!b.rows?.some(r=>r.grade===gf))return false;
+    if(bf&&(b.broker||'').toUpperCase()!==bf)return false;
+    if(pf&&b.party!==pf)return false;
+    if(tf&&(b.billType||'credit')!==tf)return false;
+    if(mf&&!b.date?.startsWith(mf))return false;
+    if(q){
+      const inParty=b.party.toLowerCase().includes(q);
+      const inBroker=(b.broker||'').toLowerCase().includes(q);
+      const inGrade=b.rows?.some(r=>r.grade.toLowerCase().includes(q));
+      const inBillNo=(b.billNo||'').toLowerCase().includes(q);
+      const inTransport=(b.transport||'').toLowerCase().includes(q);
+      const inStation=(b.station||'').toLowerCase().includes(q);
+      const inRemarks=(b.remarks||'').toLowerCase().includes(q);
+      if(!inParty&&!inBroker&&!inGrade&&!inBillNo&&!inTransport&&!inStation&&!inRemarks)return false;
+    }
+    return true
+  });
+
+  // Sort
+  data.sort((a,b2)=>{
+    const sa=getStatus(a);const sb=getStatus(b2);
+    if(sortBy==='date-desc')return a.date<b2.date?1:-1;
+    if(sortBy==='date-asc')return a.date>b2.date?1:-1;
+    if(sortBy==='party-asc')return a.party.localeCompare(b2.party);
+    if(sortBy==='broker-asc')return (a.broker||'').localeCompare(b2.broker||'');
+    if(sortBy==='bal-desc')return sb.bal-sa.bal;
+    if(sortBy==='bal-asc')return sa.bal-sb.bal;
+    if(sortBy==='amt-desc')return b2.netAmt-a.netAmt;
+    if(sortBy==='amt-asc')return a.netAmt-b2.netAmt;
+    return 0;
+  });
+
+  // Summary strip
+  const totalAmt=data.reduce((s,b)=>s+b.netAmt,0);
+  const totalRecv=data.reduce((s,b)=>s+getStatus(b).recv,0);
+  const totalBal=data.reduce((s,b)=>s+getStatus(b).bal,0);
+  const selCount=data.filter(b=>selectedBills.has(b.id)).length;
+  if(document.getElementById('bills-sum-strip')){
+    showSumStrip('bills-sum-strip',data.length>0);
+    setText('bss-count',data.length);setText('bss-amt','₹'+fmt(totalAmt));
+    setText('bss-recv','₹'+fmt(totalRecv));setText('bss-bal','₹'+fmt(totalBal));
+    setText('bss-sel',selCount||'-');
+  }
+  const tbody=document.getElementById('bills-body');if(!tbody)return;
+  if(!data.length){tbody.innerHTML='<tr><td colspan="14" style="text-align:center;padding:20px;color:var(--t3)">No bills found</td></tr>';return}
+  tbody.innerHTML=data.map(b=>{
+    const s=getStatus(b);const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+    const wt=b.rows?.reduce((x,r)=>x+(r.weight||0),0)||0;
+    const rate=b.rows?.length===1?b.rows[0].rate:'Multi';
+    const sel=selectedBills.has(b.id);
+    return`<tr class="${sel?'sel':''}" oncontextmenu="showCtxMenu(event,'${b.id}')">
+      <td><input type="checkbox" ${sel?'checked':''} onchange="toggleBillSel('${b.id}',this)"></td>
+      <td>${b.date}</td>
+      <td><strong>${b.party}</strong>${b.broker?`<br><span style="font-size:10px;color:var(--t3)">${b.broker}</span>`:''}</td>
+      <td style="font-size:11px;color:var(--t3)">${b.broker||'-'}</td>
+      <td>${gr}</td><td class="mn">${fmt(wt)}</td><td class="mn">${rate}</td>
+      <td class="mn">${b.cgst?fmt(b.cgst):'-'}</td><td class="mn">${b.sgst?fmt(b.sgst):'-'}</td>
+      <td class="mn tp">₹${fmt(b.netAmt)}</td>
+      <td class="mn tp">₹${fmt(s.recv)}</td>
+      <td class="mn ${s.bal>0?'tam':'tp'}">₹${fmt(s.bal)}</td>
+      <td>${statusBadge(s.status)}</td>
+      <td>
+        <div class="br2">
+          <button class="btn ba btn-sm" onclick="openPayModal('${b.id}')" title="Payment">💰</button>
+          <button class="btn bs btn-sm" onclick="viewBill('${b.id}')" title="View">👁</button>
+          <button class="btn brd btn-sm" onclick="deleteBill('${b.id}')" title="Delete">🗑</button>
+        </div>
+      </td>
+    </tr>`
+  }).join('');
+  updateSelectionBar()
+}
+
+function toggleBillSel(id,cb){
+  if(cb.checked)selectedBills.add(id);else selectedBills.delete(id);
+  updateSelectionBar();renderBills()
+}
+
+window.toggleAllBills=function(cb){
+  const q=(v('bills-q')||'').toLowerCase();const sf=v('bills-status');
+  bills.filter(b=>{
+    const s=getStatus(b);
+    if(sf!=='all'&&s.status!==sf)return false;
+    if(q&&!b.party.toLowerCase().includes(q))return false;
+    return true
+  }).forEach(b=>{if(cb.checked)selectedBills.add(b.id);else selectedBills.delete(b.id)});
+  updateSelectionBar();renderBills()
+};
+
+window.clearSelection=function(){selectedBills.clear();updateSelectionBar();renderBills()};
+
+function updateSelectionBar(){
+  const bar=document.getElementById('sum-bar');
+  if(!bar)return;
+  if(!selectedBills.size){bar.classList.remove('on');return}
+  const selBills=bills.filter(b=>selectedBills.has(b.id));
+  let net=0,recv=0,bal=0;
+  selBills.forEach(b=>{const s=getStatus(b);net+=b.netAmt;recv+=s.recv;bal+=s.bal});
+  setText('sum-count',selectedBills.size);setText('sum-net','₹'+fmt(net));
+  setText('sum-recv','₹'+fmt(recv));setText('sum-bal','₹'+fmt(bal));
+  bar.classList.add('on')
+}
+
+window.paySelected=function(){
+  if(!selectedBills.size)return;
+  nav('receive')
+};
+
+window.exportSelected=function(){
+  const selBills=bills.filter(b=>selectedBills.has(b.id));
+  exportToExcel(selBills,'Selected_Bills')
+};
+
+window.deleteSelected=async function(){
+  if(!selectedBills.size){toast('Koi bill select nahi hai!','err');return}
+  if(!confirm(`${selectedBills.size} bills DELETE karna chahte ho? Ye wapas nahi aayengi!`))return;
+  let deleted=0;let errors=0;
+  for(const id of selectedBills){
+    try{
+      await window._db.collection('users/'+window._auth.currentUser.uid+'/bills').doc(id).delete();
+      deleted++
+    }catch(e){errors++;console.error(e)}
+  }
+  selectedBills.clear();
+  updateSelectionBar();
+  toast(`✅ ${deleted} bills deleted!${errors?' ('+errors+' errors)':''}`,deleted>0?'ok':'err')
+};
+
+// ═══════════════════════════════════════════
+// DUE LIST
+// ═══════════════════════════════════════════
+function renderDue(){
+  populateDueFilters();
+  const q=(v('due-q')||'').toLowerCase();
+  const f=v('due-filter');
+  const bf=v('due-broker');
+  const pf=v('due-party');
+  const gf=v('due-grade');
+  const mf=v('due-month');
+  const sortBy=v('due-sort')||'bal-desc';
+
+  let data=bills.filter(b=>{
+    const s=getStatus(b);if(s.status==='paid')return false;
+    if(f==='due'&&s.status!=='due')return false;
+    if(f==='partial'&&s.status!=='partial')return false;
+    if(bf&&(b.broker||'').toUpperCase()!==bf)return false;
+    if(gf&&!b.rows?.some(r=>r.grade===gf))return false;
+    if(q&&!b.party.toLowerCase().includes(q)&&!(b.broker||'').toLowerCase().includes(q)&&!(b.billNo||'').toLowerCase().includes(q))return false;
+    return true
+  });
+
+  // Sort
+  data.sort((a,b2)=>{
+    const sa=getStatus(a);const sb=getStatus(b2);
+    const da=daysSince(a.date);const db=daysSince(b2.date);
+    if(sortBy==='bal-desc')return sb.bal-sa.bal;
+    if(sortBy==='bal-asc')return sa.bal-sb.bal;
+    if(sortBy==='party-asc')return a.party.localeCompare(b2.party);
+    if(sortBy==='broker-asc')return (a.broker||'').localeCompare(b2.broker||'');
+    if(sortBy==='days-desc')return db-da;
+    if(sortBy==='days-asc')return da-db;
+    if(sortBy==='amt-desc')return b2.netAmt-a.netAmt;
+    if(sortBy==='recv')return sb.recv-sa.recv;
+    return 0;
+  });
+
+  // Update summary bar
+  const totalBal=data.reduce((s,b)=>s+getStatus(b).bal,0);
+  const parties=new Set(data.map(b=>b.party)).size;
+  const brokers=new Set(data.filter(b=>b.broker).map(b=>b.broker)).size;
+  setText('due-sum-total','₹'+fmt(totalBal));
+  setText('due-sum-count',data.length);
+  setText('due-sum-parties',parties);
+  setText('due-sum-brokers',brokers);
+
+  // Populate broker dropdown dynamically
+  const brokerSel=document.getElementById('due-broker');
+  if(brokerSel){
+    const curBroker=brokerSel.value;
+    const allBrokers=[...new Set(bills.filter(b=>b.broker&&getStatus(b).status!=='paid').map(b=>b.broker.toUpperCase()))].sort();
+    brokerSel.innerHTML='<option value="">All Brokers</option>'+allBrokers.map(br=>`<option value="${br}" ${br===curBroker?'selected':''}>${br}</option>`).join('');
+  }
+
+  // Populate grade dropdown
+  const gradeSel=document.getElementById('due-grade');
+  if(gradeSel){
+    const curGrade=gradeSel.value;
+    const allGrades=[...new Set(bills.filter(b=>getStatus(b).status!=='paid').flatMap(b=>b.rows?.map(r=>r.grade)||[]))].sort();
+    gradeSel.innerHTML='<option value="">All Grades</option>'+allGrades.map(g=>`<option value="${g}" ${g===curGrade?'selected':''}>${g}</option>`).join('');
+  }
+
+  const tbody=document.getElementById('due-body');if(!tbody)return;
+  if(!data.length){tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--t3)">No pending bills! 🎉</td></tr>';return}
+
+  tbody.innerHTML=data.map(b=>{
+    const s=getStatus(b);const days=daysSince(b.date);
+    const interest=calcInterest(b);const gr=b.rows?.map(r=>r.grade).join(', ')||''
+    return`<tr>
+      <td style="font-family:monospace;font-size:11px;color:var(--t3)">${b.billNo||'-'}</td>
+      <td>${b.date}</td>
+      <td>
+        <strong>${b.party}</strong>
+        ${b.partyAddress?`<br><span style="font-size:10px;color:var(--t3)">${b.partyAddress}</span>`:''}
+      </td>
+      <td>
+        <span style="font-size:12px;font-weight:600;color:var(--bl)">${b.broker||'<span style="color:var(--t3)">-</span>'}</span>
+      </td>
+      <td>${gr}</td>
+      <td class="mn tp">₹${fmt(b.netAmt)}</td>
+      <td class="mn tp">₹${fmt(s.recv)}</td>
+      <td class="mn tam" style="font-size:15px;font-weight:700">₹${fmt(s.bal)}</td>
+      <td><span style="font-weight:700;color:${days>60?'var(--rd)':days>30?'var(--am)':'var(--g)'}">${days}d</span></td>
+      <td class="mn ${interest>0?'tr':''}">${interest>0?'₹'+fmt(interest):'-'}</td>
+      <td>${statusBadge(s.status)}</td>
+      <td>
+        <div class="br2">
+          <button class="btn ba btn-sm" onclick="openPayModal('${b.id}')">💰</button>
+          <button class="btn bs btn-sm" onclick="viewBill('${b.id}')">👁</button>
+        </div>
+      </td>
+    </tr>`
+  }).join('')
+}
+
+window.setDueSort=function(col){
+  const sel=document.getElementById('due-sort');
+  if(!sel)return;
+  const cur=sel.value;
+  if(cur.startsWith(col)){
+    sel.value=cur.endsWith('asc')?col+'-desc':col+'-asc';
+  }else{sel.value=col+'-desc'}
+  renderDue()
+};
+
+window.resetDueFilters=function(){
+  ['due-q','due-broker','due-grade'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  document.getElementById('due-filter').value='all';
+  document.getElementById('due-sort').value='bal-desc';
+  renderDue()
+};
+
+// ═══════════════════════════════════════════
+// RECEIVE PAYMENT (MULTI-BILL)
+// ═══════════════════════════════════════════
+function populateReceiveBills(){
+  const container=document.getElementById('recv-bills-list');if(!container)return;
+  const partyFilter=(v('recv-party')||'').toLowerCase();
+  const pending=bills.filter(b=>{
+    const s=getStatus(b);
+    if(s.status==='paid')return false;
+    if(partyFilter&&!b.party.toLowerCase().includes(partyFilter))return false;
+    return true
+  });
+  if(!pending.length){container.innerHTML='<div style="text-align:center;padding:16px;color:var(--t3);font-size:12px">No pending bills for this party</div>';return}
+  container.innerHTML=pending.map(b=>{
+    const s=getStatus(b);const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+    return`<div class="fc-row" id="recv-row-${b.id}">
+      <input type="checkbox" id="recv-chk-${b.id}" onchange="updateRecvTotal()">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:12px">${b.party} <span style="color:var(--t3);font-size:10px">${b.date}</span></div>
+        <div style="font-size:11px;color:var(--t3)">${gr} ${b.broker?'· Broker: '+b.broker:''}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="mn" style="font-size:11px;color:var(--t3)">Bill: ₹${fmt(b.netAmt)}</div>
+        <div class="mn tam" style="font-weight:700">Due: ₹${fmt(s.bal)}</div>
+      </div>
+      <div style="width:110px;flex-shrink:0">
+        <input type="number" id="recv-amt-${b.id}" placeholder="₹${fmt(s.bal)}" value="${fmt2(s.bal)}" style="font-size:11px;padding:4px 6px" oninput="updateRecvTotal()">
+      </div>
+    </div>`
+  }).join('')
+}
+
+function fmt2(n){return Math.round(n||0)}
+
+window.filterRecvBills=function(){populateReceiveBills()};
+
+function updateRecvTotal(){
+  let total=0;
+  bills.forEach(b=>{
+    const chk=document.getElementById('recv-chk-'+b.id);
+    const amt=document.getElementById('recv-amt-'+b.id);
+    if(chk?.checked&&amt){total+=parseFloat(amt.value)||0}
+  });
+  setText('recv-total','₹'+fmt(total))
+}
+
+window.submitRecvPayment=async function(){
+  const date=v('recv-date');const mode=v('recv-mode');
+  if(!date||!mode){toast('Date aur mode required!','err');return}
+  const batch=window._db.batch();let count=0;let totalAmt=0;
+  for(const b of bills){
+    const chk=document.getElementById('recv-chk-'+b.id);
+    const amtEl=document.getElementById('recv-amt-'+b.id);
+    if(!chk?.checked)continue;
+    const amt=parseFloat(amtEl?.value)||0;
+    if(!amt)continue;
+    const payment={id:'P'+Date.now()+Math.random().toString(36).slice(2,6),date,amount:amt,mode,
+      chequeNo:v('recv-chq'),bank:v('recv-bank'),remarks:v('recv-rmk'),createdAt:new Date().toISOString()};
+    const billRef=docRef('bills',b.id);
+    const updPayments=[...(b.payments||[]),payment];
+    batch.update(billRef,{payments:updPayments});
+    count++;totalAmt+=amt
+  }
+  if(!count){toast('Koi bill select nahi kiya!','err');return}
+  try{
+    await batch.commit();
+    toast(`✅ ${count} bills ka payment ₹${fmt(totalAmt)} recorded!`,'ok');
+    clearRecv()
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+window.clearRecv=function(){
+  document.querySelectorAll('[id^="recv-chk-"]').forEach(c=>c.checked=false);
+  updateRecvTotal()
+};
+
+// ═══════════════════════════════════════════
+// PAYMENT MODAL (SINGLE BILL)
+// ═══════════════════════════════════════════
+window.openPayModal=function(id){
+  currentPayBillId=id;
+  const b=bills.find(x=>x.id===id);if(!b)return;
+  const s=getStatus(b);const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+  document.getElementById('pay-modal-info').innerHTML=
+    `<strong>Party:</strong> ${b.party} &nbsp;|&nbsp; <strong>Date:</strong> ${b.date}<br>
+     <strong>Grade:</strong> ${gr} &nbsp;|&nbsp; <strong>Bill Amt:</strong> ₹${fmt(b.netAmt)}<br>
+     <strong>Received:</strong> <span class="tp">₹${fmt(s.recv)}</span> &nbsp;|&nbsp;
+     <strong>Balance:</strong> <span class="tam">₹${fmt(s.bal)}</span>
+     ${calcInterest(b)>0?`&nbsp;|&nbsp; <strong>Interest:</strong> <span class="tr">₹${fmt(calcInterest(b))}</span>`:''}`;
+  const hist=document.getElementById('pay-modal-hist');
+  hist.innerHTML=(b.payments||[]).length?
+    `<div class="stl">Payment History</div>`+
+    `<div style="max-height:180px;overflow-y:auto">`+
+    (b.payments||[]).map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--b);font-size:12px">
+      <span>${p.date}</span><span class="bdg bd-adv">${p.mode}</span>
+      <span class="mn tp">₹${fmt(p.amount)}</span>
+      <span style="color:var(--t3);font-size:10px">${p.remarks||''}</span>
+      <button onclick="deletePayment('${id}','${p.id}')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:12px">✕</button>
+    </div>`).join('')+`</div>`:'<div style="color:var(--t3);font-size:12px;padding:4px 0">No payments yet</div>';
+  document.getElementById('pm-date').value=today();
+  document.getElementById('pm-amt').value=s.bal>0?Math.round(s.bal):'';
+  document.getElementById('pm-rmk').value='';document.getElementById('pm-chq').value='';
+  openModal('pay-modal')
+};
+
+window.submitSinglePayment=async function(){
+  const b=bills.find(x=>x.id===currentPayBillId);if(!b)return;
+  const amt=parseFloat(v('pm-amt'));const date=v('pm-date');
+  if(!amt||amt<=0||!date){toast('Amount aur date required!','err');return}
+  const payment={id:'P'+Date.now(),date,amount:amt,mode:v('pm-mode'),chequeNo:v('pm-chq'),remarks:v('pm-rmk'),createdAt:new Date().toISOString()};
+  try{
+    await docRef('bills',currentPayBillId).update({payments:[...(b.payments||[]),payment]});
+    toast('✅ Payment ₹'+fmt(amt)+' recorded!','ok');closeModal('pay-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+window.deletePayment=async function(billId,payId){
+  if(!confirm('Delete this payment?'))return;
+  const b=bills.find(x=>x.id===billId);if(!b)return;
+  const newPayments=(b.payments||[]).filter(p=>p.id!==payId);
+  await docRef('bills',billId).update({payments:newPayments});
+  openPayModal(billId)
+};
+
+window.deleteBill=async function(id){
+  if(!confirm('Bill delete karna chahte ho? Data wapas nahi aayega.'))return;
+  await docRef('bills',id).delete();
+  toast('Bill deleted','inf')
+};
+
+// ═══════════════════════════════════════════
+// CHEQUES
+// ═══════════════════════════════════════════
+window.openChequeModal=function(){
+  document.getElementById('ch-date').value=today();
+  ['ch-party','ch-no','ch-bank','ch-amt','ch-bounce','ch-bill','ch-rmk'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  openModal('chq-modal')
+};
+
+window.saveCheque=async function(){
+  const party=v('ch-party').toUpperCase();const no=v('ch-no');const amt=parseFloat(v('ch-amt'));const date=v('ch-date');
+  if(!party||!no||!amt||!date){toast('Party, cheque no, amount, date required!','err');return}
+  try{
+    await col('cheques').add({party,chequeNo:no,bank:v('ch-bank'),date,amount:amt,status:v('ch-status'),bounceReason:v('ch-bounce'),linkedBillId:v('ch-bill'),remarks:v('ch-rmk'),createdAt:new Date().toISOString()});
+    toast('✅ Cheque saved!','ok');closeModal('chq-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+window.updateChequeStatus=async function(id){
+  const statuses=['Received','Deposited','Cleared','Bounced'];
+  const c=cheques.find(x=>x.id===id);if(!c)return;
+  const cur=statuses.indexOf(c.status);const next=statuses[(cur+1)%statuses.length];
+  if(!confirm(`Status change to "${next}"?`))return;
+  await docRef('cheques',id).update({status:next});
+  toast('Cheque status: '+next,'ok')
+};
+
+function renderCheques(){
+  // Populate filters
+  const allParties=[...new Set(cheques.map(c=>c.party))].sort();
+  const allBanks=[...new Set(cheques.filter(c=>c.bank).map(c=>c.bank))].sort();
+  const allMonths=getMonths(cheques,'date');
+  populateSelect('chq-party',allParties,'All Parties');
+  populateSelect('chq-bank',allBanks,'All Banks');
+  populateSelect('chq-month',allMonths,'All Months');
+
+  const q=(v('chq-q')||'').toLowerCase();
+  const f=v('chq-filter');const pf=v('chq-party');
+  const bankf=v('chq-bank');const mf=v('chq-month');
+  const sortBy=v('chq-sort')||'date-desc';
+
+  let data=cheques.filter(c=>{
+    if(f!=='all'&&c.status!==f)return false;
+    if(pf&&c.party!==pf)return false;
+    if(bankf&&c.bank!==bankf)return false;
+    if(mf&&!c.date?.startsWith(mf))return false;
+    if(q&&!c.party.toLowerCase().includes(q)&&!(c.chequeNo||'').toLowerCase().includes(q)&&!(c.bank||'').toLowerCase().includes(q))return false;
+    return true
+  });
+
+  data.sort((a,b)=>{
+    if(sortBy==='date-desc')return a.date<b.date?1:-1;
+    if(sortBy==='date-asc')return a.date>b.date?1:-1;
+    if(sortBy==='amt-desc')return b.amount-a.amount;
+    if(sortBy==='party-asc')return a.party.localeCompare(b.party);
+    return 0
+  });
+
+  // Summary
+  const totalAmt=data.reduce((s,c)=>s+(c.amount||0),0);
+  const pending=data.filter(c=>['Received','Deposited'].includes(c.status)).length;
+  const bounced=data.filter(c=>c.status==='Bounced').length;
+  showSumStrip('chq-sum-strip',data.length>0);
+  setText('css-count',data.length);setText('css-amt','₹'+fmt(totalAmt));
+  setText('css-pending',pending);setText('css-bounced',bounced);
+  const tbody=document.getElementById('chq-body');if(!tbody)return;
+  tbody.innerHTML=data.length?data.map(c=>`<tr>
+    <td>${c.date}</td><td><strong>${c.party}</strong></td>
+    <td class="mn">${c.chequeNo}</td><td>${c.bank||'-'}</td>
+    <td class="mn tp">₹${fmt(c.amount)}</td>
+    <td><span class="bdg ${c.status==='Cleared'?'bd-pd':c.status==='Bounced'?'bd-bnc':'bd-pt'}">${c.status}</span></td>
+    <td style="color:var(--rd);font-size:11px">${c.bounceReason||'-'}</td>
+    <td style="font-size:11px;color:var(--t3)">${c.linkedBillId||'-'}</td>
+    <td><div class="br2">
+      <button class="btn bs btn-sm" onclick="updateChequeStatus('${c.id}')">Update</button>
+      <button class="btn brd btn-sm" onclick="deleteCheque('${c.id}')">🗑</button>
+    </div></td>
+  </tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--t3)">No cheques</td></tr>'
+}
+
+window.deleteCheque=async function(id){
+  if(!confirm('Delete cheque?'))return;
+  await docRef('cheques',id).delete();toast('Deleted','inf')
+};
+
+// ═══════════════════════════════════════════
+// ADVANCES
+// ═══════════════════════════════════════════
+window.openAdvModal=function(){
+  document.getElementById('adv-date').value=today();
+  ['adv-party','adv-amt','adv-rmk','adv-bill'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  openModal('adv-modal')
+};
+
+window.saveAdvance=async function(){
+  const party=v('adv-party').toUpperCase();const amt=parseFloat(v('adv-amt'));const date=v('adv-date');
+  if(!party||!amt||!date){toast('Party, amount, date required!','err');return}
+  try{
+    await col('advances').add({party,amount:amt,date,mode:v('adv-mode'),remarks:v('adv-rmk'),linkedBillId:v('adv-bill'),linked:!!v('adv-bill'),createdAt:new Date().toISOString()});
+    toast('✅ Advance saved!','ok');closeModal('adv-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+function renderAdvances(){
+  const allMonths=getMonths(advances,'date');
+  populateSelect('adv-month',allMonths,'All Months');
+
+  const q=(v('adv-q')||'').toLowerCase();
+  const sf=v('adv-status-filter')||'all';
+  const mf=v('adv-mode-filter');const mth=v('adv-month');
+  const sortBy=v('adv-sort')||'date-desc';
+
+  let data=advances.filter(a=>{
+    if(sf==='linked'&&!a.linked)return false;
+    if(sf==='unlinked'&&a.linked)return false;
+    if(mf&&a.mode!==mf)return false;
+    if(mth&&!a.date?.startsWith(mth))return false;
+    if(q&&!a.party.toLowerCase().includes(q)&&!(a.remarks||'').toLowerCase().includes(q))return false;
+    return true
+  });
+
+  data.sort((a,b)=>{
+    if(sortBy==='date-desc')return a.date<b.date?1:-1;
+    if(sortBy==='date-asc')return a.date>b.date?1:-1;
+    if(sortBy==='amt-desc')return b.amount-a.amount;
+    if(sortBy==='party-asc')return a.party.localeCompare(b.party);
+    return 0
+  });
+
+  const totalAmt=data.reduce((s,a)=>s+(a.amount||0),0);
+  const unlinkedAmt=data.filter(a=>!a.linked).reduce((s,a)=>s+(a.amount||0),0);
+  showSumStrip('adv-sum-strip',data.length>0);
+  setText('ass-count',data.length);setText('ass-amt','₹'+fmt(totalAmt));setText('ass-unlinked','₹'+fmt(unlinkedAmt));
+
+  const tbody=document.getElementById('adv-body');if(!tbody)return;
+  tbody.innerHTML=data.length?data.map(a=>`<tr>
+    <td>${a.date}</td><td><strong>${a.party}</strong></td>
+    <td class="mn tp">₹${fmt(a.amount)}</td><td>${a.mode}</td>
+    <td>${a.remarks||'-'}</td>
+    <td style="font-size:11px;color:var(--t3)">${a.linkedBillId||'Unlinked'}</td>
+    <td><span class="bdg ${a.linked?'bd-pd':'bd-adv'}">${a.linked?'Linked':'Pending'}</span></td>
+    <td><button class="btn brd btn-sm" onclick="deleteAdv('${a.id}')">🗑</button></td>
+  </tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--t3)">No advances</td></tr>'
+}
+
+window.deleteAdv=async function(id){if(!confirm('Delete?'))return;await docRef('advances',id).delete()};
+
+// ═══════════════════════════════════════════
+// SALES RETURNS
+// ═══════════════════════════════════════════
+function populateReturnBills(){
+  const sel=document.getElementById('ret-bill');if(!sel)return;
+  sel.innerHTML='<option value="">Select original bill...</option>'+
+    bills.map(b=>`<option value="${b.id}">${b.party} | ${b.date} | ${b.rows?.map(r=>r.grade).join(',')||''} | ₹${fmt(b.netAmt)}</option>`).join('')
+}
+
+window.calcReturnAmt=function(){
+  const wt=parseFloat(v('ret-wt'))||0;const rate=parseFloat(v('ret-rate'))||0;
+  const el=document.getElementById('ret-amt');if(el)el.value=wt*rate||''
+};
+
+window.openReturnModal=function(){
+  populateReturnBills();
+  document.getElementById('ret-date').value=today();
+  ['ret-grade','ret-wt','ret-rate','ret-amt','ret-reason'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  openModal('ret-modal')
+};
+
+window.saveReturn=async function(){
+  const billId=v('ret-bill');const date=v('ret-date');const retAmt=parseFloat(v('ret-amt'))||0;
+  if(!billId||!date||!retAmt){toast('Bill, date, amount required!','err');return}
+  const b=bills.find(x=>x.id===billId);
+  try{
+    await col('returns').add({billId,party:b?.party||'',date,grade:v('ret-grade'),weight:parseFloat(v('ret-wt'))||0,rate:parseFloat(v('ret-rate'))||0,retAmt,reason:v('ret-reason'),createdAt:new Date().toISOString()});
+    toast('✅ Return saved!','ok');closeModal('ret-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+function renderReturns(){
+  const allMonths=getMonths(returns,'date');
+  populateSelect('ret-month',allMonths,'All Months');
+
+  const q=(v('ret-q')||'').toLowerCase();
+  const mth=v('ret-month');
+
+  let data=returns.filter(r=>{
+    if(mth&&!r.date?.startsWith(mth))return false;
+    if(q&&!r.party.toLowerCase().includes(q)&&!(r.grade||'').toLowerCase().includes(q)&&!(r.reason||'').toLowerCase().includes(q))return false;
+    return true
+  });
+
+  const tbody=document.getElementById('ret-body');if(!tbody)return;
+  tbody.innerHTML=data.length?data.map(r=>`<tr>
+    <td>${r.date}</td><td style="font-size:11px;color:var(--t3)">${r.billId}</td>
+    <td><strong>${r.party}</strong></td><td>${r.grade}</td>
+    <td class="mn">${r.weight}</td><td class="mn tr">₹${fmt(r.retAmt)}</td>
+    <td>${r.reason||'-'}</td>
+    <td><button class="btn brd btn-sm" onclick="deleteReturn('${r.id}')">🗑</button></td>
+  </tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--t3)">No returns</td></tr>'
+}
+
+window.deleteReturn=async function(id){if(!confirm('Delete?'))return;await docRef('returns',id).delete()};
+
+// ═══════════════════════════════════════════
+// EXPENSES
+// ═══════════════════════════════════════════
+window.openExpModal=function(){document.getElementById('exp-date').value=today();['exp-amt','exp-desc','exp-rmk'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});openModal('exp-modal')};
+
+window.saveExpense=async function(){
+  const date=v('exp-date');const amt=parseFloat(v('exp-amt'));const desc=v('exp-desc');
+  if(!date||!amt||!desc){toast('Date, amount, description required!','err');return}
+  try{
+    await col('expenses').add({date,category:v('exp-cat'),description:desc,amount:amt,mode:v('exp-mode'),remarks:v('exp-rmk'),createdAt:new Date().toISOString()});
+    toast('✅ Expense saved!','ok');closeModal('exp-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+function renderExpenses(){
+  const allMonths=getMonths(expenses,'date');
+  populateSelect('exp-month',allMonths,'All Months');
+
+  const q=(v('exp-q')||'').toLowerCase();
+  const f=v('exp-cat-filter')||'all';
+  const mf=v('exp-mode-filter');const mth=v('exp-month');
+  const sortBy=v('exp-sort')||'date-desc';
+
+  let data=expenses.filter(e=>{
+    if(f!=='all'&&e.category!==f)return false;
+    if(mf&&e.mode!==mf)return false;
+    if(mth&&!e.date?.startsWith(mth))return false;
+    if(q&&!e.description.toLowerCase().includes(q)&&!(e.category||'').toLowerCase().includes(q)&&!(e.remarks||'').toLowerCase().includes(q))return false;
+    return true
+  });
+
+  data.sort((a,b)=>{
+    if(sortBy==='date-desc')return a.date<b.date?1:-1;
+    if(sortBy==='date-asc')return a.date>b.date?1:-1;
+    if(sortBy==='amt-desc')return b.amount-a.amount;
+    if(sortBy==='cat-asc')return (a.category||'').localeCompare(b.category||'');
+    return 0
+  });
+
+  const expTotal=data.reduce((s,e)=>s+(e.amount||0),0);
+  showSumStrip('exp-sum-strip',data.length>0);
+  setText('ess-count',data.length);setText('ess-amt','₹'+fmt(expTotal));
+  const tbody=document.getElementById('exp-body');if(!tbody)return;
+  const total=data.reduce((s,e)=>s+(e.amount||0),0);
+  tbody.innerHTML=(data.length?data.map(e=>`<tr>
+    <td>${e.date}</td><td><span class="bdg bd-exp">${e.category}</span></td>
+    <td>${e.description}</td><td class="mn tr">₹${fmt(e.amount)}</td>
+    <td>${e.mode}</td><td>${e.remarks||'-'}</td>
+    <td><button class="btn brd btn-sm" onclick="deleteExp('${e.id}')">🗑</button></td>
+  </tr>`).join(''):'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--t3)">No expenses</td></tr>')+
+  (data.length?`<tr style="background:var(--s2)"><td colspan="3" style="font-weight:700">Total</td><td class="mn tr" style="font-weight:700">₹${fmt(total)}</td><td colspan="3"></td></tr>`:'')
+}
+
+window.deleteExp=async function(id){if(!confirm('Delete?'))return;await docRef('expenses',id).delete()};
+
+// ═══════════════════════════════════════════
+// CASH BOOK
+// ═══════════════════════════════════════════
+window.openCashModal=function(){document.getElementById('cash-date').value=today();['cash-amt','cash-desc','cash-rmk'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});openModal('cash-modal')};
+
+window.saveCashEntry=async function(){
+  const date=v('cash-date');const amt=parseFloat(v('cash-amt'));const desc=v('cash-desc');
+  if(!date||!amt||!desc){toast('Date, amount, description required!','err');return}
+  try{
+    await col('cashbook').add({date,type:v('cash-type'),description:desc,amount:amt,remarks:v('cash-rmk'),createdAt:new Date().toISOString()});
+    toast('✅ Cash entry saved!','ok');closeModal('cash-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+function renderCashBook(){
+  const month=v('cash-month');
+  const data=(month?cashEntries.filter(e=>e.date?.startsWith(month)):cashEntries).sort((a,b)=>a.date>b.date?1:-1);
+  const tbody=document.getElementById('cash-body');if(!tbody)return;
+  let balance=0;let cashTotalIn=0;let cashTotalOut=0;
+  const rows=data.map(e=>{
+    if(e.type==='in'){balance+=e.amount;cashTotalIn+=e.amount}
+    else{balance-=e.amount;cashTotalOut+=e.amount}
+    return`<tr>
+      <td>${e.date}</td>
+      <td><span class="bdg ${e.type==='in'?'bd-pd':'bd-due'}">${e.type==='in'?'Cash In':'Cash Out'}</span></td>
+      <td>${e.description}</td>
+      <td class="mn ${e.type==='in'?'tp':''}">${e.type==='in'?'₹'+fmt(e.amount):'-'}</td>
+      <td class="mn ${e.type==='out'?'tr':''}">${e.type==='out'?'₹'+fmt(e.amount):'-'}</td>
+      <td class="mn ${balance>=0?'tp':'tr'}">₹${fmt(balance)}</td>
+      <td><button class="btn brd btn-sm" onclick="deleteCash('${e.id}')">🗑</button></td>
+    </tr>`
+  });
+  setText('cash-balance-bar',`Cash In: ₹${fmt(cashTotalIn)} | Cash Out: ₹${fmt(cashTotalOut)} | Net Balance: ₹${fmt(cashTotalIn-cashTotalOut)}`);
+  tbody.innerHTML=rows.length?rows.join(''):'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--t3)">No cash entries</td></tr>'
+}
+
+window.deleteCash=async function(id){if(!confirm('Delete?'))return;await docRef('cashbook',id).delete()};
+
+// ═══════════════════════════════════════════
+// PURCHASE
+// ═══════════════════════════════════════════
+window.calcPurAmt=function(){
+  const wt=parseFloat(v('pur-wt'))||0;const rate=parseFloat(v('pur-rate'))||0;
+  const cgst=parseFloat(v('pur-cgst'))||0;const sgst=parseFloat(v('pur-sgst'))||0;
+  const el=document.getElementById('pur-amt');if(el)el.value=wt*rate+cgst+sgst||''
+};
+
+window.openPurchaseModal=function(){document.getElementById('pur-date').value=today();['pur-supplier','pur-grade','pur-wt','pur-rate','pur-amt','pur-cgst','pur-sgst','pur-rmk'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});openModal('pur-modal')};
+
+window.savePurchase=async function(){
+  const supplier=v('pur-supplier').toUpperCase();const date=v('pur-date');const amt=parseFloat(v('pur-amt'));
+  if(!supplier||!date||!amt){toast('Supplier, date, amount required!','err');return}
+  try{
+    await col('purchases').add({date,supplier,grade:v('pur-grade'),weight:parseFloat(v('pur-wt'))||0,rate:parseFloat(v('pur-rate'))||0,netAmt:amt,cgst:parseFloat(v('pur-cgst'))||0,sgst:parseFloat(v('pur-sgst'))||0,status:v('pur-status'),remarks:v('pur-rmk'),createdAt:new Date().toISOString()});
+    toast('✅ Purchase saved!','ok');closeModal('pur-modal')
+  }catch(e){toast('Error: '+e.message,'err')}
+};
+
+function renderPurchases(){
+  const allGrades=[...new Set(purchases.filter(p=>p.grade).map(p=>p.grade))].sort();
+  const allMonths=getMonths(purchases,'date');
+  populateSelect('pur-grade-filter',allGrades,'All Grades');
+  populateSelect('pur-month',allMonths,'All Months');
+
+  const q=(v('pur-q')||'').toLowerCase();
+  const sf=v('pur-status-filter')||'all';
+  const gf=v('pur-grade-filter');const mth=v('pur-month');
+  const sortBy=v('pur-sort')||'date-desc';
+
+  let data=purchases.filter(p=>{
+    if(sf!=='all'&&p.status!==sf)return false;
+    if(gf&&p.grade!==gf)return false;
+    if(mth&&!p.date?.startsWith(mth))return false;
+    if(q&&!p.supplier.toLowerCase().includes(q)&&!(p.grade||'').toLowerCase().includes(q))return false;
+    return true
+  });
+
+  data.sort((a,b)=>{
+    if(sortBy==='date-desc')return a.date<b.date?1:-1;
+    if(sortBy==='date-asc')return a.date>b.date?1:-1;
+    if(sortBy==='amt-desc')return b.netAmt-a.netAmt;
+    if(sortBy==='supplier-asc')return a.supplier.localeCompare(b.supplier);
+    return 0
+  });
+
+  const totalAmt=data.reduce((s,p)=>s+(p.netAmt||0),0);
+  const unpaidAmt=data.filter(p=>p.status==='Unpaid').reduce((s,p)=>s+(p.netAmt||0),0);
+  showSumStrip('pur-sum-strip',data.length>0);
+  setText('pss-count',data.length);setText('pss-amt','₹'+fmt(totalAmt));setText('pss-unpaid','₹'+fmt(unpaidAmt));
+
+  const tbody=document.getElementById('pur-body');if(!tbody)return;
+  tbody.innerHTML=data.length?data.map(p=>`<tr>
+    <td>${p.date}</td><td><strong>${p.supplier}</strong></td>
+    <td>${p.grade}</td><td class="mn">${p.weight}</td><td class="mn">₹${fmt(p.rate)}</td>
+    <td class="mn tp">₹${fmt(p.netAmt)}</td>
+    <td><span class="bdg ${p.status==='Paid'?'bd-pd':'bd-due'}">${p.status}</span></td>
+    <td><button class="btn brd btn-sm" onclick="deletePur('${p.id}')">🗑</button></td>
+  </tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--t3)">No purchases</td></tr>'
+}
+
+window.deletePur=async function(id){if(!confirm('Delete?'))return;await docRef('purchases',id).delete()};
+
+// ═══════════════════════════════════════════
+// PARTY LEDGER
+// ═══════════════════════════════════════════
+function renderLedgerParties(){
+  const q=(v('ledger-q')||'').toLowerCase();
+  const parties=[...new Set(bills.map(b=>b.party))].filter(p=>!q||p.toLowerCase().includes(q)).sort();
+  const list=document.getElementById('ledger-party-list');if(!list)return;
+  if(!parties.length){list.innerHTML='<div style="padding:16px;text-align:center;color:var(--t3);font-size:12px">No parties</div>';return}
+  list.innerHTML=parties.map(party=>{
+    const partyBills=bills.filter(b=>b.party===party);
+    const totalDue=partyBills.reduce((s,b)=>{const st=getStatus(b);return s+(st.status!=='paid'?st.bal:0)},0);
+    return`<div onclick="openLedger('${party}')" style="padding:10px 14px;border-bottom:1px solid var(--b);cursor:pointer;transition:background .1s" 
+      onmouseover="this.style.background='var(--s2)'" onmouseout="this.style.background=''">
+      <div style="font-weight:600;font-size:12px">${party}</div>
+      <div style="font-size:10px;color:${totalDue>0?'var(--am)':'var(--t3)'};margin-top:2px">
+        ${partyBills.length} bills · ${totalDue>0?'Due: ₹'+fmt(totalDue):'All Clear ✓'}
+      </div>
+    </div>`
+  }).join('')
+}
+
+window.filterLedgerParties=renderLedgerParties;
+
+window.openLedger=function(party){
+  currentLedgerParty=party;
+  setText('ledger-party-nm','📒 '+party);
+  const partyBills=bills.filter(b=>b.party===party).sort((a,b)=>a.date>b.date?1:-1);
+  const partyAdvances=advances.filter(a=>a.party===party);
+  const partyReturns=returns.filter(r=>r.party===party);
+  let balance=0;const rows=[];
+  partyBills.forEach(b=>{
+    balance+=b.netAmt;
+    const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+    rows.push({date:b.date,type:'Bill',details:`${gr} | ₹${fmt(b.netAmt/b.rows?.reduce((s,r)=>s+r.weight,0)||1)}/kg`,debit:b.netAmt,credit:0,balance});
+    (b.payments||[]).forEach(p=>{balance-=p.amount;rows.push({date:p.date,type:'Payment',details:p.mode+(p.chequeNo?' #'+p.chequeNo:'')+(p.remarks?' - '+p.remarks:''),debit:0,credit:p.amount,balance})});
+    partyReturns.filter(r=>r.billId===b.id).forEach(ret=>{balance-=ret.retAmt;rows.push({date:ret.date,type:'Return',details:ret.grade+' '+ret.weight+'kg - '+ret.reason,debit:0,credit:ret.retAmt,balance})})
+  });
+  partyAdvances.forEach(a=>{balance-=a.amount;rows.push({date:a.date,type:'Advance',details:a.mode+(a.remarks?' - '+a.remarks:''),debit:0,credit:a.amount,balance})});
+  rows.sort((a,b)=>a.date>b.date?1:-1);
+  const totalDue=partyBills.reduce((s,b)=>{const st=getStatus(b);return s+(st.bal||0)},0);
+  setText('ledger-party-stats',`${partyBills.length} bills · Balance: ₹${fmt(totalDue)}`);
+  const tbody=document.getElementById('ledger-body');
+  if(tbody)tbody.innerHTML=rows.length?rows.map(r=>`<tr>
+    <td>${r.date}</td>
+    <td><span class="bdg ${r.type==='Bill'?'bd-due':r.type==='Payment'?'bd-pd':r.type==='Return'?'bd-ret':'bd-adv'}">${r.type}</span></td>
+    <td style="font-size:11px">${r.details}</td>
+    <td class="mn tr">${r.debit>0?'₹'+fmt(r.debit):'-'}</td>
+    <td class="mn tp">${r.credit>0?'₹'+fmt(r.credit):'-'}</td>
+    <td class="mn ${r.balance>0?'tam':'tp'}" style="font-weight:700">₹${fmt(r.balance)}</td>
+  </tr>`).join(''):'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--t3)">No transactions</td></tr>'
+};
+
+window.sendWhatsApp=function(){
+  if(!currentLedgerParty)return;
+  const partyBills=bills.filter(b=>b.party===currentLedgerParty&&getStatus(b).status!=='paid');
+  if(!partyBills.length){toast('No pending bills for this party','inf');return}
+  const ledgerTotal=partyBills.reduce((s,b)=>s+(getStatus(b).bal||0),0);
+  const msg=encodeURIComponent(`*${settings.company}*\n\nDear ${currentLedgerParty},\n\nYour outstanding payment details:\n`+
+    partyBills.map(b=>`• Bill ${b.date}: ₹${fmt(getStatus(b).bal)}`).join('\n')+
+    `\n\n*Total Due: ₹${fmt(total)}*\n\nKindly arrange payment at earliest.\n\nThank you.`);
+  window.open('https://wa.me/?text='+msg,'_blank')
+};
+
+// ═══════════════════════════════════════════
+// BANK MATCH
+// ═══════════════════════════════════════════
+window.handleBankPDF=async function(input){
+  if(!input.files[0])return;
+  const file=input.files[0];
+  const isPDF=file.type='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+  document.getElementById('bank-status').textContent='⏳ Reading file...';
+  if(isPDF){
+    try{
+      const arrBuf=await file.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:arrBuf}).promise;
+      let text='';
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const c=await page.getTextContent();
+        text+=c.items.map(x=>x.str).join(' ')+'\n'
+      }
+      document.getElementById('bank-status').textContent='✅ PDF read! Extracting credits...';
+      extractBankCredits(text)
+    }catch(err){
+      document.getElementById('bank-status').textContent='❌ PDF error: '+err.message;
+      toast('PDF load failed. Try image upload.','err')
+    }
+  } else {
+    // Image — use AI to extract credits
+    document.getElementById('bank-status').textContent='⏳ AI se bank statement read ho rahi hai...';
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      const base64=e.target.result.split(',')[1];
+      try{
+        const res=await fetch('https://api.anthropic.com/v1/messages',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,
+            messages:[{role:'user',content:[
+              {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
+              {type:'text',text:'This is a bank statement. Extract ALL credit/deposit entries. Return ONLY JSON array: [{"party":"PARTY NAME","amount":1000,"date":"2026-03-12","mode":"NEFT"}]. No explanation.'}
+            ]}]})
+        });
+        const data=await res.json();
+        const text=data.content?.find(c=>c.type==='text')?.text||'';
+        const match=text.match(/\[[\s\S]*\]/);
+        if(match){
+          const credits=JSON.parse(match[0]);
+          document.getElementById('bank-status').textContent='✅ '+credits.length+' credits found!';
+          showBankCredits(credits)
+        }else{
+          document.getElementById('bank-status').textContent='⚠️ Credits nahi mile. Manual entry karein.';
+        }
+      }catch(err){
+        document.getElementById('bank-status').textContent='❌ Error: '+err.message
+      }
+    };
+    reader.readAsDataURL(file)
+  }
+};
+
+function extractBankCredits(text){
+  const credits=[];
+  const pattern=/(?:NEFT|MMT|IMPS|CLG|RTGS|UPI)[^\n]*?NA\s+([\d,]+\.?\d*)/gi;
+  let m;while((m=pattern.exec(text))!==null){
+    const amt=parseFloat(m[1].replace(/,/g,''));
+    if(amt>100)credits.push({party:m[0].substring(0,40),amount:amt})
+  }
+  document.getElementById('bank-status').textContent=`✅ ${credits.length} credits found`;
+  showBankCredits(credits)
+}
+
+function showBankCredits(credits){
+  const wrap=document.getElementById('bank-credits-wrap');
+  const list=document.getElementById('bank-credits-list');
+  if(!credits.length){list.innerHTML='<div style="color:var(--t3);font-size:12px">No credits found. Manual entry karein.</div>';wrap.style.display='block';return}
+  wrap.style.display='block';
+  const pending=bills.filter(b=>getStatus(b).status!=='paid');
+  list.innerHTML=credits.map((cr,i)=>{
+    const match=pending.find(b=>Math.abs(getStatus(b).bal-cr.amount)<50);
+    return`<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--s2);border-radius:var(--r);margin-bottom:8px;border:1px solid ${match?'var(--gb)':'var(--b)'}">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cr.party}</div>
+        <div class="mn tp" style="font-size:15px;font-weight:700">₹${fmt(cr.amount)}</div>
+      </div>
+      ${match?`<div style="font-size:11px;color:var(--g)">✅ Match: ${match.party}<br>Due: ₹${fmt(getStatus(match).bal)}</div>
+        <button class="btn bp btn-sm" onclick="applyBankPayment('${match.id}',${cr.amount})">Apply</button>`
+      :`<select id="bk-sel-${i}" style="max-width:180px;font-size:11px"><option value="">Select bill...</option>${pending.map(b=>`<option value="${b.id}">${b.party} | ₹${fmt(getStatus(b).bal)}</option>`).join('')}</select>
+        <button class="btn ba btn-sm" onclick="applyBankManual(${i},${cr.amount})">Apply</button>`}
+    </div>`
+  }).join('')
+}
+
+window.applyBankPayment=async function(billId,amount){
+  const b=bills.find(x=>x.id===billId);if(!b)return;
+  const payment={id:'P'+Date.now(),date:today(),amount,mode:'BANK STATEMENT',remarks:'Auto-matched from PDF',createdAt:new Date().toISOString()};
+  await docRef('bills',billId).update({payments:[...(b.payments||[]),payment]});
+  toast('✅ Payment applied: ₹'+fmt(amount),'ok')
+};
+
+window.applyBankManual=async function(i,amount){
+  const sel=document.getElementById('bk-sel-'+i);if(!sel?.value)return;
+  await applyBankPayment(sel.value,amount)
+};
+
+window.addBankCredit=async function(){
+  const party=v('bk-party');const amt=parseFloat(v('bk-amt'));const date=v('bk-date');
+  if(!party||!amt||!date){toast('Party, amount, date required!','err');return}
+  showBankCredits([{party,amount:amt}]);
+  document.getElementById('bk-amt').value='';document.getElementById('bk-party').value=''
+};
+
+// ═══════════════════════════════════════════
+// REPORTS
+// ═══════════════════════════════════════════
+window.switchReport=function(tab,el){
+  document.querySelectorAll('.rtab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');currentReportTab=tab;renderReport(tab)
+};
+
+function renderReport(tab){
+  const el=document.getElementById('report-content');if(!el)return;
+  if(tab==='party')renderPartyReport(el);
+  else if(tab==='grade')renderGradeReport(el);
+  else if(tab==='broker')renderBrokerReport(el);
+  else if(tab==='sales')renderSalesReport(el);
+  else if(tab==='gst')renderGSTReport(el)
+}
+
+function renderPartyReport(el){
+  const parties=[...new Set(bills.map(b=>b.party))].sort();
+  const rows=parties.map(party=>{
+    const pb=bills.filter(b=>b.party===party);
+    const total=pb.reduce((s,b)=>s+b.netAmt,0);
+    const recv=pb.reduce((s,b)=>s+(getStatus(b).recv||0),0);
+    const due=pb.reduce((s,b)=>s+(getStatus(b).bal||0),0);
+    return{party,bills:pb.length,total,recv,due}
+  }).sort((a,b)=>b.due-a.due);
+  el.innerHTML=`<div class="card"><div class="ch"><div class="ct">Party-wise Outstanding</div>
+    <button class="btn bs btn-sm" onclick="exportReportExcel()">📊 Excel</button></div>
+    <div class="tw"><table><thead><tr><th>Party</th><th>Bills</th><th>Total Amt</th><th>Received</th><th>Outstanding</th><th>Status</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td><strong>${r.party}</strong></td><td>${r.bills}</td>
+      <td class="mn tp">₹${fmt(r.total)}</td><td class="mn tp">₹${fmt(r.recv)}</td>
+      <td class="mn tam" style="font-weight:700">₹${fmt(r.due)}</td>
+      <td>${r.due>0?statusBadge('due'):statusBadge('paid')}</td></tr>`).join('')}
+    </tbody></table></div></div>`
+}
+
+function renderGradeReport(el){
+  const gradeMap={};
+  bills.forEach(b=>(b.rows||[]).forEach(r=>{
+    if(!gradeMap[r.grade])gradeMap[r.grade]={grade:r.grade,qty:0,amount:0,bills:0};
+    gradeMap[r.grade].qty+=r.weight;gradeMap[r.grade].amount+=r.taxable;gradeMap[r.grade].bills++
+  }));
+  const rows=Object.values(gradeMap).sort((a,b)=>b.amount-a.amount);
+  el.innerHTML=`<div class="card"><div class="ch"><div class="ct">Grade-wise Sales</div>
+    <button class="btn bs btn-sm" onclick="exportReportExcel()">📊 Excel</button></div>
+    <div class="tw"><table><thead><tr><th>Grade</th><th>Total Qty (kg)</th><th>Taxable Value</th><th>Avg Rate</th><th>Bills</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td><strong>${r.grade}</strong></td>
+      <td class="mn">${fmt(r.qty)} kg</td><td class="mn tp">₹${fmt(r.amount)}</td>
+      <td class="mn">₹${r.qty>0?fmt(r.amount/r.qty):0}/kg</td><td>${r.bills}</td></tr>`).join('')}
+    </tbody></table></div></div>`
+}
+
+function renderBrokerReport(el){
+  const brokerMap={};
+  bills.filter(b=>b.broker).forEach(b=>{
+    if(!brokerMap[b.broker])brokerMap[b.broker]={broker:b.broker,bills:0,paidBills:0,dueBills:0,totalAmt:0,recv:0,outstanding:0,commission:0,diff:0,parties:new Set()};
+    const s=getStatus(b);
+    brokerMap[b.broker].bills++;
+    brokerMap[b.broker].totalAmt+=b.netAmt;
+    brokerMap[b.broker].recv+=s.recv;
+    brokerMap[b.broker].outstanding+=s.bal;
+    brokerMap[b.broker].parties.add(b.party);
+    if(s.status==='paid')brokerMap[b.broker].paidBills++;
+    else brokerMap[b.broker].dueBills++;
+    brokerMap[b.broker].diff+=b.brokerDiff||0;
+    const commission=(b.rows||[]).reduce((s2,r)=>s2+(r.weight*(settings.brokerMargin||0)),0);
+    brokerMap[b.broker].commission+=commission
+  });
+  const rows=Object.values(brokerMap).sort((a,b)=>b.outstanding-a.outstanding);
+  const brokerTotalOut=rows.reduce((s,r)=>s+r.outstanding,0);
+  el.innerHTML=`<div class="card"><div class="ch"><div class="ct">Broker-wise Outstanding Report</div>
+    <button class="btn bs btn-sm" onclick="exportBrokerExcel()">📊 Excel</button></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px;border-bottom:1px solid var(--b)">
+      <div class="sc cr" style="margin:0"><div class="sc-l">Total Outstanding</div><div class="sc-v">₹${fmt(brokerTotalOut)}</div></div>
+      <div class="sc cb" style="margin:0"><div class="sc-l">Total Brokers</div><div class="sc-v">${rows.length}</div></div>
+      <div class="sc cg" style="margin:0"><div class="sc-l">Total Received</div><div class="sc-v">₹${fmt(rows.reduce((s,r)=>s+r.recv,0))}</div></div>
+    </div>
+    <div class="tw"><table><thead><tr>
+      <th onclick="sortBrokerReport('broker')" style="cursor:pointer">Broker ↕</th>
+      <th onclick="sortBrokerReport('bills')" style="cursor:pointer">Bills ↕</th>
+      <th onclick="sortBrokerReport('due')" style="cursor:pointer">Due Bills ↕</th>
+      <th onclick="sortBrokerReport('parties')" style="cursor:pointer">Parties ↕</th>
+      <th onclick="sortBrokerReport('totalAmt')" style="cursor:pointer">Total Sales ↕</th>
+      <th onclick="sortBrokerReport('recv')" style="cursor:pointer">Received ↕</th>
+      <th onclick="sortBrokerReport('outstanding')" style="cursor:pointer">Outstanding ↕</th>
+      <th onclick="sortBrokerReport('diff')" style="cursor:pointer">Rate Diff ↕</th>
+      <th>Commission</th>
+    </tr></thead>
+    <tbody id="broker-report-body">${rows.map(r=>`<tr>
+      <td><strong>${r.broker}</strong></td>
+      <td>${r.bills}</td>
+      <td><span class="bdg ${r.dueBills>0?'bd-due':'bd-pd'}">${r.dueBills} due</span></td>
+      <td style="font-size:11px;color:var(--t3)">${[...r.parties].join(', ')}</td>
+      <td class="mn tp">₹${fmt(r.totalAmt)}</td>
+      <td class="mn tp">₹${fmt(r.recv)}</td>
+      <td class="mn ${r.outstanding>0?'tam':'tp'}" style="font-weight:700">₹${fmt(r.outstanding)}</td>
+      <td class="mn ${r.diff>=0?'tp':'tr'}">₹${fmt(r.diff)}</td>
+      <td class="mn">₹${fmt(r.commission)}</td>
+    </tr>`).join('')}
+    <tr style="background:var(--s2);font-weight:700">
+      <td>TOTAL</td><td>${rows.reduce((s,r)=>s+r.bills,0)}</td>
+      <td>${rows.reduce((s,r)=>s+r.dueBills,0)} due</td><td></td>
+      <td class="mn tp">₹${fmt(rows.reduce((s,r)=>s+r.totalAmt,0))}</td>
+      <td class="mn tp">₹${fmt(rows.reduce((s,r)=>s+r.recv,0))}</td>
+      <td class="mn tam" style="font-weight:700">₹${fmt(brokerTotalOut)}</td>
+      <td></td><td></td>
+    </tr>
+    </tbody></table></div></div>`;
+  window._brokerRows=rows;window._brokerSort={col:'outstanding',asc:false};window._brokerTotalOut=brokerTotalOut
+}
+
+let _brokerSortCol='outstanding',_brokerSortAsc=false;
+window.sortBrokerReport=function(col){
+  if(_brokerSortCol===col)_brokerSortAsc=!_brokerSortAsc;
+  else{_brokerSortCol=col;_brokerSortAsc=false}
+  const rows=(window._brokerRows||[]).sort((a,b2)=>{
+    let va=a[col],vb=b2[col];
+    if(col==='broker')return _brokerSortAsc?va.localeCompare(vb):vb.localeCompare(va);
+    if(col==='parties'){va=[...a.parties].length;vb=[...b2.parties].length}
+    return _brokerSortAsc?va-vb:vb-va;
+  });
+  const tbody=document.getElementById('broker-report-body');
+  if(tbody)tbody.innerHTML=rows.map(r=>`<tr>
+    <td><strong>${r.broker}</strong></td><td>${r.bills}</td>
+    <td><span class="bdg ${r.dueBills>0?'bd-due':'bd-pd'}">${r.dueBills} due</span></td>
+    <td style="font-size:11px;color:var(--t3)">${[...r.parties].join(', ')}</td>
+    <td class="mn tp">₹${fmt(r.totalAmt)}</td>
+    <td class="mn tp">₹${fmt(r.recv)}</td>
+    <td class="mn ${r.outstanding>0?'tam':'tp'}" style="font-weight:700">₹${fmt(r.outstanding)}</td>
+    <td class="mn ${r.diff>=0?'tp':'tr'}">₹${fmt(r.diff)}</td>
+    <td class="mn">₹${fmt(r.commission)}</td>
+  </tr>`).join('')
+};
+
+window.exportBrokerExcel=function(){
+  const rows=(window._brokerRows||[]);
+  const data=rows.map(r=>({Broker:r.broker,Bills:r.bills,Due_Bills:r.dueBills,Parties:[...r.parties].join(', '),Total_Sales:r.totalAmt,Received:r.recv,Outstanding:r.outstanding,Rate_Diff:r.diff,Commission:r.commission}));
+  const ws=XLSX.utils.json_to_sheet(data);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Broker Outstanding');
+  XLSX.writeFile(wb,'Broker_Outstanding_'+today()+'.xlsx');toast('✅ Excel exported!','ok')
+};
+
+function renderSalesReport(el){
+  const monthMap={};
+  bills.forEach(b=>{
+    const m=b.date?.substring(0,7)||'Unknown';
+    if(!monthMap[m])monthMap[m]={month:m,bills:0,amount:0,recv:0,due:0};
+    monthMap[m].bills++;monthMap[m].amount+=b.netAmt;
+    const s=getStatus(b);monthMap[m].recv+=s.recv;monthMap[m].due+=s.bal
+  });
+  const rows=Object.values(monthMap).sort((a,b)=>b.month.localeCompare(a.month));
+  el.innerHTML=`<div class="card"><div class="ch"><div class="ct">Sales Overview (Monthly)</div>
+    <button class="btn bs btn-sm" onclick="exportReportExcel()">📊 Excel</button></div>
+    <div class="tw"><table><thead><tr><th>Month</th><th>Bills</th><th>Total Sales</th><th>Received</th><th>Due</th><th>Collection %</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td><strong>${r.month}</strong></td><td>${r.bills}</td>
+      <td class="mn tp">₹${fmt(r.amount)}</td><td class="mn tp">₹${fmt(r.recv)}</td>
+      <td class="mn tam">₹${fmt(r.due)}</td>
+      <td class="mn">${r.amount>0?Math.round(r.recv/r.amount*100):0}%</td></tr>`).join('')}
+    </tbody></table></div></div>`
+}
+
+function renderGSTReport(el){
+  let gstCgst=0,gstSgst=0,gstIgst=0,gstTaxable=0;
+  bills.forEach(b=>{gstCgst+=b.cgst||0;gstSgst+=b.sgst||0;gstIgst+=b.igst||0;gstTaxable+=b.taxable||0});
+  el.innerHTML=`<div class="card"><div class="ch"><div class="ct">GST Summary</div></div>
+    <div class="cb2">
+      <div class="gr g4">
+        <div class="sc cg"><div class="sc-l">Taxable Value</div><div class="sc-v tp">₹${fmt(gstTaxable)}</div></div>
+        <div class="sc cb"><div class="sc-l">CGST Collected</div><div class="sc-v tbl">₹${fmt(gstCgst)}</div></div>
+        <div class="sc cb"><div class="sc-l">SGST Collected</div><div class="sc-v tbl">₹${fmt(gstSgst)}</div></div>
+        <div class="sc ca"><div class="sc-l">IGST Collected</div><div class="sc-v tam">₹${fmt(gstIgst)}</div></div>
+      </div>
+    </div>
+    <div class="tw"><table><thead><tr><th>Date</th><th>Party</th><th>Grade</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total Tax</th></tr></thead>
+    <tbody>${bills.map(b=>`<tr><td>${b.date}</td><td>${b.party}</td>
+      <td>${b.rows?.map(r=>r.grade).join(', ')||''}</td>
+      <td class="mn">₹${fmt(b.taxable)}</td><td class="mn">₹${fmt(b.cgst)}</td>
+      <td class="mn">₹${fmt(b.sgst)}</td><td class="mn">₹${fmt(b.igst)}</td>
+      <td class="mn tam">₹${fmt((b.cgst||0)+(b.sgst||0)+(b.igst||0))}</td></tr>`).join('')}
+    </tbody></table></div></div>`
+}
+
+// ═══════════════════════════════════════════
+// EXPORT / BACKUP
+// ═══════════════════════════════════════════
+function exportToExcel(data,filename){
+  if(!data.length){toast('No data to export','inf');return}
+  const rows=data.map(b=>{
+    const s=getStatus(b);const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+    const wt=b.rows?.reduce((x,r)=>x+(r.weight||0),0)||0;
+    return{ID:b.id,Date:b.date,Party:b.party,Broker:b.broker||'',Grade:gr,
+      Weight_kg:wt,Taxable:b.taxable,CGST:b.cgst||0,SGST:b.sgst||0,IGST:b.igst||0,
+      Packing:b.packing||0,Net_Amt:b.netAmt,Received:s.recv,Balance:s.bal,Status:s.status,
+      Transport:b.transport||'',Station:b.station||'',Remarks:b.remarks||''}
+  });
+  const ws=XLSX.utils.json_to_sheet(rows);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Bills');
+  XLSX.writeFile(wb,filename+'_'+today()+'.xlsx');toast('✅ Excel exported!','ok')
+}
+
+window.exportBillsExcel=function(){exportToExcel(bills,'Bills')};
+window.exportDueExcel=function(){exportToExcel(bills.filter(b=>getStatus(b).status!=='paid'),'Due_Bills')};
+window.exportExpExcel=function(){
+  const ws=XLSX.utils.json_to_sheet(expenses.map(e=>({Date:e.date,Category:e.category,Description:e.description,Amount:e.amount,Mode:e.mode,Remarks:e.remarks||''})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Expenses');
+  XLSX.writeFile(wb,'Expenses_'+today()+'.xlsx')
+};
+window.exportCashExcel=function(){
+  const ws=XLSX.utils.json_to_sheet(cashEntries.map(e=>({Date:e.date,Type:e.type==='in'?'Cash In':'Cash Out',Description:e.description,Amount:e.amount,Remarks:e.remarks||''})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'CashBook');
+  XLSX.writeFile(wb,'CashBook_'+today()+'.xlsx')
+};
+window.exportPurchaseExcel=function(){
+  const ws=XLSX.utils.json_to_sheet(purchases.map(p=>({Date:p.date,Supplier:p.supplier,Grade:p.grade,Weight:p.weight,Rate:p.rate,Net_Amt:p.netAmt,Status:p.status})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Purchases');
+  XLSX.writeFile(wb,'Purchases_'+today()+'.xlsx')
+};
+window.exportLedgerExcel=function(){
+  if(!currentLedgerParty)return;
+  const partyBills=bills.filter(b=>b.party===currentLedgerParty);
+  exportToExcel(partyBills,'Ledger_'+currentLedgerParty)
+};
+window.exportReportExcel=function(){exportToExcel(bills,'Report_'+currentReportTab)};
+
+window.exportAllExcel=function(){
+  const wb=XLSX.utils.book_new();
+  const addSheet=(data,name)=>{if(data.length){XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),name)}};
+  addSheet(bills.map(b=>{const s=getStatus(b);return{Date:b.date,Party:b.party,Grade:b.rows?.map(r=>r.grade).join(', ')||'',Net_Amt:b.netAmt,Received:s.recv,Balance:s.bal,Status:s.status}}),'Bills');
+  addSheet(cheques.map(c=>({Date:c.date,Party:c.party,ChequeNo:c.chequeNo,Bank:c.bank,Amount:c.amount,Status:c.status})),'Cheques');
+  addSheet(advances.map(a=>({Date:a.date,Party:a.party,Amount:a.amount,Mode:a.mode,Linked:a.linked?'Yes':'No'})),'Advances');
+  addSheet(expenses.map(e=>({Date:e.date,Category:e.category,Desc:e.description,Amount:e.amount})),'Expenses');
+  addSheet(cashEntries.map(c=>({Date:c.date,Type:c.type,Desc:c.description,Amount:c.amount})),'CashBook');
+  addSheet(purchases.map(p=>({Date:p.date,Supplier:p.supplier,Grade:p.grade,Amount:p.netAmt,Status:p.status})),'Purchases');
+  XLSX.writeFile(wb,'CashewPro_FullExport_'+today()+'.xlsx');toast('✅ Full Excel exported!','ok')
+};
+
+window.backupJSON=function(){
+  const data={version:'1.0',exportDate:new Date().toISOString(),company:settings.company,
+    bills,cheques,advances,returns,expenses,cashEntries,purchases,settings};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='CashewPro_Backup_'+today()+'.json';a.click();
+  toast('✅ Full backup downloaded!','ok')
+};
+
+window.restoreBackup=async function(input){
+  if(!input.files[0])return;
+  if(!confirm('⚠️ This will MERGE data from backup. Continue?'))return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      document.getElementById('restore-status').textContent='⏳ Restoring...';
+      const batch=window._db.batch();
+      for(const b of(data.bills||[])){batch.set(docRef('bills',b.id||genId()),b)}
+      for(const c of(data.cheques||[])){batch.set(docRef('cheques',c.id||genId()),c)}
+      for(const a of(data.advances||[])){batch.set(docRef('advances',a.id||genId()),a)}
+      for(const r of(data.returns||[])){batch.set(docRef('returns',r.id||genId()),r)}
+      for(const ex of(data.expenses||[])){batch.set(docRef('expenses',ex.id||genId()),ex)}
+      for(const ca of(data.cashEntries||[])){batch.set(docRef('cashbook',ca.id||genId()),ca)}
+      for(const pu of(data.purchases||[])){batch.set(docRef('purchases',pu.id||genId()),pu)}
+      await batch.commit();
+      document.getElementById('restore-status').textContent='✅ Restore complete!';
+      toast('✅ Data restored successfully!','ok')
+    }catch(err){document.getElementById('restore-status').textContent='❌ Error: '+err.message;toast('Restore failed','err')}
+  };
+  reader.readAsText(input.files[0])
+};
+
+window.importExcel=function(input){
+  if(!input.files[0])return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const data=XLSX.utils.sheet_to_json(ws);
+      if(!data.length){toast('No data found in Excel','err');return}
+      let count=0;
+      for(const row of data){
+        if(!row.Party||!row.Date)continue;
+        const bill={date:row.Date,party:row.Party,broker:row.Broker||'',
+          netAmt:parseFloat(row.Net_Amt||row['Net Amt']||0),
+          taxable:parseFloat(row.Taxable||0),cgst:parseFloat(row.CGST||0),sgst:parseFloat(row.SGST||0),
+          rows:[{grade:row.Grade||'',weight:parseFloat(row.Weight_kg||0),rate:parseFloat(row.Rate||0),taxable:parseFloat(row.Taxable||0)}],
+          payments:[],createdAt:new Date().toISOString()};
+        await col('bills').add(bill);count++
+      }
+      toast('✅ '+count+' bills imported!','ok')
+    }catch(err){toast('Import failed: '+err.message,'err')}
+  };
+  reader.readAsArrayBuffer(input.files[0])
+};
+
+window.exportBillsPDF=function(){exportBillsPrintPDF(bills)};
+window.exportLedgerPDF=function(){if(!currentLedgerParty)return;exportBillsPrintPDF(bills.filter(b=>b.party===currentLedgerParty))};
+window.exportAllPDF=function(){exportBillsPrintPDF(bills)};
+
+window.exportBillsPrintPDF=function(data){
+  data=data||bills.filter(b=>selectedBills.size?selectedBills.has(b.id):true);
+  const win=window.open('','_blank');
+  const rows=data.map(b=>{const s=getStatus(b);const gr=b.rows?.map(r=>r.grade).join(', ')||'';
+    return`<tr><td>${b.date}</td><td>${b.party}</td><td>${gr}</td><td>₹${fmt(b.netAmt)}</td><td>₹${fmt(s.recv)}</td><td>₹${fmt(s.bal)}</td><td>${s.status.toUpperCase()}</td></tr>`}).join('');
+  const printTotal=data.reduce((s,b)=>s+b.netAmt,0);
+  const printTotalDue=data.reduce((s,b)=>s+getStatus(b).bal,0);
+  win.document.write(`<!DOCTYPE html><html><head><title>CashewPro Bills</title>
+  <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+  h2{color:#166534;margin-bottom:4px}h4{color:#666;margin-bottom:12px;font-weight:normal}
+  table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:7px 9px;text-align:left;font-size:11px}
+  td{padding:6px 9px;border-bottom:1px solid #eee}.total-row{background:#f0fdf4;font-weight:700}
+  @media print{button{display:none}}</style></head><body>
+  <h2>${settings.company}</h2><h4>Bills Report — ${today()}</h4>
+  <button onclick="window.print()" style="margin-bottom:12px;padding:6px 14px;background:#166534;color:#fff;border:none;border-radius:5px;cursor:pointer">🖨️ Print</button>
+  <table><thead><tr><th>Date</th><th>Party</th><th>Grade</th><th>Bill Amt</th><th>Received</th><th>Balance</th><th>Status</th></tr></thead>
+  <tbody>${rows}<tr class="total-row"><td colspan="3">TOTAL (${data.length} bills)</td><td>₹${fmt(printTotal)}</td><td>₹${fmt(printTotal-printTotalDue)}</td><td>₹${fmt(printTotalDue)}</td><td></td></tr></tbody></table>
+  </body></html>`);win.document.close()
+};
+
+window.viewBill=function(id){
+  const b=bills.find(x=>x.id===id);if(!b)return;
+  const s=getStatus(b);const gr=b.rows?.map(r=>r.grade+' '+r.weight+'kg @₹'+r.rate).join('<br>')||'';
+  document.getElementById('bill-view-content').innerHTML=`
+  <div style="border:1px solid var(--b);border-radius:var(--r2);padding:16px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+      <div><div style="font-size:18px;font-weight:700;color:var(--g)">${settings.company}</div>
+      <div style="font-size:11px;color:var(--t3)">${settings.gst?'GST: '+settings.gst:''}</div></div>
+      <div style="text-align:right"><div style="font-size:13px;font-weight:700">BILL ID: ${b.id}</div>
+      <div style="font-size:12px;color:var(--t3)">Date: ${b.date}</div></div>
+    </div>
+    <div class="gr g2" style="margin-bottom:12px">
+      <div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Bill To</div>
+        <div style="font-size:15px;font-weight:700">${b.party}</div>
+        ${b.station?`<div style="font-size:12px;color:var(--t3)">${b.station}</div>`:''}
+      </div>
+      <div style="text-align:right">
+        ${b.broker?`<div style="font-size:12px">Broker: <strong>${b.broker}</strong></div>`:''}
+        ${b.transport?`<div style="font-size:12px">Transport: ${b.transport}</div>`:''}
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead><tr style="background:var(--gs)"><th style="padding:6px 8px;text-align:left;font-size:11px">Grade</th>
+        <th style="padding:6px 8px;text-align:right;font-size:11px">Wt (kg)</th>
+        <th style="padding:6px 8px;text-align:right;font-size:11px">Rate</th>
+        <th style="padding:6px 8px;text-align:right;font-size:11px">Taxable</th></tr></thead>
+      <tbody>${(b.rows||[]).map(r=>`<tr><td style="padding:6px 8px">${r.grade}</td>
+        <td style="padding:6px 8px;text-align:right">${r.weight} kg</td>
+        <td style="padding:6px 8px;text-align:right">₹${r.rate}</td>
+        <td style="padding:6px 8px;text-align:right">₹${fmt(r.taxable)}</td></tr>`).join('')}</tbody>
+    </table>
+    <div style="display:flex;justify-content:flex-end">
+      <div style="min-width:250px;font-size:12px">
+        ${b.cgst?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--b)"><span>CGST</span><span>₹${fmt(b.cgst)}</span></div>`:''}
+        ${b.sgst?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--b)"><span>SGST</span><span>₹${fmt(b.sgst)}</span></div>`:''}
+        ${b.igst?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--b)"><span>IGST</span><span>₹${fmt(b.igst)}</span></div>`:''}
+        ${b.packing?`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--b)"><span>Packing</span><span>₹${fmt(b.packing)}</span></div>`:''}
+        <div style="display:flex;justify-content:space-between;padding:5px 0;font-weight:700;font-size:15px;color:var(--g);border-top:2px solid var(--g)"><span>NET TOTAL</span><span>₹${fmt(b.netAmt)}</span></div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:12px">
+    <div style="flex:1;background:var(--gs);border:1px solid var(--gb);border-radius:var(--r);padding:10px 14px">
+      <div style="font-size:10px;color:var(--t3);text-transform:uppercase">Received</div>
+      <div class="mn tp" style="font-size:18px;font-weight:700">₹${fmt(s.recv)}</div>
+    </div>
+    <div style="flex:1;background:var(--ams);border:1px solid var(--amb);border-radius:var(--r);padding:10px 14px">
+      <div style="font-size:10px;color:var(--t3);text-transform:uppercase">Balance Due</div>
+      <div class="mn tam" style="font-size:18px;font-weight:700">₹${fmt(s.bal)}</div>
+    </div>
+    <div style="flex:1;text-align:center;padding:10px 14px">${statusBadge(s.status)}</div>
+  </div>`;
+  openModal('bill-view-modal')
+};
+
+window.printBill=function(){window.print()};
+window.exportSinglePDF=function(){if(!currentLedgerParty)window.print()};
+
+// ═══════════════════════════════════════════
+// NAVIGATION & UI
+// ═══════════════════════════════════════════
+const pageInfo={
+  dashboard:{title:'Dashboard',sub:'Overview'},
+  scan:{title:'AI Scan Bill',sub:'Upload bill photo for auto-fill'},
+  manual:{title:'Manual Entry',sub:'Enter bill details manually'},
+  bills:{title:'All Bills',sub:''},due:{title:'Due List',sub:'Pending payments'},
+  receive:{title:'Receive Payment',sub:'Mark payments for multiple bills'},
+  advance:{title:'Advance Payments',sub:''},
+  ledger:{title:'Party Ledger',sub:'Transaction history by party'},
+  cheques:{title:'Cheque Management',sub:''},
+  returns:{title:'Sales Returns',sub:''},
+  expenses:{title:'Expense Book',sub:''},
+  cashbook:{title:'Cash Book',sub:''},
+  purchase:{title:'Purchase Bills',sub:''},
+  bank:{title:'Bank Statement Match',sub:''},
+  reports:{title:'Reports',sub:''},
+  backup:{title:'Backup & Export',sub:'Data safety'},
+  settings:{title:'Settings',sub:''}
+};
+
+window.nav=function(page){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.nv').forEach(n=>n.classList.remove('on'));
+  const panel=document.getElementById('panel-'+page);if(panel)panel.classList.add('on');
+  document.querySelectorAll('.nv').forEach(n=>{if(n.getAttribute('onclick')?.includes("'"+page+"'"))n.classList.add('on')});
+  const info=pageInfo[page]||{title:page,sub:''};
+  setText('pg-title',info.title);setText('pg-sub',info.sub);
+  if(page==='dashboard')updateDashboard();
+  if(page==='bills'){renderBills();populateGradeSelects()}
+  if(page==='due')renderDue();
+  if(page==='receive')populateReceiveBills();
+  if(page==='ledger')renderLedgerParties();
+  if(page==='cheques')renderCheques();
+  if(page==='returns')renderReturns();
+  if(page==='advance')renderAdvances();
+  if(page==='expenses')renderExpenses();
+  if(page==='cashbook')renderCashBook();
+  if(page==='purchase')renderPurchases();
+  if(page==='reports')renderReport(currentReportTab);
+  if(page==='settings')applySettings();
+  if(page==='scan'){initForms();switchScanTab('excel')}
+  if(page==='manual')initForms()
+};
+
+window.openModal=function(id){document.getElementById(id)?.classList.add('on')};
+window.closeModal=function(id){document.getElementById(id)?.classList.remove('on')};
+
+window.toggleTheme=function(){
+  const isDark=document.documentElement.hasAttribute('data-dark');
+  isDark?document.documentElement.removeAttribute('data-dark'):document.documentElement.setAttribute('data-dark','');
+  document.getElementById('theme-btn').textContent=isDark?'🌙':'☀️';
+  localStorage.setItem('cp-theme',isDark?'light':'dark')
+};
+
+function applyTheme(t){
+  if(t==='dark'){document.documentElement.setAttribute('data-dark','');document.getElementById('theme-btn').textContent='☀️'}
+  else{document.documentElement.removeAttribute('data-dark');document.getElementById('theme-btn').textContent='🌙'}
+}
+
+function setDefaultDates(){
+  ['recv-date','pm-date','ch-date','adv-date','ret-date','exp-date','cash-date','pur-date','bk-date'].forEach(id=>{
+    const el=document.getElementById(id);if(el&&!el.value)el.value=today()
+  });
+  const cm=document.getElementById('cash-month');
+  if(cm)cm.value=today().substring(0,7)
+}
+
+// TOAST
+window.toast=function(msg,type){
+  const div=document.createElement('div');
+  div.className='toast '+(type||'ok');
+  div.innerHTML=(type==='ok'?'✅':type==='err'?'❌':'ℹ️')+' '+msg;
+  document.getElementById('toasts').appendChild(div);
+  setTimeout(()=>div.remove(),3500)
+};
+
+// CLOSE MODAL ON OVERLAY CLICK
+document.querySelectorAll('.mo').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('on')})});
+</script>
+<script>
+// Simple reliable login
+document.addEventListener('DOMContentLoaded', function() {
+  var btn = document.getElementById('gbtn') || document.getElementById('login-btn');
+  if (btn) {
+    btn.addEventListener('click', function() {
+      console.log('Button clicked');
+      btn.disabled = true;
+      btn.innerHTML = '<span>⏳ Connecting...</span>';
+      
+      function tryLogin() {
+        if (window._auth) {
+          var provider = new firebase.auth.GoogleAuthProvider();
+          window._auth.signInWithPopup(provider)
+            .catch(function(e) {
+              if(e.code==='auth/popup-blocked') {
+                window._auth.signInWithRedirect(provider);
+              } else {
+                btn.disabled = false;
+                btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px"> Sign in with Google';
+                console.error(e);
+              }
+            });
+        } else {
+          setTimeout(tryLogin, 300);
+        }
+      }
+      tryLogin();
+    });
+  }
+});
+</script>
+</body>
+</html>
