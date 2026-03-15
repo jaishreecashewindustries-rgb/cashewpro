@@ -1505,23 +1505,37 @@ function initForms(){
 
 let gradeRowCount=0;
 window.addGradeRow=function(gr){
-  const container=document.getElementById('grade-rows');
-  if(!container){console.log('grade-rows not found');return;}
-  const i=gradeRowCount++;
-  const div=document.createElement('div');
-  div.className='gr g5';
+  var container=document.getElementById('grade-rows');
+  if(!container){return;}
+  var i=gradeRowCount++;
+  var div=document.createElement('div');
+  div.style.cssText='display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:flex-end';
   div.id='gr-row-'+i;
-  div.style='margin-bottom:8px;align-items:flex-end';
-  // Grade as text input (type freely) + datalist for suggestions
-  const gradeOptions=((window.settings&&settings.grades)||['W180','W210','W240','W320','W450','SW','LWP']).map(g=>`<option value="${g}">`).join('');
+  var gradeVal=gr&&gr.grade?gr.grade:'';
+  var wtVal=gr&&gr.weight?gr.weight:'';
+  var rateVal=gr&&gr.rate?gr.rate:'';
+  var taxVal=gr&&gr.taxable?gr.taxable:'';
   div.innerHTML=
-    '<div class="fg"><label>Grade</label>'+
-    '<input type="text" id="gr-grade-'+i+'" list="grade-list-'+i+'" placeholder="W320, SW..." value="'+(gr&&gr.grade?gr.grade:'')+'" oninput="calcNet()" style="text-transform:uppercase">'+
-    '<datalist id="grade-list-'+i+'">'+gradeOptions+'</datalist></div>'+
-    '<div class="fg"><label>Weight (kg)</label><input type="number" id="gr-wt-'+i+'" placeholder="0" value="'+(gr&&gr.weight?gr.weight:'')+'" oninput="calcNet()"></div>'+
-    '<div class="fg"><label>Rate (₹/kg)</label><input type="number" id="gr-rate-'+i+'" placeholder="0" value="'+(gr&&gr.rate?gr.rate:'')+'" step="0.01" oninput="calcNet()"></div>'+
-    '<div class="fg"><label>Taxable (₹)</label><input type="number" id="gr-tax-'+i+'" placeholder="0" value="'+(gr&&gr.taxable?gr.taxable:'')+'" readonly style="background:var(--s2)"></div>'+
-    '<div class="fg" style="padding-top:22px"><button class="btn brd btn-sm" onclick="removeGradeRow('+i+')" type="button">✕</button></div>';
+    '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">GRADE</label>'+
+    '<input type="text" id="gr-grade-'+i+'" placeholder="W320" value="'+gradeVal+'" '+
+    'style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;text-transform:uppercase" '+
+    'oninput="this.value=this.value.toUpperCase();calcNet()"></div>'+
+    '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">WEIGHT (KG)</label>'+
+    '<input type="number" id="gr-wt-'+i+'" placeholder="0" value="'+wtVal+'" '+
+    'style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px" '+
+    'oninput="calcNet()"></div>'+
+    '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">RATE (₹/KG)</label>'+
+    '<input type="number" id="gr-rate-'+i+'" placeholder="0" value="'+rateVal+'" step="0.01" '+
+    'style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px" '+
+    'oninput="calcNet()"></div>'+
+    '<div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">TAXABLE (₹)</label>'+
+    '<input type="number" id="gr-tax-'+i+'" placeholder="0" value="'+taxVal+'" '+
+    'style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#f9fafb" '+
+    'readonly></div>'+
+    '<div style="padding-bottom:2px">'+
+    '<button onclick="removeGradeRow('+i+')" type="button" '+
+    'style="padding:7px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;cursor:pointer;font-size:13px">✕</button>'+
+    '</div>';
   container.appendChild(div);
   calcNet();
 };
@@ -1532,43 +1546,49 @@ window.removeGradeRow=function(i){
 };
 
 function getGradeRows(){
-  const rows=[];
-  const container=document.getElementById('grade-rows');
-  if(!container)return rows;
-  container.querySelectorAll('[id^="gr-row-"]').forEach(function(row){
-    const i=row.id.replace('gr-row-','');
-    const grade=(document.getElementById('gr-grade-'+i)||{value:''}).value.trim().toUpperCase();
-    const weight=parseFloat((document.getElementById('gr-wt-'+i)||{value:0}).value)||0;
-    const rate=parseFloat((document.getElementById('gr-rate-'+i)||{value:0}).value)||0;
-    const taxable=weight*rate;
-    if(grade&&weight>0&&rate>0)rows.push({grade,weight,rate,taxable});
-  });
+  var rows=[];
+  var allRows=document.querySelectorAll('[id^="gr-row-"]');
+  for(var idx=0;idx<allRows.length;idx++){
+    var rowId=allRows[idx].id.replace('gr-row-','');
+    var gradeEl=document.getElementById('gr-grade-'+rowId);
+    var wtEl=document.getElementById('gr-wt-'+rowId);
+    var rtEl=document.getElementById('gr-rate-'+rowId);
+    var grade=gradeEl?gradeEl.value.trim().toUpperCase():'';
+    var weight=wtEl?parseFloat(wtEl.value)||0:0;
+    var rate=rtEl?parseFloat(rtEl.value)||0:0;
+    var taxable=Math.round(weight*rate*100)/100;
+    if(grade&&weight>0&&rate>0){
+      rows.push({grade:grade,weight:weight,rate:rate,taxable:taxable});
+    }
+  }
   return rows;
 }
 
 function calcNet(){
-  const container=document.getElementById('grade-rows');
-  let taxable=0;
-  if(container){
-    container.querySelectorAll('[id^="gr-row-"]').forEach(function(row){
-      const i=row.id.replace('gr-row-','');
-      const w=parseFloat((document.getElementById('gr-wt-'+i)||{value:0}).value)||0;
-      const rt=parseFloat((document.getElementById('gr-rate-'+i)||{value:0}).value)||0;
-      const tx=document.getElementById('gr-tax-'+i);
-      const val=w&&rt?Math.round(w*rt*100)/100:0;
-      if(tx)tx.value=val||'';
-      taxable+=val;
-    });
+  var taxable=0;
+  var rows=document.querySelectorAll('[id^="gr-row-"]');
+  for(var idx=0;idx<rows.length;idx++){
+    var rowId=rows[idx].id.replace('gr-row-','');
+    var wtEl=document.getElementById('gr-wt-'+rowId);
+    var rtEl=document.getElementById('gr-rate-'+rowId);
+    var txEl=document.getElementById('gr-tax-'+rowId);
+    var w=wtEl?parseFloat(wtEl.value)||0:0;
+    var rt=rtEl?parseFloat(rtEl.value)||0:0;
+    var val=Math.round(w*rt*100)/100;
+    if(txEl)txEl.value=val>0?val:'';
+    taxable+=val;
   }
-  const cgst=parseFloat(v('bf-cgst'))||0;
-  const sgst=parseFloat(v('bf-sgst'))||0;
-  const igst=parseFloat(v('bf-igst'))||0;
-  const packing=parseFloat(v('bf-packing'))||0;
-  const round=parseFloat(v('bf-round'))||0;
-  const net=taxable+cgst+sgst+igst+packing+round;
-  const te=document.getElementById('bf-taxable');if(te)te.value=taxable?taxable.toFixed(2):'';
-  const nd=document.getElementById('bf-net-disp');if(nd)nd.textContent='₹'+fmt(net);
-  calcBrokerDiff();
+  var cgst=parseFloat(v('bf-cgst'))||0;
+  var sgst=parseFloat(v('bf-sgst'))||0;
+  var igst=parseFloat(v('bf-igst'))||0;
+  var packing=parseFloat(v('bf-packing'))||0;
+  var round=parseFloat(v('bf-round'))||0;
+  var net=taxable+cgst+sgst+igst+packing+round;
+  var te=document.getElementById('bf-taxable');
+  if(te)te.value=taxable>0?taxable.toFixed(2):'';
+  var nd=document.getElementById('bf-net-disp');
+  if(nd)nd.textContent='₹'+fmt(net);
+  try{calcBrokerDiff();}catch(e){}
 }
 
 function calcBrokerDiff(){
