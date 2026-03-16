@@ -7,8 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-
-<!-- ── FIREBASE SDKs (v9 compat) ── -->
+<!-- Firebase SDKs -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -737,83 +736,71 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 /* ── PRINT ── */
 @media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
 
-/* ══════════════════════════════════════
-   LOGIN SCREEN
-══════════════════════════════════════ */
-#login-screen {
-  position:fixed;inset:0;
-  background:linear-gradient(135deg,#0a3d22 0%,#1a6b3c 50%,#2d7d50 100%);
-  display:flex;align-items:center;justify-content:center;z-index:9999;
-  font-family:var(--font);
-}
+/* ══ LOGIN SCREEN ══ */
+#login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0a3d22 0%,#1a6b3c 60%,#2d7d50 100%);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:var(--font);}
 #login-screen.hidden{display:none;}
-.login-card{background:#fff;border-radius:20px;padding:40px 36px 32px;width:100%;max-width:400px;box-shadow:0 24px 80px rgba(0,0,0,.35);margin:16px;}
-.login-logo{width:56px;height:56px;background:var(--brand);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#fff;margin:0 auto 20px;box-shadow:0 8px 24px rgba(26,107,60,.35);}
-.login-title{text-align:center;font-size:22px;font-weight:700;color:var(--text-1);margin-bottom:4px;letter-spacing:-.3px;}
-.login-sub{text-align:center;font-size:12.5px;color:var(--text-3);margin-bottom:28px;font-weight:500;}
-.login-fg{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
-.login-fg label{font-size:11.5px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;}
-.login-inp{width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font);color:var(--text-1);background:var(--surface);transition:border-color .15s,box-shadow .15s;box-sizing:border-box;-webkit-appearance:none;appearance:none;}
-.login-inp:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(26,107,60,.12);}
-.login-inp.error{border-color:var(--red);box-shadow:0 0 0 3px rgba(220,38,38,.1);}
-.login-btn{width:100%;padding:12px;background:var(--brand);color:#fff;border:none;border-radius:var(--radius);font-size:14.5px;font-weight:600;font-family:var(--font);cursor:pointer;transition:background .15s,transform .1s;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:8px;}
-.login-btn:hover{background:var(--brand-mid);}
-.login-btn:active{transform:scale(.98);}
-.login-btn:disabled{background:#9ca3af;cursor:not-allowed;}
-.login-err{background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);padding:10px 13px;font-size:12.5px;color:var(--red);margin-top:12px;display:none;font-weight:500;}
-.login-err.show{display:block;}
-.login-spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none;}
-.login-spinner.show{display:inline-block;}
-#sync-status{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;padding:4px 10px;border-radius:20px;transition:all .3s;flex-shrink:0;}
-#sync-status.syncing{background:#eff6ff;color:#2563eb;}
-#sync-status.saved{background:var(--brand-light);color:var(--brand);}
-#sync-status.offline{background:var(--amber-light);color:var(--amber);}
-#sync-status.error{background:var(--red-bg);color:var(--red);}
-.sync-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
-.sync-dot.pulse{animation:pulse 1.2s ease-in-out infinite;}
-#user-info-btn{display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:20px;background:var(--surface-2);border:1.5px solid var(--border);cursor:pointer;font-size:12px;font-weight:500;color:var(--text-2);font-family:var(--font);transition:all .12s;flex-shrink:0;}
-#user-info-btn:hover{border-color:var(--brand);color:var(--brand);}
-@keyframes spin{to{transform:rotate(360deg);}}
-@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
-#fb-loading{position:fixed;inset:0;background:rgba(255,255,255,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9998;gap:16px;}
-#fb-loading.hidden{display:none;}
-.fb-loading-spinner{width:44px;height:44px;border:4px solid var(--brand-light);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite;}
-.fb-loading-text{font-size:14px;font-weight:500;color:var(--text-3);}
+.lc{background:#fff;border-radius:20px;padding:40px 36px 32px;width:100%;max-width:400px;box-shadow:0 24px 80px rgba(0,0,0,.4);margin:16px;}
+.ll{width:56px;height:56px;background:var(--brand);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#fff;margin:0 auto 18px;box-shadow:0 8px 24px rgba(26,107,60,.4);}
+.lt{text-align:center;font-size:22px;font-weight:700;color:var(--text-1);margin-bottom:4px;letter-spacing:-.3px;}
+.ls{text-align:center;font-size:12px;color:var(--text-3);margin-bottom:28px;}
+.lfg{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;}
+.lfg label{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.4px;}
+.li{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font);color:var(--text-1);background:#fff;transition:border-color .15s,box-shadow .15s;box-sizing:border-box;outline:none;}
+.li:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(26,107,60,.12);}
+.li.err{border-color:var(--red);box-shadow:0 0 0 3px rgba(220,38,38,.1);}
+.lb{width:100%;padding:12px;background:var(--brand);color:#fff;border:none;border-radius:var(--radius);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s;}
+.lb:hover{background:var(--brand-mid);}
+.lb:disabled{background:#9ca3af;cursor:not-allowed;}
+.le{background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);padding:10px 13px;font-size:12.5px;color:var(--red);margin-top:12px;display:none;font-weight:500;}
+.le.show{display:block;}
+.lsp{width:17px;height:17px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:lspin .7s linear infinite;display:none;}
+.lsp.show{display:inline-block;}
+@keyframes lspin{to{transform:rotate(360deg);}}
+@keyframes shake{0%,100%{transform:translateX(0);}20%,60%{transform:translateX(-7px);}40%,80%{transform:translateX(7px);}}
+/* sync badge */
+#sync-badge{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;flex-shrink:0;}
+#sync-badge.saving{background:#eff6ff;color:#2563eb;}
+#sync-badge.saved{background:var(--brand-light);color:var(--brand);}
+#sync-badge.offline{background:var(--amber-light);color:var(--amber);}
+.sdot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.sdot.pulse{animation:sdpulse 1.2s ease-in-out infinite;}
+@keyframes sdpulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+#usr-btn{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;background:var(--surface-2);border:1.5px solid var(--border);cursor:pointer;font-size:12px;font-weight:500;color:var(--text-2);font-family:var(--font);transition:all .12s;flex-shrink:0;}
+#usr-btn:hover{border-color:var(--brand);color:var(--brand);}
+#app-loader{position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9998;gap:14px;}
+#app-loader.hidden{display:none;}
+.app-loader-spin{width:42px;height:42px;border:4px solid var(--brand-light);border-top-color:var(--brand);border-radius:50%;animation:lspin .8s linear infinite;}
 
 </style>
 </head>
 <body>
-<!-- ══ LOGIN SCREEN ══ -->
+<!-- LOGIN SCREEN -->
 <div id="login-screen">
-  <div class="login-card">
-    <div class="login-logo">CP</div>
-    <div class="login-title">CashewPro</div>
-    <div class="login-sub">Jai Shree Cashew Industries — Secure Login</div>
-    <div class="login-fg">
+  <div class="lc">
+    <div class="ll">CP</div>
+    <div class="lt">CashewPro</div>
+    <div class="ls">Jai Shree Cashew Industries</div>
+    <div class="lfg">
       <label>Email</label>
-      <input class="login-inp" id="login-email" type="email" placeholder="you@example.com" autocomplete="email" autocapitalize="none" spellcheck="false">
+      <input class="li" id="li-email" type="email" placeholder="email@example.com" autocomplete="email" autocapitalize="none">
     </div>
-    <div class="login-fg">
+    <div class="lfg">
       <label>Password</label>
-      <input class="login-inp" id="login-pwd" type="password" placeholder="••••••••" autocomplete="current-password">
+      <input class="li" id="li-pwd" type="password" placeholder="••••••••" autocomplete="current-password">
     </div>
-    <button class="login-btn" id="login-btn" onclick="doLogin()">
-      <span class="login-spinner" id="login-spinner"></span>
-      <span id="login-btn-text">Sign In</span>
+    <button class="lb" id="li-btn" onclick="doLogin()">
+      <span class="lsp" id="li-sp"></span>
+      <span id="li-txt">Sign In</span>
     </button>
-    <div class="login-err" id="login-err"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);text-align:center;font-size:11.5px;color:var(--text-4)">
-      🔒 Secured by Firebase Authentication
-    </div>
+    <div class="le" id="li-err"></div>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-4);">🔒 Firebase Secured</div>
   </div>
 </div>
-
-<!-- ══ DATA LOADING OVERLAY ══ -->
-<div id="fb-loading" class="hidden">
-  <div class="fb-loading-spinner"></div>
-  <div class="fb-loading-text" id="fb-loading-text">Loading your data...</div>
+<!-- APP LOADER -->
+<div id="app-loader" class="hidden">
+  <div class="app-loader-spin"></div>
+  <div style="font-size:13px;color:var(--text-3);font-weight:500;">Loading data...</div>
 </div>
-
 <div class="app">
   <div class="sidebar" id="sidebar">
     <div class="sb-head">
@@ -838,8 +825,8 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
         <div id="gs-results" style="display:none;position:absolute;top:34px;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:500;max-height:360px;overflow-y:auto"></div>
       </div>
       <div class="tb-actions">
-        <div id="sync-status" class="saved"><span class="sync-dot"></span><span id="sync-label">Saved</span></div>
-        <button id="user-info-btn" onclick="showUserMenu()" title="Account">👤 <span id="user-email-short">...</span></button>
+        <div id="sync-badge" class="saved"><span class="sdot"></span><span id="sync-lbl">Saved</span></div>
+        <button id="usr-btn" onclick="doLogout()">👤 <span id="usr-email">...</span></button>
         <button class="btn btn-green" id="btn-new-bill">+ New Bill</button>
         <button class="btn btn-outline" id="btn-receive">💰 Receive</button>
       </div>
@@ -888,10 +875,13 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 <script>
 'use strict';
 
-// ═══════════════════════════════════════════════════════════════
-// FIREBASE CONFIG & INIT
-// ═══════════════════════════════════════════════════════════════
-var firebaseConfig = {
+// ═══════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// FIREBASE INIT
+// ════════════════════════════════════════════════════════
+var _FB_CONFIG = {
   apiKey:            "AIzaSyBGnxMF7XxDMpGdmmaplBY8JQw6Wog7kUo",
   authDomain:        "cashew-pro.firebaseapp.com",
   projectId:         "cashew-pro",
@@ -899,349 +889,206 @@ var firebaseConfig = {
   messagingSenderId: "335706191722",
   appId:             "1:335706191722:web:4389649d7a61cd82229713"
 };
+firebase.initializeApp(_FB_CONFIG);
+var _auth = firebase.auth();
+var _fdb  = firebase.firestore();
+_fdb.enablePersistence({synchronizeTabs:true}).catch(function(){});
 
-if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
-var fbAuth = firebase.auth();
-var fbDB   = firebase.firestore();
+var _user        = null;
+var _saveTimer   = null;
+var _pending     = {};
 
-// Firestore persistence (offline support)
-fbDB.enablePersistence({ synchronizeTabs: true }).catch(function(err) {
-  console.warn('Firestore persistence error:', err.code);
-});
-
-// ═══════════════════════════════════════════════════════════════
-// DB LAYER — Dual: Firestore primary, localStorage mirror/cache
-// ═══════════════════════════════════════════════════════════════
-var _currentUser = null;   // set after auth
-var _syncTimer   = null;
-var _pendingSave = {};     // keys that need saving to Firestore
-
+// ════════════════════════════════════════════════════════
+// DB LAYER — localStorage cache + Firestore backend
+// ════════════════════════════════════════════════════════
 var DB = {
-  // ── localStorage cache helpers (instant read) ──
-  _lsGet: function(k) {
-    try { return JSON.parse(localStorage.getItem('cp_' + k)); } catch(e) { return null; }
-  },
-  _lsSet: function(k, v) {
-    try { localStorage.setItem('cp_' + k, JSON.stringify(v)); } catch(e) {}
+  // internal cache read/write
+  _r: function(k){ try{ return JSON.parse(localStorage.getItem('cp_'+k)); }catch(e){ return null; } },
+  _w: function(k,v){ try{ localStorage.setItem('cp_'+k, JSON.stringify(v)); }catch(e){} },
+
+  // public API — reads from localStorage cache (instant)
+  get:    function(k){ var v=this._r(k); return Array.isArray(v)?v:[]; },
+  getObj: function(k,def){ var v=this._r(k); return (v&&typeof v==='object'&&!Array.isArray(v))?v:(def||{}); },
+
+  // public API — write to cache + queue Firestore save
+  set:    function(k,v){ this._w(k,v); this._q(k,v); },
+  setObj: function(k,v){ this._w(k,v); this._q(k,v); },
+
+  // queue debounced batch save
+  _q: function(k,v){
+    if(!_user) return;
+    _pending[k]=v;
+    clearTimeout(_saveTimer);
+    _saveTimer=setTimeout(function(){ DB._flush(); }, 800);
+    DB._sync('saving','Saving...');
   },
 
-  // ── Sync status UI ──
-  _setSyncStatus: function(state, msg) {
-    var el = document.getElementById('sync-status');
-    var lbl = document.getElementById('sync-label');
-    var dot = el ? el.querySelector('.sync-dot') : null;
-    if (!el) return;
-    el.className = 'sync-status ' + state;
-    if (lbl) lbl.textContent = msg || state;
-    if (dot) {
-      dot.className = 'sync-dot' + (state === 'syncing' ? ' pulse' : '');
-    }
-  },
-
-  // ── Get from localStorage cache (sync, instant) ──
-  get: function(k) {
-    var v = this._lsGet(k);
-    return Array.isArray(v) ? v : [];
-  },
-  getObj: function(k, def) {
-    var v = this._lsGet(k);
-    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : (def || {});
-  },
-
-  // ── Set: write to localStorage immediately, queue Firestore save ──
-  set: function(k, v) {
-    this._lsSet(k, v);
-    this._queueSave(k, v);
-  },
-  setObj: function(k, v) {
-    this._lsSet(k, v);
-    this._queueSave(k, v);
-  },
-
-  // ── Queue and debounce Firestore writes (batch every 800ms) ──
-  _queueSave: function(k, v) {
-    if (!_currentUser) return;   // not logged in yet
-    _pendingSave[k] = v;
-    clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(function() { DB._flushToFirestore(); }, 800);
-    DB._setSyncStatus('syncing', 'Saving...');
-  },
-
-  // ── Flush all pending keys to Firestore in one batch ──
-  _flushToFirestore: function() {
-    if (!_currentUser) return;
-    var uid = _currentUser.uid;
-    var keys = Object.keys(_pendingSave);
-    if (!keys.length) return;
-    var batch = fbDB.batch();
-    keys.forEach(function(k) {
-      var ref = fbDB.collection('users').doc(uid).collection('data').doc(k);
-      batch.set(ref, { value: _pendingSave[k], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  // flush pending to Firestore
+  _flush: function(){
+    if(!_user || !Object.keys(_pending).length) return;
+    var uid=_user.uid;
+    var batch=_fdb.batch();
+    Object.keys(_pending).forEach(function(k){
+      batch.set(
+        _fdb.collection('users').doc(uid).collection('data').doc(k),
+        { v: _pending[k], t: firebase.firestore.FieldValue.serverTimestamp() }
+      );
     });
-    _pendingSave = {};
+    _pending={};
     batch.commit()
-      .then(function() { DB._setSyncStatus('saved', '✓ Saved'); })
-      .catch(function(err) {
-        console.error('Firestore save error:', err);
-        DB._setSyncStatus('error', '⚠ Save failed');
-        setTimeout(function() { DB._setSyncStatus('offline', 'Offline'); }, 3000);
-      });
+      .then(function(){ DB._sync('saved','✓ Saved'); })
+      .catch(function(e){ console.error('Save error',e); DB._sync('offline','⚠ Save failed'); });
   },
 
-  // ── Load ALL data from Firestore (called once after login) ──
-  loadAll: function(uid, onDone) {
-    DB._setSyncStatus('syncing', 'Loading...');
-    fbDB.collection('users').doc(uid).collection('data').get()
-      .then(function(snap) {
-        snap.forEach(function(doc) {
-          var k = doc.id;
-          var v = doc.data().value;
-          if (v !== undefined) {
-            DB._lsSet(k, v);
-          }
-        });
-        DB._setSyncStatus('saved', '✓ Synced');
-        if (onDone) onDone();
+  // load all from Firestore then callback
+  loadAll: function(uid, cb){
+    DB._sync('saving','Loading...');
+    _fdb.collection('users').doc(uid).collection('data').get()
+      .then(function(snap){
+        snap.forEach(function(doc){ if(doc.data().v!==undefined) DB._w(doc.id, doc.data().v); });
+        DB._sync('saved','✓ Ready');
+        cb();
       })
-      .catch(function(err) {
-        console.error('Firestore load error:', err);
-        DB._setSyncStatus('offline', 'Offline — using local data');
-        if (onDone) onDone();  // still boot with local cache
-      });
+      .catch(function(e){ console.error('Load error',e); DB._sync('offline','Offline'); cb(); });
   },
 
-  // ── Push specific key to Firestore immediately (force save) ──
-  pushNow: function(k, v) {
-    if (!_currentUser) return;
-    var uid = _currentUser.uid;
-    fbDB.collection('users').doc(uid).collection('data').doc(k)
-      .set({ value: v, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
-      .then(function() { DB._setSyncStatus('saved', '✓ Saved'); })
-      .catch(function(err) { console.error('pushNow error:', err); });
-  },
-
-  // ── Listen for real-time changes from other devices ──
-  _listeners: {},
-  _listenKey: function(uid, k, onChange) {
-    if (this._listeners[k]) return;
-    this._listeners[k] = fbDB.collection('users').doc(uid)
-      .collection('data').doc(k).onSnapshot(function(doc) {
-        if (doc.exists && doc.metadata.hasPendingWrites === false) {
-          var v = doc.data().value;
-          DB._lsSet(k, v);
-          onChange(k, v);
-        }
-      });
+  // sync status badge
+  _sync: function(cls, txt){
+    var b=document.getElementById('sync-badge');
+    var l=document.getElementById('sync-lbl');
+    var d=b&&b.querySelector('.sdot');
+    if(b) b.className=cls;
+    if(l) l.textContent=txt;
+    if(d) d.className='sdot'+(cls==='saving'?' pulse':'');
   }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// AUTH FUNCTIONS
-// ═══════════════════════════════════════════════════════════════
-function doLogin() {
-  var emailEl = document.getElementById('login-email');
-  var pwdEl   = document.getElementById('login-pwd');
-  var errEl   = document.getElementById('login-err');
-  var btn     = document.getElementById('login-btn');
-  var spinner = document.getElementById('login-spinner');
-  var btnTxt  = document.getElementById('login-btn-text');
+// ════════════════════════════════════════════════════════
+// AUTH — login / logout / state
+// ════════════════════════════════════════════════════════
+function doLogin(){
+  var eEl=document.getElementById('li-email');
+  var pEl=document.getElementById('li-pwd');
+  var errEl=document.getElementById('li-err');
+  var btn=document.getElementById('li-btn');
+  var sp=document.getElementById('li-sp');
+  var txt=document.getElementById('li-txt');
 
-  var email = (emailEl.value || '').trim();
-  var pwd   = (pwdEl.value || '').trim();
+  eEl.classList.remove('err'); pEl.classList.remove('err');
+  errEl.className='le';
 
-  // Clear errors
-  errEl.className = 'login-err';
-  emailEl.classList.remove('error');
-  pwdEl.classList.remove('error');
+  var email=(eEl.value||'').trim();
+  var pwd=(pEl.value||'').trim();
 
-  // Validate
-  if (!email) { emailEl.classList.add('error'); emailEl.focus(); return; }
-  if (!pwd)   { pwdEl.classList.add('error');   pwdEl.focus();   return; }
+  if(!email){ eEl.classList.add('err'); eEl.focus(); return; }
+  if(!pwd)  { pEl.classList.add('err'); pEl.focus(); return; }
 
-  // Show spinner
-  btn.disabled = true;
-  spinner.classList.add('show');
-  btnTxt.textContent = 'Signing in...';
+  btn.disabled=true; sp.className='lsp show'; txt.textContent='Signing in...';
 
-  fbAuth.signInWithEmailAndPassword(email, pwd)
-    .then(function() {
-      // onAuthStateChanged handles the rest
-    })
-    .catch(function(err) {
-      btn.disabled = false;
-      spinner.classList.remove('show');
-      btnTxt.textContent = 'Sign In';
-
-      var msg = 'Login failed. Please try again.';
-      if (err.code === 'auth/user-not-found')       msg = '❌ Email not registered.';
-      else if (err.code === 'auth/wrong-password')   msg = '❌ Wrong password. Please try again.';
-      else if (err.code === 'auth/invalid-email')    msg = '❌ Invalid email format.';
-      else if (err.code === 'auth/too-many-requests') msg = '⚠ Too many attempts. Try after some time.';
-      else if (err.code === 'auth/network-request-failed') msg = '⚠ Network error. Check internet connection.';
-      else if (err.code === 'auth/invalid-credential') msg = '❌ Wrong email or password.';
-      else msg = '❌ ' + (err.message || 'Login failed.');
-
-      errEl.textContent = msg;
-      errEl.className = 'login-err show';
-
-      // Shake the card
-      var card = document.querySelector('.login-card');
-      if (card) {
-        card.style.animation = 'none';
-        card.style.transform = 'translateX(-8px)';
-        setTimeout(function() { card.style.transform = 'translateX(8px)'; }, 80);
-        setTimeout(function() { card.style.transform = 'translateX(-5px)'; }, 160);
-        setTimeout(function() { card.style.transform = 'translateX(0)'; card.style.transition = 'transform .15s'; }, 240);
-      }
+  _auth.signInWithEmailAndPassword(email, pwd)
+    .catch(function(err){
+      btn.disabled=false; sp.className='lsp'; txt.textContent='Sign In';
+      var m='Login failed. Try again.';
+      if(err.code==='auth/invalid-credential'||err.code==='auth/wrong-password') m='❌ Wrong email or password.';
+      else if(err.code==='auth/user-not-found') m='❌ Email not registered.';
+      else if(err.code==='auth/invalid-email')  m='❌ Invalid email format.';
+      else if(err.code==='auth/too-many-requests') m='⚠ Too many attempts. Wait and retry.';
+      else if(err.code==='auth/network-request-failed') m='⚠ No internet. Check connection.';
+      errEl.textContent=m; errEl.className='le show';
+      var card=document.querySelector('.lc');
+      if(card){ card.style.animation='shake .35s ease'; setTimeout(function(){ card.style.animation=''; },400); }
     });
 }
 
-function doLogout() {
-  if (!confirm('Logout karna chahte ho?')) return;
-  DB._flushToFirestore();
-  setTimeout(function() { fbAuth.signOut(); }, 500);
+function doLogout(){
+  if(!confirm('Logout karna chahte ho?')) return;
+  DB._flush();
+  setTimeout(function(){ _auth.signOut(); }, 600);
 }
 
-function showUserMenu() {
-  if (!_currentUser) return;
-  var email = _currentUser.email || '';
-  var choices = ['🔒 Logout (' + email + ')', '✕ Cancel'];
-  var choice = prompt('Account:
-' + email + '
-
-Logout karna chahte ho? (haan/nahi)', 'nahi');
-  if (choice && choice.toLowerCase() === 'haan') doLogout();
-}
-
-// ── Login screen Enter key support ──
-document.addEventListener('DOMContentLoaded', function() {
-  var loginPwd = document.getElementById('login-pwd');
-  var loginEmail = document.getElementById('login-email');
-  if (loginPwd) loginPwd.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
-  if (loginEmail) loginEmail.addEventListener('keydown', function(e) { if (e.key === 'Enter') { document.getElementById('login-pwd').focus(); } });
+// Enter key on password field
+document.addEventListener('DOMContentLoaded',function(){
+  var pe=document.getElementById('li-pwd');
+  var ee=document.getElementById('li-email');
+  if(pe) pe.addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
+  if(ee) ee.addEventListener('keydown',function(e){ if(e.key==='Enter') document.getElementById('li-pwd').focus(); });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// APP BOOTSTRAP — runs after Firebase auth is confirmed
-// ═══════════════════════════════════════════════════════════════
-function bootApp() {
-  // Load data from Firestore, then initialize all in-memory arrays
-  var loadingEl = document.getElementById('fb-loading');
-  var loadingTxt = document.getElementById('fb-loading-text');
-  if (loadingEl) loadingEl.classList.remove('hidden');
-  if (loadingTxt) loadingTxt.textContent = 'Loading your data from cloud...';
+// ════════════════════════════════════════════════════════
+// AUTH STATE — single source of truth
+// ════════════════════════════════════════════════════════
+_auth.onAuthStateChanged(function(user){
+  var ls=document.getElementById('login-screen');
+  var app=document.querySelector('.app');
+  var nav=document.getElementById('mobile-nav');
+  var loader=document.getElementById('app-loader');
 
-  DB.loadAll(_currentUser.uid, function() {
-    // Initialize all data arrays from localStorage cache
-    bills     = DB.get('bills');
-    payments  = DB.get('payments');
-    cheques   = DB.get('cheques');
-    advances  = DB.get('advances');
-    expenses  = DB.get('expenses');
-    returns_  = DB.get('returns');
-    purchases = DB.get('purchases');
-    suspense  = DB.get('suspense');
-    cfg       = DB.getObj('settings', {});
-    hiddenPages = DB.getObj('hiddenPages', {});
+  if(user){
+    _user=user;
+    if(ls) ls.classList.add('hidden');
+    if(loader) loader.classList.remove('hidden');
+    if(app) app.style.display='none';
+    if(nav) nav.style.display='none';
 
-    // Apply defaults
-    if (!cfg.grades)   cfg.grades   = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
-    if (!cfg.company)  cfg.company  = 'JAI SHREE CASHEW INDUSTRIES';
-    if (!cfg.gstin)    cfg.gstin    = '08ADJPP5115H1ZH';
-    if (!cfg.phone)    cfg.phone    = '7568577968';
-    if (!cfg.address)  cfg.address  = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
+    DB.loadAll(user.uid, function(){
+      // populate in-memory arrays from cache
+      bills     = DB.get('bills');
+      payments  = DB.get('payments');
+      cheques   = DB.get('cheques');
+      advances  = DB.get('advances');
+      expenses  = DB.get('expenses');
+      returns_  = DB.get('returns');
+      purchases = DB.get('purchases');
+      suspense  = DB.get('suspense');
+      cfg       = DB.getObj('settings',{});
+      hiddenPages = DB.getObj('hiddenPages',{});
 
-    // Hide loading, show app
-    if (loadingEl) loadingEl.classList.add('hidden');
+      if(!cfg.grades)   cfg.grades   = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
+      if(!cfg.company)  cfg.company  = 'JAI SHREE CASHEW INDUSTRIES';
+      if(!cfg.gstin)    cfg.gstin    = '08ADJPP5115H1ZH';
+      if(!cfg.phone)    cfg.phone    = '7568577968';
+      if(!cfg.address)  cfg.address  = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
 
-    // Update user display
-    var shortEl = document.getElementById('user-email-short');
-    if (shortEl && _currentUser.email) {
-      shortEl.textContent = _currentUser.email.split('@')[0];
-    }
+      if(loader) loader.classList.add('hidden');
+      if(app){ app.style.display='flex'; }
+      if(nav) nav.style.display='';
 
-    // Build nav and go to dashboard
-    buildNav();
-    go('dashboard');
+      var ue=document.getElementById('usr-email');
+      if(ue) ue.textContent=(user.email||'').split('@')[0];
 
-    // Start auto-backup check
-    initAutoBackup();
-
-    // Real-time listeners for key collections (multi-device sync)
-    var syncKeys = ['bills','payments','cheques','advances','expenses','returns','purchases','suspense'];
-    syncKeys.forEach(function(k) {
-      DB._listenKey(_currentUser.uid, k, function(key, val) {
-        // Update in-memory arrays when another device changes data
-        if (key === 'bills')     { bills     = Array.isArray(val) ? val : []; }
-        if (key === 'payments')  { payments  = Array.isArray(val) ? val : []; }
-        if (key === 'cheques')   { cheques   = Array.isArray(val) ? val : []; }
-        if (key === 'advances')  { advances  = Array.isArray(val) ? val : []; }
-        if (key === 'expenses')  { expenses  = Array.isArray(val) ? val : []; }
-        if (key === 'returns')   { returns_  = Array.isArray(val) ? val : []; }
-        if (key === 'purchases') { purchases = Array.isArray(val) ? val : []; }
-        if (key === 'suspense')  { suspense  = Array.isArray(val) ? val : []; }
-        // Silently refresh UI (debounced)
-        if (typeof refresh === 'function') {
-          clearTimeout(DB._refreshTimer);
-          DB._refreshTimer = setTimeout(function() { refresh(); }, 400);
-        }
-      });
+      buildNav();
+      go('dashboard');
+      _initAutoBackup();
     });
-  });
-}
-
-// ── AUTH STATE LISTENER — single source of truth ──
-fbAuth.onAuthStateChanged(function(user) {
-  var loginScreen = document.getElementById('login-screen');
-  var appEl = document.querySelector('.app');
-  var mobileNav = document.getElementById('mobile-nav');
-
-  if (user) {
-    // ── LOGGED IN ──
-    _currentUser = user;
-    if (loginScreen) loginScreen.classList.add('hidden');
-    if (appEl) appEl.style.display = 'flex';
-    if (mobileNav) mobileNav.style.display = '';
-    bootApp();
   } else {
-    // ── LOGGED OUT ──
-    _currentUser = null;
-    if (loginScreen) loginScreen.classList.remove('hidden');
-    if (appEl) appEl.style.display = 'none';
-    if (mobileNav) mobileNav.style.display = 'none';
-    // Reset spinner/button state on logout
-    var btn = document.getElementById('login-btn');
-    var spinner = document.getElementById('login-spinner');
-    var btnTxt = document.getElementById('login-btn-text');
-    if (btn) btn.disabled = false;
-    if (spinner) spinner.classList.remove('show');
-    if (btnTxt) btnTxt.textContent = 'Sign In';
+    _user=null;
+    if(loader) loader.classList.add('hidden');
+    if(ls) ls.classList.remove('hidden');
+    if(app) app.style.display='none';
+    if(nav) nav.style.display='none';
+    // reset login button
+    var btn=document.getElementById('li-btn');
+    var sp=document.getElementById('li-sp');
+    var txt=document.getElementById('li-txt');
+    if(btn) btn.disabled=false;
+    if(sp)  sp.className='lsp';
+    if(txt) txt.textContent='Sign In';
   }
 });
 
-// Hide app initially (shown only after auth)
-(function() {
-  var appEl = document.querySelector('.app');
-  var mobileNav = document.getElementById('mobile-nav');
-  if (appEl) appEl.style.display = 'none';
-  if (mobileNav) mobileNav.style.display = 'none';
+// hide app on initial load (shown only after auth)
+(function(){
+  var a=document.querySelector('.app');
+  var n=document.getElementById('mobile-nav');
+  if(a) a.style.display='none';
+  if(n) n.style.display='none';
 })();
 
-// ═══════════════════════════════════════════════════════════════
-// DATA LAYER — in-memory arrays (populated after login)
-// ═══════════════════════════════════════════════════════════════
-var bills     = [];
-var payments  = [];
-var cheques   = [];
-var advances  = [];
-var expenses  = [];
-var returns_  = [];
-var purchases = [];
-var suspense  = [];
-
-var cfg = {};
-var hiddenPages = {};
-// Defaults applied in bootApp() after data loads
+// ════════════════════════════════════════════════════════
+// IN-MEMORY DATA (populated in bootApp after login)
+// ════════════════════════════════════════════════════════
+var bills=[],payments=[],cheques=[],advances=[],expenses=[],returns_=[],purchases=[],suspense=[];
+var cfg={}, hiddenPages={};
 
 // ═══════════════════════════════════════
 // HELPERS
@@ -2187,6 +2034,7 @@ function openPayModal(billId) {
 // ═══════════════════════════════════════
 function render(page) {
   var p = document.getElementById('page');
+  if(!p) { console.error('page div not found'); return; }
   p.innerHTML = '';
 
   // ── SUSPENSE ALERT BANNER ──
@@ -2381,7 +2229,10 @@ function pgDashboard() {
     dashItems.splice(1, 0, suspCard); // Insert before top-due table
   }
 
-  var wrap = el('div', {}, dashItems);
+  var wrap = document.createElement('div');
+  dashItems.forEach(function(item) {
+    if(item instanceof HTMLElement) wrap.appendChild(item);
+  });
   return wrap;
 }
 
@@ -5392,13 +5243,10 @@ function pgSettings() {
     if(pwd===null)return;
     if(pwd!=='you2338685'){toast('Wrong password! Data delete nahi hua.','err');return;}
     if(!confirm('SARE DATA DELETE ho jayenge — bills, payments, sab. Pakka karna hai?'))return;
-    bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];suspense=[];
+    bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];
     DB.set('bills',bills);DB.set('payments',payments);DB.set('cheques',cheques);
     DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
-    DB.set('purchases',purchases);DB.set('suspense',suspense);
-    // Immediately flush to Firestore (don't wait for debounce)
-    clearTimeout(DB._syncTimer);
-    DB._flushToFirestore();
+    DB.set('purchases',purchases);
     toast('All data cleared');refresh();
   });
 
@@ -5588,7 +5436,7 @@ function pgBankMatch() {
     if(m){try{arr=JSON.parse(m[0]);}catch(e){}}
     if(!arr||!arr.length){toast('Valid JSON not found!','err');return;}
     state.credits=arr.map(function(c){return Object.assign({_matched:false,_billId:null,_type:'payment'},c);});
-    DB.set('bankCredits', state.credits);
+    DB.set('bankCredits',state.credits);
     toast(arr.length+' credits loaded!'); jsonArea.value=''; refresh();
   });
   var addManBtn=el('button',{cls:'btn btn-outline',text:'+ Add Manually'});
@@ -5600,12 +5448,12 @@ function pgBankMatch() {
       var amt=parseFloat(gv('ba-amt'))||0;var date=gv('ba-date');
       if(!amt||!date){toast('Amount & date required!','err');return;}
       state.credits.push({amount:amt,date:date,party:gv('ba-party'),mode:gv('ba-mode'),ref:gv('ba-ref'),_matched:false,_billId:null,_type:'payment'});
-      DB.set('bankCredits', state.credits);
+      DB.set('bankCredits',state.credits);
       closeModal();refresh();
     }}]);
   });
   var clearBtn=el('button',{cls:'btn btn-red',text:'Clear All'});
-  clearBtn.addEventListener('click',function(){if(!confirm('Clear all credits?'))return;state.credits=[];DB.set('bankCredits', []);refresh();});
+  clearBtn.addEventListener('click',function(){if(!confirm('Clear all credits?'))return;state.credits=[];DB.set('bankCredits',[]);refresh();});
   btnRow.appendChild(loadBtn);btnRow.appendChild(addManBtn);btnRow.appendChild(clearBtn);
   upBody.appendChild(btnRow);
   upCard.appendChild(upBody);
@@ -5719,7 +5567,7 @@ function pgBankMatch() {
           c._matched=true; c._billId=matchBill.id; c._type='payment';
           toast('₹'+fmt(amt)+' applied to '+matchBill.party);
         }
-        DB.set('bankCredits', state.credits);
+        DB.set('bankCredits',state.credits);
         refresh();
       };})(ci,credit));
       actTd.appendChild(applyBtn);
@@ -9173,7 +9021,6 @@ function performUndo() {
   DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
   DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
   DB.set('purchases',purchases); DB.set('suspense',suspense);
-  clearTimeout(DB._syncTimer); DB._flushToFirestore();
   toast('Undo: "' + last.label + '" wapas ho gaya!');
   hideUndoBtn(); refresh();
 }
@@ -9996,13 +9843,12 @@ function restoreFromExcel(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// buildNav() and go('dashboard') are called inside bootApp() after auth+data load
-// Event listeners for topbar buttons — always attach regardless of auth state
-document.addEventListener('DOMContentLoaded', function() {
-  var nb = document.getElementById('btn-new-bill');
-  var rb = document.getElementById('btn-receive');
-  if (nb) nb.addEventListener('click', function() { go('new-bill'); });
-  if (rb) rb.addEventListener('click', function() { go('receive'); });
+// buildNav() + go('dashboard') called inside onAuthStateChanged after data loads
+document.addEventListener('DOMContentLoaded', function(){
+  var nb=document.getElementById('btn-new-bill');
+  var rb=document.getElementById('btn-receive');
+  if(nb) nb.addEventListener('click',function(){ go('new-bill'); });
+  if(rb) rb.addEventListener('click',function(){ go('receive'); });
 });
 
 // ── GLOBAL SEARCH ──
@@ -10116,7 +9962,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('click',function(ev){if(!gsInp.contains(ev.target)&&!gsRes.contains(ev.target))closeGs();});
 })();
 
-// go('dashboard') is called inside bootApp() — removed standalone call
+// go('dashboard') called inside onAuthStateChanged
 
 // ── MOBILE SIDEBAR TOGGLE ──
 function openMobileSidebar(){
@@ -10149,29 +9995,26 @@ if(mobMoreBtn){
   });
 }
 
-// ── AUTO BACKUP — once per day (called from bootApp) ──
-function initAutoBackup() {
-  try {
-    var _lbak = localStorage.getItem('cp_lastBackup');
-    var _td = today();
-    if (_lbak === _td) return;
-    setTimeout(function() {
-      try {
-        var _bd = {bills:bills, payments:payments, cheques:cheques, advances:advances,
-          expenses:expenses, returns:returns_, settings:cfg, exportDate:new Date().toISOString()};
-        var _bl = new Blob([JSON.stringify(_bd)], {type:'application/json'});
-        var _el = document.createElement('a');
-        _el.href = URL.createObjectURL(_bl);
-        _el.download = 'CashewPro_AutoBackup_' + _td + '.json';
-        document.body.appendChild(_el); _el.click();
-        setTimeout(function() {
-          try { document.body.removeChild(_el); URL.revokeObjectURL(_el.href); } catch(e) {}
-        }, 2000);
-        localStorage.setItem('cp_lastBackup', _td);
-        toast('💾 Auto backup: ' + _td);
-      } catch(ex) { console.warn('Backup err', ex); }
-    }, 4000);
-  } catch(ex2) { console.warn('Backup init err', ex2); }
+// ── AUTO BACKUP — once per day (called from onAuthStateChanged after login) ──
+function _initAutoBackup(){
+  try{
+    var _lbak=localStorage.getItem('cp_lastBackup');
+    var _td=today();
+    if(_lbak===_td) return;
+    setTimeout(function(){
+      try{
+        var _bd={bills:bills,payments:payments,cheques:cheques,advances:advances,
+          expenses:expenses,returns:returns_,settings:cfg,exportDate:new Date().toISOString()};
+        var _bl=new Blob([JSON.stringify(_bd)],{type:'application/json'});
+        var _el=document.createElement('a');_el.href=URL.createObjectURL(_bl);
+        _el.download='CashewPro_AutoBackup_'+_td+'.json';
+        document.body.appendChild(_el);_el.click();
+        setTimeout(function(){try{document.body.removeChild(_el);URL.revokeObjectURL(_el.href);}catch(e){}},2000);
+        localStorage.setItem('cp_lastBackup',_td);
+        toast('💾 Auto backup: '+_td);
+      }catch(ex){console.warn('Backup err',ex);}
+    },4000);
+  }catch(ex2){console.warn('Backup init err',ex2);}
 }
 </script>
 </body>
