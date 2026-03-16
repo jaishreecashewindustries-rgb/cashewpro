@@ -2583,7 +2583,7 @@ function pgDashboard() {
 
   // Summary bar
   var dashSum = document.createElement('div');
-  dashSum.style.cssText =  + SB_GREEN + ;
+  dashSum.style.cssText='padding:9px 16px;background:#f0fdf4;border-top:2px solid var(--brand-light);font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3';
   var paidCount = bills.filter(function(b){return getBillStatus(b).status==='paid';}).length;
   dashSum.innerHTML =
     '<span>Total Bills: <strong>'+bills.length+'</strong></span>'+
@@ -6579,12 +6579,8 @@ function exportPartyReportExcel() {
       var bg=(b.rows||[]).map(function(r){return r.grade;});
       if(!bg.some(function(g){return fs4.grade.has(g);})) return false;
     }
-    if(state.filters.date_from&&toISO(e.date||'')<toISO(state.filters.date_from)) return false;
-    if(state.filters.date_to&&toISO(e.date||'')>toISO(state.filters.date_to)) return false;
-    if(state.filters.amount_min!==undefined&&!isNaN(state.filters.amount_min)&&(e.amount||0)<state.filters.amount_min) return false;
-    if(state.filters.amount_max!==undefined&&!isNaN(state.filters.amount_max)&&(e.amount||0)>state.filters.amount_max) return false;
     return true;
-  }
+  })
   .sort(function(a,b){return b.Outstanding-a.Outstanding;});
   var ws=XLSX.utils.json_to_sheet(data);
   ws['!cols']=[{wch:24},{wch:8},{wch:14},{wch:14},{wch:14}];
