@@ -4877,7 +4877,7 @@ function pgPartyLedger(party) {
     if(plState2.dateFrom&&toISO(b.date||'')<toISO(plState2.dateFrom))return false;
     if(plState2.dateTo&&toISO(b.date||'')>toISO(plState2.dateTo))return false;
     return true;
-  }).sort(function(a,b){return a.date<b.date?1:-1;});
+  }).sort(function(a,b){return toISO(a.date||'')<toISO(b.date||'')?1:-1;});
   var totalAmt=pb.reduce(function(s,b){return s+b.netAmt;},0);
   var totalRecv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var totalDue=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -5179,7 +5179,7 @@ function openBulkPayModal(party) {
 function exportPartyLedgerExcel(party) {
   var wb=XLSX.utils.book_new();
   if(!plState.filters) plState.filters={};
-  var pb=bills.filter(function(b){return b.party===party;}).sort(function(a,b){return a.date<b.date?1:-1;});
+  var pb=bills.filter(function(b){return b.party===party;}).sort(function(a,b){return toISO(a.date||'')<toISO(b.date||'')?1:-1;});
   var bRows=pb.map(function(b){var s=getBillStatus(b);var gst=(b.cgst||0)+(b.sgst||0)+(b.igst||0);
     return{'Bill No':b.billNo||'','Date':b.date,'Broker':b.broker||'','Station':b.station||'',
       'Grades':(b.rows||[]).map(function(r){return r.grade+'@'+r.rate;}).join(', '),
