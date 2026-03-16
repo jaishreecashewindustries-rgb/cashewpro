@@ -1306,19 +1306,56 @@ function badge(status) {
   return el('span', { cls: 'badge ' + info[0], text: info[1] });
 }
 
+// ── PERFORMANCE: getBillStatus Cache ──
+// payments/advances badalne par cache invalidate hoga
+var _billStatusCache = {};
+var _billStatusVersion = 0;
+var _paymentIndex = null; // billId → payments array
+var _advanceIndex = null; // linkedBillId → advances array
+
+function _buildPaymentIndex() {
+  _paymentIndex = {};
+  payments.forEach(function(p) {
+    if (!_paymentIndex[p.billId]) _paymentIndex[p.billId] = [];
+    _paymentIndex[p.billId].push(p);
+  });
+  _advanceIndex = {};
+  advances.forEach(function(a) {
+    if (!a.linkedBillId) return;
+    if (!_advanceIndex[a.linkedBillId]) _advanceIndex[a.linkedBillId] = [];
+    _advanceIndex[a.linkedBillId].push(a);
+  });
+}
+
+function invalidateBillStatusCache() {
+  _billStatusCache = {};
+  _paymentIndex = null;
+  _advanceIndex = null;
+}
+
 function getBillStatus(bill) {
-  var paid = payments
-    .filter(function(p) { return p.billId === bill.id; })
-    .reduce(function(s, p) { return s + (p.amount || 0) + (p.rebate || 0); }, 0);
-  var adv = advances
-    .filter(function(a) { return a.linkedBillId === bill.id; })
-    .reduce(function(s, a) { return s + (a.amount || 0); }, 0);
+  // Cache check
+  var cached = _billStatusCache[bill.id];
+  if (cached) return cached;
+
+  // Build index on first use (lazy)
+  if (!_paymentIndex) _buildPaymentIndex();
+
+  var billPayments = _paymentIndex[bill.id] || [];
+  var billAdvances = _advanceIndex[bill.id] || [];
+
+  var paid = billPayments.reduce(function(s, p) { return s + (p.amount || 0) + (p.rebate || 0); }, 0);
+  var adv  = billAdvances.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
   var total = paid + adv;
   var bal = (bill.netAmt || 0) - total;
-  var excess = Math.max(0, total - (bill.netAmt || 0)); // overpaid amount
-  if (bal <= 0.5) return { status: 'paid', recv: bill.netAmt, bal: 0, excess: excess };
-  if (total > 0)  return { status: 'partial', recv: total, bal: bal, excess: 0 };
-  return { status: 'due', recv: 0, bal: bill.netAmt || 0, excess: 0 };
+  var excess = Math.max(0, total - (bill.netAmt || 0));
+  var result;
+  if (bal <= 0.5) result = { status: 'paid', recv: bill.netAmt, bal: 0, excess: excess };
+  else if (total > 0) result = { status: 'partial', recv: total, bal: bal, excess: 0 };
+  else result = { status: 'due', recv: 0, bal: bill.netAmt || 0, excess: 0 };
+
+  _billStatusCache[bill.id] = result;
+  return result;
 }
 
 function fgInp(labelText, id, type, placeholder, val, extra) {
@@ -1753,7 +1790,7 @@ window.addEventListener('beforeunload', function(e){
   if(_dirtyForm){e.preventDefault();e.returnValue='';return '';}
 });
 
-function refresh() { go(currentPage); }
+function refresh() { invalidateGsIndex(); go(currentPage); }
 
 // ═══════════════════════════════════════
 // TABLE BUILDER
@@ -2189,7 +2226,7 @@ function openPayModal(billId) {
         mode:gv('pay-mode'),chequeNo:gv('pay-chq'),receiptNo:gv('pay-rcpt'),remarks:gv('pay-rmk')};
       payments.push(newPay);
       saveUndo('Payment Save');
-      DB.set('payments',payments);
+      invalidateBillStatusCache();DB.set('payments',payments);
       var printReceipt=document.getElementById('pay-print-receipt');
       var pBill2=bills.find(function(x){return x.id===billId;});
       closeModal();refresh();
@@ -3089,7 +3126,12 @@ function pgAllBills() {
       etd.innerHTML='<div style="font-size:32px;margin-bottom:8px">No bills found</div>';
       etr.appendChild(etd);tbody.appendChild(etr);return;
     }
-    d.forEach(function(row){
+    // ── PAGINATION: only render first PAGE_SIZE rows at a time ──
+    var PAGE_SIZE=150;
+    var pageLimit=state._pageLimit||PAGE_SIZE;
+    var visData=d.slice(0,pageLimit);
+
+    visData.forEach(function(row){
       var s=getBillStatus(row);
       var lp=payments.filter(function(p){return p.billId===row.id;});
       var lpy=lp.length?lp[lp.length-1]:null;
@@ -3152,7 +3194,7 @@ function pgAllBills() {
             saveUndo('Bill Delete: '+r.party+' #'+(r.billNo||''));
             bills=bills.filter(function(b){return b.id!==r.id;});
             payments=payments.filter(function(p){return p.billId!==r.id;});
-            DB.set('bills',bills);DB.set('payments',payments);
+            invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);
             toast('Bill deleted');var nd=getData();buildHdr(nd);renderRows(nd);
           }},
         ];
@@ -3186,6 +3228,22 @@ function pgAllBills() {
       var expTd=document.createElement('td');expTd.setAttribute('colspan',getCols().length+(state.printMode?1:0));expTd.style.padding='0';
       expRow.appendChild(expTd);tbody.appendChild(expRow);
     });
+
+    // ── Load More button ──
+    if(d.length>pageLimit){
+      var lmTr=document.createElement('tr');
+      var lmTd=document.createElement('td');
+      lmTd.setAttribute('colspan',getCols().length+(state.printMode?1:0));
+      lmTd.style.cssText='text-align:center;padding:12px';
+      var lmBtn=document.createElement('button');
+      lmBtn.className='btn btn-outline btn-sm';
+      lmBtn.textContent='Load More ('+(d.length-pageLimit)+' remaining)';
+      lmBtn.addEventListener('click',function(){
+        state._pageLimit=(state._pageLimit||PAGE_SIZE)+PAGE_SIZE;
+        renderRows(d);
+      });
+      lmTd.appendChild(lmBtn);lmTr.appendChild(lmTd);tbody.appendChild(lmTr);
+    }
   }
 
   function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);setTimeout(applyZoom,10);}
@@ -3722,7 +3780,7 @@ function pgDueList() {
     } else {
       if(!confirm('Multiple parties selected. Har bill pe alag payment karein?'))return;
       selBills2.forEach(function(b){var s=getBillStatus(b);payments.push({id:uid(),billId:b.id,amount:s.bal,rebate:0,date:today(),mode:'NEFT',chequeNo:'',receiptNo:'',remarks:'Bulk'});});
-      DB.set('payments',payments);toast('✅ '+selBills2.length+' payments saved!');state.sel.clear();state.printMode=false;refresh();
+      invalidateBillStatusCache();DB.set('payments',payments);toast('✅ '+selBills2.length+' payments saved!');state.sel.clear();state.printMode=false;refresh();
     }
   });
   toolbar.appendChild(searchInp);toolbar.appendChild(clearBtn);toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(bulkPayBtn2);
@@ -3851,7 +3909,7 @@ function pgDueList() {
            saveUndo('Bill Delete: '+r2.party+' #'+r2.billNo);
            bills=bills.filter(function(b){return b.id!==r2.id;});
            payments=payments.filter(function(p){return p.billId!==r2.id;});
-           DB.set('bills',bills);DB.set('payments',payments);toast('Bill deleted');refresh();
+           invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);toast('Bill deleted');refresh();
          }}
         ].forEach(function(item){
           var mi2=document.createElement('div');
@@ -4391,7 +4449,7 @@ function pgAdvances() {
       var date=vals['av-date'];
       if(!party||!amount||!date){toast('Fill required fields!','err');return;}
       advances.push({id:uid(),party:party,amount:amount,date:date,mode:vals['av-mode'],remarks:vals['av-rmk'],linked:false,createdAt:new Date().toISOString()});
-      DB.set('advances',advances);toast('✅ Advance saved!');closeModal();refresh();
+      invalidateBillStatusCache();DB.set('advances',advances);toast('✅ Advance saved!');closeModal();refresh();
     });
     setTimeout(function(){var dl=el('datalist',{id:'av-party-dl'});parties.forEach(function(p){dl.appendChild(el('option',{value:p}));});document.body.appendChild(dl);},0);
   });
@@ -4507,11 +4565,11 @@ function pgAdvances() {
           a.party=(gv('ea-party')||a.party).toUpperCase().trim();
           a.amount=parseFloat(gv('ea-amt'))||a.amount;
           a.date=gv('ea-date');a.mode=gv('ea-mode');a.remarks=gv('ea-rmk');
-          DB.set('advances',advances);toast('Advance updated!');closeModal();refresh();
+          invalidateBillStatusCache();DB.set('advances',advances);toast('Advance updated!');closeModal();refresh();
         }}]);
       }},
       {label:'🗑',cls:'btn-xs btn-red',fn:function(){
-        if(confirm('Delete?')){saveUndo('Advance Delete');advances=advances.filter(function(x){return x.id!==a.id;});DB.set('advances',advances);toast('Deleted');refresh();}
+        if(confirm('Delete?')){saveUndo('Advance Delete');advances=advances.filter(function(x){return x.id!==a.id;});invalidateBillStatusCache();DB.set('advances',advances);toast('Deleted');refresh();}
       }}]));
     tr2.appendChild(actTd);tbody2.appendChild(tr2);
   });
@@ -4859,7 +4917,7 @@ function pgPartyLedger(party) {
         if(!confirm('₹'+fmt(totalExcess)+' credit ko '+party+' ke advance mein move karein?'))return;
         advances.push({id:uid(),party:party,amount:totalExcess,date:today(),mode:'CREDIT',
           remarks:'Overpayment credit from bills',linked:false,createdAt:new Date().toISOString()});
-        DB.set('advances',advances);
+        invalidateBillStatusCache();DB.set('advances',advances);
         toast('✅ ₹'+fmt(totalExcess)+' advance mein move kiya');refresh();
       });
       creditActions.appendChild(makeAdvBtn);
@@ -4996,7 +5054,7 @@ function pgPartyLedger(party) {
             if(!confirm('Delete this payment?'))return;
             saveUndo('Payment Delete');
             payments=payments.filter(function(p){return p.id!==pid;});
-            DB.set('payments',payments);
+            invalidateBillStatusCache();DB.set('payments',payments);
             pageState.ledgerParty=prty;
             toast('Payment deleted');refresh();
           });
@@ -5056,7 +5114,7 @@ function openBulkPayModal(party) {
     var dm=document.querySelector('input[name="bpm"]:checked');var mode=dm?dm.value:'full';
     if(mode==='full'){
       selBills.forEach(function(b){var s=getBillStatus(b);if(s.bal<=0)return;payments.push({id:uid(),billId:b.id,amount:s.bal,rebate:0,date:date,mode:gv('bpm-mode'),chequeNo:gv('bpm-chq'),receiptNo:gv('bpm-rcpt'),remarks:gv('bpm-rmk')||'Bulk Payment'});});
-      DB.set('payments',payments);toast('✅ '+selBills.length+' bills settled!');
+      invalidateBillStatusCache();DB.set('payments',payments);toast('✅ '+selBills.length+' bills settled!');
     } else {
       var amt=parseFloat(gv('bpm-total'))||0;if(!amt){toast('Amount enter karo!','err');return;}
       var rem=amt;
@@ -5066,7 +5124,7 @@ function openBulkPayModal(party) {
         payments.push({id:uid(),billId:b.id,amount:pay,rebate:0,date:date,mode:gv('bpm-mode'),chequeNo:gv('bpm-chq'),receiptNo:gv('bpm-rcpt'),remarks:gv('bpm-rmk')||'Bulk FIFO'});
         rem-=pay;
       });
-      DB.set('payments',payments);toast('✅ ₹'+fmt(amt-rem)+' distributed!'+(rem>0?' Remaining: ₹'+fmt(rem):''));
+      invalidateBillStatusCache();DB.set('payments',payments);toast('✅ ₹'+fmt(amt-rem)+' distributed!'+(rem>0?' Remaining: ₹'+fmt(rem):''));
     }
     closeModal();pageState.ledgerParty=party;refresh();
   }}]);
@@ -5365,7 +5423,7 @@ function pgExpenses() {
   });
   thead.appendChild(htr);tbl.appendChild(thead);
   var tbody=document.createElement('tbody');
-  var d=getData();
+  var d=getExpData();
   if(!d.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',expCols.length);etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';etd.textContent='No expenses found';etr.appendChild(etd);tbody.appendChild(etr);}
   d.forEach(function(e,ri){
     var tr2=document.createElement('tr');tr2.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(ri%2?'#fafafa':'#fff');
@@ -5506,7 +5564,7 @@ function pgPurchases() {
     {l:'Grade',k:'grade',fk:'grade',uv:uGrade},{l:'Weight(kg)',k:'weight',num:true},
     {l:'Rate',k:'rate',num:true},{l:'Amount',k:'amount',num:true,fk:'amount'},{l:'Remarks',k:'remarks'},{l:'Action',noSort:true}
   ];
-  var _purD=getData(); updatePurSum(_purD);
+  var _purD=getPurData(); updatePurSum(_purD);
   purCols.forEach(function(c){
     var th=document.createElement('th');
     th.style.cssText='padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap;position:sticky;top:0;z-index:2;background:#f9fafb';
@@ -6003,7 +6061,7 @@ function pgSettings() {
           igst:parseFloat(b.igst)||0,packing:parseFloat(b.packing)||0,round:parseFloat(b.round)||0,
           stp:parseFloat(b.stp)||0,netAmt:parseFloat(b.netAmt)||0,createdAt:new Date().toISOString()});
       });
-      DB.set('bills',bills);toast(data.length+' bills imported!');jArea.value='';go('all-bills');
+      invalidateBillStatusCache();DB.set('bills',bills);toast(data.length+' bills imported!');jArea.value='';go('all-bills');
     }catch(e){toast('Error: '+e.message,'err');}
   });
   ib.appendChild(iinfo);ib.appendChild(jArea);ib.appendChild(impBtn);ic.appendChild(ib);wrap.appendChild(ic);
@@ -6117,8 +6175,8 @@ function pgSettings() {
     if(!confirm('ALL DATA WILL BE DELETED. Are you sure?'))return;
     saveUndo('Clear All Data');
     bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];suspense=[];
-    DB.set('bills',bills);DB.set('payments',payments);DB.set('cheques',cheques);
-    DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
+    invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);DB.set('cheques',cheques);
+    invalidateBillStatusCache();DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
     DB.set('purchases',purchases);DB.set('suspense',suspense);
     toast('Cleared. Undo karo agar galti hui!');refresh();
   });
@@ -6169,8 +6227,8 @@ function pgSettings() {
         if(data.expenses)expenses=data.expenses;
         if(data.returns)returns_=data.returns;
         if(data.purchases)purchases=data.purchases;
-        DB.set('bills',bills);DB.set('payments',payments);DB.set('cheques',cheques);
-        DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
+        invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);DB.set('cheques',cheques);
+        invalidateBillStatusCache();DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
         DB.set('purchases',purchases);
         toast('✅ Data restored! Bills: '+bills.length+', Payments: '+payments.length);
         setTimeout(function(){refresh();},500);
@@ -6189,8 +6247,8 @@ function pgSettings() {
     if(pwd!=='you2338685'){toast('Wrong password! Data delete nahi hua.','err');return;}
     if(!confirm('ALL DATA will be deleted — bills, payments, everything. Confirm?'))return;
     bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];
-    DB.set('bills',bills);DB.set('payments',payments);DB.set('cheques',cheques);
-    DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
+    invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);DB.set('cheques',cheques);
+    invalidateBillStatusCache();DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
     DB.set('purchases',purchases);
     toast('All data cleared');refresh();
   });
@@ -6230,7 +6288,7 @@ function pgSettings() {
     advances.forEach(function(a){if(a.party===from2)a.party=to2;});
     cheques.forEach(function(c){if(c.party===from2)c.party=to2;});
     returns_.forEach(function(r){if(r.party===from2)r.party=to2;});
-    DB.set('bills',bills);DB.set('advances',advances);DB.set('cheques',cheques);DB.set('returns',returns_);
+    invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('advances',advances);DB.set('cheques',cheques);DB.set('returns',returns_);
     toast('✅ Merged! '+cnt+' bills updated');refresh();
   });
   mergeGrid.appendChild(fromFg);mergeGrid.appendChild(mergeBtn2);mergeGrid.appendChild(toFg);
@@ -6498,7 +6556,7 @@ function pgBankMatch() {
         if(!party){toast('Party select karo pehle!','err');return;}
         if(type==='advance'){
           advances.push({id:uid(),party:party,amount:c.amount,date:c.date||today(),mode:c.mode||'NEFT',remarks:'Bank: '+(c.ref||''),linked:false,createdAt:new Date().toISOString()});
-          DB.set('advances',advances);
+          invalidateBillStatusCache();DB.set('advances',advances);
           c._matched=true; c._type='advance';
           toast('Advance saved for '+party);
         } else {
@@ -6508,7 +6566,7 @@ function pgBankMatch() {
           var bs=getBillStatus(matchBill);
           var amt=Math.min(c.amount,bs.bal);
           payments.push({id:uid(),billId:matchBill.id,amount:amt,rebate:0,date:c.date||today(),mode:c.mode||'NEFT',chequeNo:'',receiptNo:c.ref||'',remarks:'Bank auto-match'});
-          DB.set('payments',payments);
+          invalidateBillStatusCache();DB.set('payments',payments);
           c._matched=true; c._billId=matchBill.id; c._type='payment';
           toast('₹'+fmt(amt)+' applied to '+matchBill.party);
         }
@@ -6688,7 +6746,7 @@ function pgBankMatch() {
         if(type==='advance'){
           advances.push({id:uid(),party:party,amount:cred.amount,date:cred.date||today(),
             mode:cred.mode||'NEFT',remarks:'Bank: '+(cred.ref||''),linked:false,createdAt:new Date().toISOString()});
-          DB.set('advances',advances);
+          invalidateBillStatusCache();DB.set('advances',advances);
           cred._matched=true;cred._type='advance';
           toast('Advance saved for '+party);
         } else {
@@ -6703,7 +6761,7 @@ function pgBankMatch() {
           payments.push({id:uid(),billId:matchBill.id,amount:amt,rebate:0,
             date:cred.date||today(),mode:cred.mode||'NEFT',chequeNo:'',
             receiptNo:cred.ref||'',remarks:'Bank auto-match'});
-          DB.set('payments',payments);
+          invalidateBillStatusCache();DB.set('payments',payments);
           cred._matched=true;cred._billId=matchBill.id;cred._type='payment';
           toast('₹'+fmt(amt)+' applied to '+matchBill.party);
         }
@@ -7336,7 +7394,7 @@ function pgBankUpload() {
       }
       row._saved=true;cnt++;
     });
-    DB.set('payments',payments);DB.set('advances',advances);
+    invalidateBillStatusCache();DB.set('payments',payments);invalidateBillStatusCache();DB.set('advances',advances);
     toast('✅ '+cnt+' saved! ('+(cnt-advCnt)+' payments, '+advCnt+' advances)');
     refresh();
   }
@@ -7691,7 +7749,7 @@ function pgBillImport() {
         packing:b.packing||0,round:b.round||0,stp:b.stp||0,
         netAmt:b.netAmt||0,createdAt:new Date().toISOString()});
     });
-    DB.set('bills',bills);
+    invalidateBillStatusCache();DB.set('bills',bills);
     toast('✅ '+toImport.length+' bills imported!');
     state.rows=[];
     go('all-bills');
@@ -7968,7 +8026,7 @@ function pgDuplicates() {
       bills = bills.filter(function(x){return x.id!==b.id;});
       // also delete related payments
       payments = payments.filter(function(p){return p.billId!==b.id;});
-      DB.set('bills',bills); DB.set('payments',payments);
+      invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments);
       toast('Bill deleted');
     },
     function(b){ // edit
@@ -7992,7 +8050,7 @@ function pgDuplicates() {
     ],
     function(p){ // delete
       payments = payments.filter(function(x){return x.id!==p.id;});
-      DB.set('payments',payments); toast('Payment deleted');
+      invalidateBillStatusCache();DB.set('payments',payments); toast('Payment deleted');
     },
     function(p){ // edit
       openEditPayment(p);
@@ -8010,7 +8068,7 @@ function pgDuplicates() {
       {l:'Date', val:function(p){return fmtDate(p.date);}},
       {l:'Amount', val:function(p){return '₹'+fmt(p.amount||0);}, num:true},
     ],
-    function(p){payments=payments.filter(function(x){return x.id!==p.id;});DB.set('payments',payments);toast('Payment deleted');},
+    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Payment deleted');},
     function(p){openEditPayment(p);}
   );
   if(dupChqPaySec) wrap.appendChild(dupChqPaySec);
@@ -8026,7 +8084,7 @@ function pgDuplicates() {
       {l:'Amount', val:function(p){return '₹'+fmt(p.amount||0);}, num:true},
       {l:'Mode', val:function(p){return p.mode||'-';}},
     ],
-    function(p){payments=payments.filter(function(x){return x.id!==p.id;});DB.set('payments',payments);toast('Payment deleted');},
+    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Payment deleted');},
     function(p){openEditPayment(p);}
   );
   if(dupRcptSec) wrap.appendChild(dupRcptSec);
@@ -8059,7 +8117,7 @@ function pgDuplicates() {
       {l:'Mode', val:function(p){return p.mode||'-';}},
       {l:'Receipt', val:function(p){return p.receiptNo||'-';}},
     ],
-    function(p){payments=payments.filter(function(x){return x.id!==p.id;});DB.set('payments',payments);toast('Orphan payment deleted');},
+    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Orphan payment deleted');},
     null
   );
   if(orphanSec) wrap.appendChild(orphanSec);
@@ -8074,7 +8132,7 @@ function pgDuplicates() {
       {l:'Party', html:function(b){return '<strong>'+b.party+'</strong>';}},
       {l:'Net Amount', val:function(b){return '₹'+fmt(b.netAmt||0);}, num:true},
     ],
-    function(b){bills=bills.filter(function(x){return x.id!==b.id;});DB.set('bills',bills);toast('Bill deleted');},
+    function(b){bills=bills.filter(function(x){return x.id!==b.id;});invalidateBillStatusCache();DB.set('bills',bills);toast('Bill deleted');},
     function(b){openEditBill(b);}
   );
   if(zeroAmtSec) wrap.appendChild(zeroAmtSec);
@@ -8129,7 +8187,7 @@ function openEditPayment(p) {
     p.chequeNo=gv('ep-chq');
     p.receiptNo=gv('ep-rcpt');
     p.remarks=gv('ep-rmk');
-    DB.set('payments',payments);
+    invalidateBillStatusCache();DB.set('payments',payments);
     toast('Payment updated!');
     closeModal();
     go('duplicates');
@@ -9195,7 +9253,7 @@ function openMultiBillSplit(row) {
         date:row.date,mode:row.mode||'NEFT',chequeNo:'',receiptNo:row.narration||'',
         remarks:'Bank Statement (Split)'});
     });
-    DB.set('payments',payments);
+    invalidateBillStatusCache();DB.set('payments',payments);
     row._saved=true;row._billId='__MULTI_DONE__';
     closeModal();toast('✅ '+entries.length+' payments saved!');refresh();
   }}]);
@@ -9563,7 +9621,7 @@ function pgSuspense() {
           mode:entry.mode||'NEFT',remarks:'From Suspense: '+(entry.narration||entry.refNo||''),
           linked:false,createdAt:new Date().toISOString()});
         entry.cleared=true; entry.clearedTo=p+' (Advance)';
-        DB.set('advances',advances); DB.set('suspense',suspense);
+        invalidateBillStatusCache();DB.set('advances',advances); DB.set('suspense',suspense);
         toast('✅ ₹'+fmt(entry.amount)+' moved to '+p+' advance');refresh();
       }});
     } else {
@@ -9838,7 +9896,7 @@ function pgSuspense() {
         advances.push({id:uid(),party:p,amount:entry.amount,date:entry.date,mode:entry.mode||'NEFT',
           remarks:'Suspense: '+(entry.narration||''),linked:false,createdAt:new Date().toISOString()});
         entry.cleared=true;entry.clearedTo=p+' (Advance)';
-        DB.set('advances',advances);DB.set('suspense',suspense);
+        invalidateBillStatusCache();DB.set('advances',advances);DB.set('suspense',suspense);
         toast('Moved to '+p+' advance!');refresh();
       }});
     }
@@ -10038,13 +10096,13 @@ function openClearSuspense(entry) {
       payments.push({id:uid(),billId:billId,amount:entry.amount,rebate:0,date:date,
         mode:mode,chequeNo:'',receiptNo:entry.refNo||'',
         remarks:'From Suspense: '+(entry.narration||'')});
-      DB.set('payments',payments);
+      invalidateBillStatusCache();DB.set('payments',payments);
       entry.cleared=true; entry.clearedTo=party+' (Bill payment)';
     } else {
       advances.push({id:uid(),party:party,amount:entry.amount,date:date,
         mode:mode,remarks:'From Suspense: '+(entry.narration||entry.refNo||''),
         linked:false,createdAt:new Date().toISOString()});
-      DB.set('advances',advances);
+      invalidateBillStatusCache();DB.set('advances',advances);
       entry.cleared=true; entry.clearedTo=party+' (Advance)';
     }
     DB.set('suspense',suspense);
@@ -10086,8 +10144,8 @@ function performUndo() {
   bills=snap.bills; payments=snap.payments; cheques=snap.cheques;
   advances=snap.advances; expenses=snap.expenses; returns_=snap.returns_;
   purchases=snap.purchases; suspense=snap.suspense;
-  DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
-  DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+  invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
+  invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
   DB.set('purchases',purchases); DB.set('suspense',suspense);
   toast('Undo: "' + last.label + '" restored!');
   hideUndoBtn(); refresh();
@@ -10298,7 +10356,7 @@ function restoreArchivedYear(fyStart) {
   saveUndo('Restore '+fyLabel);
   bills = bills.concat(arch.bills);
   payments = payments.concat(arch.payments);
-  DB.set('bills', bills); DB.set('payments', payments);
+  invalidateBillStatusCache();DB.set('bills', bills); invalidateBillStatusCache();DB.set('payments', payments);
   delete archived[fyStart];
   DB.setObj('archived_bills', archived);
   toast('✅ '+fyLabel+' restored! '+arch.bills.length+' bills wapas aaye.');
@@ -10956,8 +11014,8 @@ function restoreFromJSON(file) {
       purchases = data.purchases || [];
       suspense  = data.suspense  || [];
       if(data.settings) { Object.assign(cfg, data.settings); DB.setObj('settings',cfg); }
-      DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
-      DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+      invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
+      invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
       DB.set('purchases',purchases); DB.set('suspense',suspense);
       saveBackupToHistory('Restored from: '+(meta.label||'backup'));
       toast('✅ Data restored! Bills: '+bills.length+', Payments: '+payments.length);
@@ -11012,8 +11070,8 @@ function restoreFromExcel(file) {
         purchases = rawPurs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),supplier:r.Supplier||'',grade:r.Grade||'',weight:parseFloat(r.Weight)||0,rate:parseFloat(r.Rate)||0,amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
         suspense  = rawSusp.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),amount:parseFloat(r.Amount)||0,narration:r.Narration||'',party:r.Party||'',refNo:r.RefNo||'',mode:r.Mode||'',cleared:r.Cleared==='Yes',clearedTo:r.ClearedTo||''};});
 
-        DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
-        DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+        invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
+        invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
         DB.set('purchases',purchases); DB.set('suspense',suspense);
         saveBackupToHistory('Restored from Excel');
         toast('✅ Excel restore done! Bills: '+bills.length+', Payments: '+payments.length);
@@ -11032,7 +11090,60 @@ document.addEventListener('DOMContentLoaded', function(){
   if(rb) rb.addEventListener('click',function(){ go('receive'); });
 });
 
-// ── GLOBAL SEARCH ──
+// ── GLOBAL SEARCH (Optimized) ──
+// Pre-built search index — rebuilt only when bills/payments change
+var _gsIndex = null;
+
+function _buildGsIndex() {
+  _gsIndex = {
+    bills: bills.map(function(b) {
+      var s = getBillStatus(b);
+      return {
+        id: b.id,
+        party: (b.party||'').toLowerCase(),
+        partyOrig: b.party||'',
+        billNo: (b.billNo||'').toLowerCase(),
+        billNoOrig: b.billNo||'',
+        remarks: (b.remarks||'').toLowerCase(),
+        broker: (b.broker||'').toLowerCase(),
+        netAmt: b.netAmt||0,
+        date: b.date,
+        status: s.status,
+        bal: s.bal,
+        recv: s.recv
+      };
+    }),
+    payments: payments.map(function(p) {
+      var b = bills.find(function(x){return x.id===p.billId;}) || {};
+      return {
+        billId: p.billId,
+        party: (b.party||'').toLowerCase(),
+        partyOrig: b.party||'',
+        rcpt: (p.receiptNo||'').toLowerCase(),
+        chqNo: (p.chequeNo||'').toLowerCase(),
+        amount: p.amount||0,
+        date: p.date,
+        mode: p.mode||'NEFT',
+        receiptNo: p.receiptNo||'',
+        chequeNo: p.chequeNo||''
+      };
+    }),
+    // Party summary index
+    parties: (function(){
+      var pm={};
+      bills.forEach(function(b){
+        if(!pm[b.party]) pm[b.party]={party:b.party,pLower:(b.party||'').toLowerCase(),bills:[],due:0};
+        var s=getBillStatus(b);
+        pm[b.party].bills.push(b);
+        pm[b.party].due+=s.bal;
+      });
+      return Object.values(pm);
+    })()
+  };
+}
+
+function invalidateGsIndex() { _gsIndex = null; }
+
 (function(){
   var gsInp=document.getElementById('global-search');
   var gsRes=document.getElementById('gs-results');
@@ -11058,75 +11169,68 @@ document.addEventListener('DOMContentLoaded', function(){
     clearTimeout(gsTimer);
     if(!q||q.length<2){closeGs();return;}
     gsTimer=setTimeout(function(){
+      // Build index lazily (first search, or after data changes)
+      if(!_gsIndex) _buildGsIndex();
+      var idx=_gsIndex;
       gsRes.innerHTML='';
       var results=[];
       var q2=q;
-      // Search bills
-      bills.forEach(function(b){
+      var isNum=/^\d+$/.test(q2.replace(/,/g,''));
+      var qn=isNum?parseInt(q2.replace(/,/g,'')):0;
+
+      // Search bills using pre-built index
+      idx.bills.forEach(function(bi){
         var score=0;
-        var party=(b.party||'').toLowerCase();
-        var billNo=(b.billNo||'').toLowerCase();
-        var remarks=(b.remarks||'').toLowerCase();
-        var broker=(b.broker||'').toLowerCase();
-        var amtStr=fmt(b.netAmt).replace(/,/g,'');
-        var balStr=fmt(getBillStatus(b).bal).replace(/,/g,'');
-        if(party.includes(q2))score+=3;
-        if(billNo.includes(q2))score+=5;
-        if(remarks.includes(q2))score+=1;
-        if(broker.includes(q2))score+=1;
-        // Amount search — match if query is a number and close to amount
-        if(/^\d+$/.test(q2.replace(/,/g,''))){
-          var qn=parseInt(q2.replace(/,/g,''));
-          if(amtStr.startsWith(q2.replace(/,/g,''))||balStr.startsWith(q2.replace(/,/g,'')))score+=3;
-          if(Math.abs(b.netAmt-qn)<100||Math.abs(getBillStatus(b).bal-qn)<100)score+=2;
+        if(bi.party.includes(q2))score+=3;
+        if(bi.billNo.includes(q2))score+=5;
+        if(bi.remarks.includes(q2))score+=1;
+        if(bi.broker.includes(q2))score+=1;
+        if(isNum){
+          var amtStr=String(Math.round(bi.netAmt));
+          var balStr=String(Math.round(bi.bal));
+          if(amtStr.startsWith(String(qn))||balStr.startsWith(String(qn)))score+=3;
+          if(Math.abs(bi.netAmt-qn)<100||Math.abs(bi.bal-qn)<100)score+=2;
         }
         if(score>0){
-          var s=getBillStatus(b);
           results.push({score:score,type:'bill',icon:'📋',
-            title:b.party+' — #'+b.billNo,
-            sub:fmtDate(b.date)+' | ₹'+fmt(b.netAmt)+' | Bal: ₹'+fmt(s.bal),
-            badge:{t:s.status.toUpperCase(),bg:s.status==='paid'?'#dcfce7':s.status==='partial'?'#fef9c3':'#fee2e2',c:s.status==='paid'?'#166534':s.status==='partial'?'#92400e':'#dc2626'},
-            fn:function(bid){return function(){pageState.ledgerParty=bills.find(function(x){return x.id===bid;}).party;go('ledger');};}(b.id)
+            title:bi.partyOrig+' — #'+bi.billNoOrig,
+            sub:fmtDate(bi.date)+' | ₹'+fmt(bi.netAmt)+' | Bal: ₹'+fmt(bi.bal),
+            badge:{t:bi.status.toUpperCase(),bg:bi.status==='paid'?'#dcfce7':bi.status==='partial'?'#fef9c3':'#fee2e2',c:bi.status==='paid'?'#166534':bi.status==='partial'?'#92400e':'#dc2626'},
+            fn:(function(id,pty){return function(){pageState.ledgerParty=pty;go('ledger');};})(bi.id,bi.partyOrig)
           });
         }
       });
-      // Search payments
-      payments.forEach(function(p){
-        var b=bills.find(function(x){return x.id===p.billId;})||{};
-        var q3=q;
-        var party=(b.party||'').toLowerCase();
-        var rcpt=(p.receiptNo||'').toLowerCase();
-        var chqNo=(p.chequeNo||'').toLowerCase();
-        if(party.includes(q3)||rcpt.includes(q3)||chqNo.includes(q3)){
+
+      // Search payments using pre-built index
+      idx.payments.forEach(function(pi){
+        if(pi.party.includes(q2)||pi.rcpt.includes(q2)||pi.chqNo.includes(q2)){
           results.push({score:2,type:'payment',icon:'💰',
-            title:'Payment: '+(b.party||'-'),
-            sub:fmtDate(p.date)+' | ₹'+fmt(p.amount||0)+' | '+p.mode+(p.chequeNo?' | Chq: '+p.chequeNo:'')+(p.receiptNo?' | Rcpt: '+p.receiptNo:''),
-            badge:{t:p.mode||'NEFT',bg:'#e0f2fe',c:'#0369a1'},
-            fn:function(bid2){return function(){pageState.ledgerParty=(bills.find(function(x){return x.id===bid2;})||{}).party;go('ledger');};}(p.billId)
+            title:'Payment: '+pi.partyOrig,
+            sub:fmtDate(pi.date)+' | ₹'+fmt(pi.amount)+' | '+pi.mode+(pi.chequeNo?' | Chq: '+pi.chequeNo:'')+(pi.receiptNo?' | Rcpt: '+pi.receiptNo:''),
+            badge:{t:pi.mode,bg:'#e0f2fe',c:'#0369a1'},
+            fn:(function(bid,pty){return function(){pageState.ledgerParty=pty;go('ledger');};})(pi.billId,pi.partyOrig)
           });
         }
       });
-      // Search parties in ledger
-      var partyResults={};
-      bills.forEach(function(b){if((b.party||'').toLowerCase().includes(q2)&&!partyResults[b.party]){partyResults[b.party]=true;}});
-      Object.keys(partyResults).forEach(function(p2){
-        var pb=bills.filter(function(b){return b.party===p2;});
-        var due=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-        results.push({score:10,type:'party',icon:'👤',
-          title:p2,
-          sub:'Bills: '+pb.length+' | Outstanding: ₹'+fmt(due),
-          badge:due>0?{t:'DUE',bg:'#fee2e2',c:'#dc2626'}:{t:'CLEAR',bg:'#dcfce7',c:'#166534'},
-          fn:function(pty){return function(){pageState.ledgerParty=pty;go('ledger');};}(p2)
-        });
+
+      // Search parties using pre-built index
+      idx.parties.forEach(function(pt){
+        if(pt.pLower.includes(q2)){
+          results.push({score:10,type:'party',icon:'👤',
+            title:pt.party,
+            sub:'Bills: '+pt.bills.length+' | Outstanding: ₹'+fmt(pt.due),
+            badge:pt.due>0?{t:'DUE',bg:'#fee2e2',c:'#dc2626'}:{t:'CLEAR',bg:'#dcfce7',c:'#166534'},
+            fn:(function(pty){return function(){pageState.ledgerParty=pty;go('ledger');};})(pt.party)
+          });
+        }
       });
-      // Sort by score desc
+
       results.sort(function(a,b){return b.score-a.score;});
       var shown=results.slice(0,12);
       if(!shown.length){
         var noRes=document.createElement('div');noRes.style.cssText='padding:16px;text-align:center;color:#9ca3af;font-size:13px';
         noRes.textContent='No results for "'+gsInp.value+'"';gsRes.appendChild(noRes);
       } else {
-        // Group by type
         var types={party:'Parties',bill:'Bills',payment:'Payments'};
         var groups={};
         shown.forEach(function(r){if(!groups[r.type])groups[r.type]=[];groups[r.type].push(r);});
