@@ -7084,7 +7084,7 @@ function pgBankUpload() {
       var grossMatch = null;
       if(pb.length > 1) {
         // Try combinations of 2-6 bills
-        for(var n=2; n<=Math.min(6,pb.length); n++) {
+        for(var n=2; n<=Math.min(10,pb.length); n++) {
           var found = findGrossGroup(pb, amt, n);
           if(found) { grossMatch = found; break; }
         }
@@ -7096,11 +7096,43 @@ function pgBankUpload() {
         row._grossBills = grossMatch.map(function(b){return b.id;});
         row._isGross = true;
         row._grossAmt = amt;
+      } else if(pb.length > 10) {
+        // >10 bills — FIFO approach: oldest bills first, fill from amount
+        var sortedPb = pb.slice().sort(function(a,b2){return (a.date||'').localeCompare(b2.date||'');});
+        var fifoLeft = amt;
+        var fifoBills = [];
+        sortedPb.forEach(function(b2){
+          if(fifoLeft <= 0.5) return;
+          var bs2 = getBillStatus(b2);
+          if(bs2.bal <= 0) return;
+          fifoBills.push(b2);
+          fifoLeft = Math.round((fifoLeft - bs2.bal)*100)/100;
+        });
+        if(fifoBills.length > 0) {
+          row._billId = fifoBills[0].id;
+          row._grossBills = fifoBills.map(function(b2){return b2.id;});
+          row._isGross = true;
+          row._grossAmt = amt;
+          row._isFifo = true; // flag for display
+        }
       } else {
         // Single bill closest match
         var closest=pb.slice().sort(function(a,b2){return Math.abs(getBillStatus(a).bal-amt)-Math.abs(getBillStatus(b2).bal-amt);})[0];
         var diff = Math.abs(getBillStatus(closest).bal - amt);
-        if(diff / amt <= 0.05) row._billId=closest.id; // within 5%
+        if(diff / amt <= 0.02) {
+          row._billId=closest.id; // within 2%
+          var bal2=getBillStatus(closest).bal;
+          var diff2=bal2-amt;
+          var diff3=amt-bal2; // payment zyada
+          if(diff2>0 && diff2/bal2<=0.02) row.rebate=Math.round(diff2*100)/100; // short → rebate
+          if(diff3>0 && diff3/bal2<=0.02) row.interest=Math.round(diff3*100)/100; // zyada → interest within 2%
+        } else if(amt > getBillStatus(closest).bal) {
+          // Payment zyada hai by > 2% — bill match karo lekin user se puchho
+          row._billId=closest.id;
+          var bal3=getBillStatus(closest).bal;
+          row._excessAmt=Math.round((amt-bal3)*100)/100;
+          row._excessType=''; // '' = not decided yet, 'interest' or 'advance'
+        }
       }
     });
   }
@@ -7111,7 +7143,7 @@ function pgBankUpload() {
     function combo(start, remaining, chosen) {
       if(chosen.length === n) {
         var sum = chosen.reduce(function(s,x){return s+x.bal;},0);
-        if(Math.abs(sum-target)/target <= 0.005) return chosen.map(function(x){return x.b;});
+        if(Math.abs(sum-target)/target <= 0.02) return chosen.map(function(x){return x.b;});
         return null;
       }
       for(var i=start; i<=bals.length-(n-chosen.length); i++) {
@@ -7129,8 +7161,13 @@ function pgBankUpload() {
     reader.onload=function(e){
       try{
         var wb2=XLSX.read(e.target.result,{type:'array',cellDates:false,raw:false});
-        var ws=wb2.Sheets[wb2.SheetNames[0]];
-        var raw=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+        var raw=[];
+        wb2.SheetNames.forEach(function(sn){
+          var ws=wb2.Sheets[sn];
+          var sheetRaw=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+          // Skip empty sheets
+          if(sheetRaw&&sheetRaw.length>2) raw=raw.concat(sheetRaw);
+        });
         // Find header row
         var headerRow=0;
         for(var i=0;i<Math.min(15,raw.length);i++){
@@ -7166,7 +7203,12 @@ function pgBankUpload() {
           var dr=drC>=0?parseAmt(row[drC]):0;
           var bal=balC>=0?String(row[balC]||'').replace(/[^\d\.\-,]/g,'').replace(/,/g,''):'';
           if(!cr&&!dr)continue;
-          if(cr>0)rows.push({date:pd,narration:narr,amount:cr,type:'credit',balance:bal,mode:'NEFT',rebate:0,_party:'',_billId:'',_include:true,_saved:false});
+          if(cr>0){
+            var extractedMode='NEFT';
+            var nParts=narr.split('|');
+            if(nParts.length>=3){var m2=nParts[2].trim().toUpperCase();if(m2&&m2.length<=8&&/^[A-Z]+$/.test(m2))extractedMode=m2;}
+            rows.push({date:pd,narration:narr,amount:cr,type:'credit',balance:bal,mode:extractedMode,rebate:0,_party:'',_billId:'',_include:true,_saved:false});
+          }
           if(dr>0)rows.push({date:pd,narration:narr,amount:dr,type:'debit',balance:bal,mode:'',rebate:0,_party:'',_billId:'',_include:false,_saved:false});
         }
         state.rows=rows; autoMatch(rows);
@@ -7488,7 +7530,38 @@ function pgBankUpload() {
       else{
         var mb=bills.find(function(b){return b.id===row._billId;});
         var bs=mb?getBillStatus(mb):null;
-        tdSt.innerHTML='<span style="background:#dcfce7;color:#166534;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">✓ MATCH</span>'+(bs?'<div style="font-size:10px;color:#6b7280">Bal:₹'+fmt(bs.bal)+'</div>':'');
+        // Check: excess amount (> 2%) — user se puchho
+        if(row._excessAmt && row._excessAmt > 0 && !row._excessType) {
+          // Show ASK button
+          tdSt.innerHTML='';
+          var exDiv=document.createElement('div');
+          exDiv.innerHTML='<div style="font-size:10px;color:#dc2626;font-weight:700;margin-bottom:3px">⚠ ₹'+fmt(row._excessAmt)+' zyada</div>';
+          var intBtn=document.createElement('button');
+          intBtn.textContent='📈 Interest';
+          intBtn.style.cssText='font-size:10px;padding:2px 6px;background:#fef9c3;border:1px solid #d97706;border-radius:4px;cursor:pointer;margin-right:3px;font-weight:600;color:#92400e';
+          var advBtn=document.createElement('button');
+          advBtn.textContent='💰 Advance';
+          advBtn.style.cssText='font-size:10px;padding:2px 6px;background:#e0f2fe;border:1px solid #0369a1;border-radius:4px;cursor:pointer;font-weight:600;color:#0369a1';
+          (function(r2,refresh2){
+            intBtn.addEventListener('click',function(){
+              r2._excessType='interest';
+              r2.interest=(r2.interest||0)+r2._excessAmt;
+              refresh2();
+            });
+            advBtn.addEventListener('click',function(){
+              r2._excessType='advance';
+              refresh2();
+            });
+          })(row, refresh);
+          exDiv.appendChild(intBtn);exDiv.appendChild(advBtn);
+          tdSt.appendChild(exDiv);
+        } else if(row._excessAmt && row._excessType==='interest') {
+          tdSt.innerHTML='<span style="background:#fef9c3;color:#92400e;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">✓ +Interest ₹'+fmt(row._excessAmt)+'</span>';
+        } else if(row._excessAmt && row._excessType==='advance') {
+          tdSt.innerHTML='<span style="background:#e0f2fe;color:#0369a1;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">✓ +Advance ₹'+fmt(row._excessAmt)+'</span>';
+        } else {
+          tdSt.innerHTML='<span style="background:#dcfce7;color:#166534;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">✓ MATCH</span>'+(bs?'<div style="font-size:10px;color:#6b7280">Bal:₹'+fmt(bs.bal)+'</div>':'');
+        }
       }
       tr2.appendChild(tdSt);
       tb2.appendChild(tr2);
@@ -7550,40 +7623,88 @@ function pgBankUpload() {
       if(row._isGross && row._grossBills && row._grossBills.length > 1) {
         var grossBillObjs = row._grossBills.map(function(id){return bills.find(function(b){return b.id===id;});}).filter(Boolean);
         var leftover = row.amount;
+        var totalGroupBal = grossBillObjs.reduce(function(s2,gb){return s2+getBillStatus(gb).bal;},0);
+        var groupDiff = round2(row.amount - totalGroupBal);
+        var groupDiffPct = totalGroupBal>0 ? Math.abs(groupDiff)/totalGroupBal*100 : 0;
+
         grossBillObjs.forEach(function(gb, gi){
           if(leftover <= 0.5) return;
           var s = getBillStatus(gb);
+          var isLast = (gi === grossBillObjs.length-1);
           var this_amt = Math.min(leftover, s.bal);
-          var rebate = 0;
-          // Last bill mein rebate
-          if(gi === grossBillObjs.length-1) {
-            var diff_pct = Math.abs(s.bal - leftover) / gb.netAmt * 100;
-            if(s.bal > leftover && diff_pct <= 5) { rebate = round2(s.bal-leftover); this_amt = leftover; }
+          var rebate = 0; var intAmt = 0;
+
+          if(isLast) {
+            if(s.bal > leftover && groupDiffPct <= 2) {
+              // Short ≤2% → rebate on last bill
+              rebate = round2(s.bal - leftover);
+              this_amt = leftover;
+            } else if(leftover > s.bal && groupDiffPct <= 2) {
+              // Zyada ≤2% → interest on last bill
+              intAmt = round2(leftover - s.bal);
+              this_amt = s.bal;
+            } else if(leftover > s.bal && groupDiffPct > 2) {
+              // Zyada >2% → excess, check _excessType set by user
+              if(row._excessType === 'interest') {
+                intAmt = round2(leftover - s.bal);
+              }
+              // If advance → leftover goes to advances after loop
+              this_amt = s.bal;
+            }
           }
+
           payments.push({
             id: uid(), billId: gb.id,
-            amount: round2(this_amt), rebate: rebate, interest: 0,
+            amount: round2(this_amt), rebate: rebate, interest: intAmt,
             date: row.date, mode: row.mode||'NEFT',
             chequeNo: row.chequeNo||'',
             receiptNo: row.narration||'',
-            grossAmt: row.amount,     // Original total — search ke liye
-            remarks: grossRef         // GROSS:206268
+            grossAmt: row.amount,
+            remarks: grossRef + (intAmt>0?' | INT:'+intAmt:'') + (rebate>0?' | REB:'+rebate:'')
           });
           leftover = round2(leftover - this_amt - rebate);
         });
+
+        // Agar excess >2% aur advance type → advances mein daalo
+        if(leftover > 0.5 && row._excessType !== 'interest') {
+          advances.push({id:uid(), party:row._party, amount:leftover,
+            date:row.date, mode:row.mode||'NEFT',
+            remarks:'Advance (GROSS: '+grossRef+')',
+            linked:false, createdAt:new Date().toISOString()});
+          advCnt++;
+        }
         grossCnt++;
       }
       // ── SINGLE BILL payment ──
       else if(actualBid && !isInterest){
+        var mb2=bills.find(function(b){return b.id===actualBid;});
+        var intAmt=row.interest||0;
+        var excessAmt=row._excessAmt||0;
+        var excessType=row._excessType||'';
+        // If excess marked as interest
+        if(excessAmt>0 && excessType==='interest') intAmt=Math.round((intAmt+excessAmt)*100)/100;
+        var payAmt=row.amount;
+        // If excess marked as advance → bill amount only
+        if(excessAmt>0 && excessType==='advance') payAmt=Math.round((row.amount-excessAmt)*100)/100;
+        // If interest → subtract from payment
+        else if(intAmt>0) payAmt=Math.round((row.amount-intAmt)*100)/100;
         payments.push({
           id: uid(), billId: actualBid,
-          amount: row.amount, rebate: row.rebate||0, interest: 0,
+          amount: payAmt, rebate: row.rebate||0, interest: intAmt,
           date: row.date, mode: row.mode||'NEFT',
           chequeNo: row.chequeNo||'',
           receiptNo: row.narration||'',
           grossAmt: 0,
-          remarks: 'Bank Statement'
+          remarks: intAmt>0?('Interest: Rs '+intAmt):(excessType==='advance'?'Bill payment (advance alag)':'Bank Statement')
         });
+        // If excess = advance → save to advances too
+        if(excessAmt>0 && excessType==='advance') {
+          advances.push({id:uid(),party:row._party,amount:excessAmt,date:row.date,
+            mode:row.mode||'NEFT',
+            remarks:'Advance (bill #'+(mb2?mb2.billNo:'?')+' ke baad)',
+            linked:false,createdAt:new Date().toISOString()});
+          advCnt++;
+        }
       }
       // ── Advance / Interest ──
       else {
