@@ -7161,60 +7161,137 @@ function pgBankUpload() {
     reader.onload=function(e){
       try{
         var wb2=XLSX.read(e.target.result,{type:'array',cellDates:false,raw:false});
-        var raw=[];
-        wb2.SheetNames.forEach(function(sn){
-          var ws=wb2.Sheets[sn];
-          var sheetRaw=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-          // Skip empty sheets
-          if(sheetRaw&&sheetRaw.length>2) raw=raw.concat(sheetRaw);
-        });
-        // Find header row
-        var headerRow=0;
-        for(var i=0;i<Math.min(15,raw.length);i++){
-          var rowStr=(raw[i]||[]).join(' ').toLowerCase();
-          if(/date/.test(rowStr)&&/(credit|deposit|withdrawal|debit|amount)/.test(rowStr)){headerRow=i;break;}
-        }
-        var headers=(raw[headerRow]||[]).map(function(c){return String(c||'').trim().toLowerCase();});
-        function fc(pats){
-          for(var pi=0;pi<pats.length;pi++){
-            for(var hi=0;hi<headers.length;hi++){
-              var pat=pats[pi];
-              if(pat instanceof RegExp?pat.test(headers[hi]):headers[hi].indexOf(pat)>=0)return hi;
-            }
-          }return -1;
-        }
-        var dC=fc(['value date','tran date','transaction date','date','dt']);
-        var nC=fc(['transaction remarks','narration','description','particular','remark','cheque no','ref no']);
-        var crC=fc([/^deposit/,/\bdeposit/,/^credit/,/\bcredit/,/\(cr\)/,'received']);
-        var drC=fc([/^withdrawal/,/\bwithdrawal/,/^debit/,/\bdebit/,/\(dr\)/,'paid out']);
-        var balC=fc(['balance']);
-        if(crC===-1)crC=fc(['amount','amt']);
         var rows=[];
-        for(var ri=headerRow+1;ri<raw.length;ri++){
-          var row=raw[ri];
-          if(!row||!row.length)continue;
-          var allEmpty=row.every(function(c){return !c||String(c).trim()==='';});
-          if(allEmpty)continue;
-          var dv=dC>=0?String(row[dC]||'').trim():'';
-          if(!dv)continue;
-          var pd=parseFlexDate(dv);if(!pd)continue;
-          var narr=nC>=0?String(row[nC]||'').trim():'';
-          var cr=crC>=0?parseAmt(row[crC]):0;
-          var dr=drC>=0?parseAmt(row[drC]):0;
-          var bal=balC>=0?String(row[balC]||'').replace(/[^\d\.\-,]/g,'').replace(/,/g,''):'';
-          if(!cr&&!dr)continue;
-          if(cr>0){
-            var extractedMode='NEFT';
-            var nParts=narr.split('|');
-            if(nParts.length>=3){var m2=nParts[2].trim().toUpperCase();if(m2&&m2.length<=8&&/^[A-Z]+$/.test(m2))extractedMode=m2;}
-            rows.push({date:pd,narration:narr,amount:cr,type:'credit',balance:bal,mode:extractedMode,rebate:0,_party:'',_billId:'',_include:true,_saved:false});
-          }
-          if(dr>0)rows.push({date:pd,narration:narr,amount:dr,type:'debit',balance:bal,mode:'',rebate:0,_party:'',_billId:'',_include:false,_saved:false});
+
+        // ── Detect format: Party-wise sheets (BILL REF column) or bank statement ──
+        var firstSheet=wb2.Sheets[wb2.SheetNames[0]];
+        var firstRaw=XLSX.utils.sheet_to_json(firstSheet,{header:1,raw:false,defval:''});
+        var isPartyWise=false;
+        for(var fi=0;fi<Math.min(3,firstRaw.length);fi++){
+          var fStr=(firstRaw[fi]||[]).join(' ').toLowerCase();
+          if(/bill ref|bill_ref|billref|gross amt/.test(fStr)){isPartyWise=true;break;}
         }
-        state.rows=rows; autoMatch(rows);
-        var creds=rows.filter(function(r){return r.type==='credit';});
-        statusDiv.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ <strong>'+rows.length+' rows extracted</strong> ('+creds.length+' credits, '+(rows.length-creds.length)+' debits hidden)</div>';
-        refresh();
+
+        if(isPartyWise){
+          // ── Party-wise payment file format ──
+          // Each sheet = one party
+          // Row 1: "PARTY | N PAYMENTS | year"
+          // Row 2: DATE, NARRATION, CREDIT, DEBIT, BALANCE, BILL REF, MODE, GROSS AMT, REMARKS
+          wb2.SheetNames.forEach(function(sn){
+            var ws=wb2.Sheets[sn];
+            var sheetRaw=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+            if(!sheetRaw||sheetRaw.length<3)return;
+
+            // Party name from row 1
+            var partyRow=String(sheetRaw[0][0]||'');
+            var partyName=partyRow.split('|')[0].trim().toUpperCase();
+
+            // Header row = row 2 (index 1)
+            var hdrs=(sheetRaw[1]||[]).map(function(c){return String(c||'').trim().toLowerCase();});
+            function fch(pats){
+              for(var pi=0;pi<pats.length;pi++){
+                for(var hi=0;hi<hdrs.length;hi++){
+                  var p=pats[pi];
+                  if(p instanceof RegExp?p.test(hdrs[hi]):hdrs[hi].indexOf(p)>=0)return hi;
+                }
+              }return -1;
+            }
+            var dC2=fch(['date']); var crC2=fch(['credit']); var nC2=fch(['narration','description']);
+            var brefC=fch(['bill ref','bill_ref','billref','ref']); var modeC=fch(['mode']);
+            var grossC=fch(['gross amt','gross']); var remC2=fch(['remarks','remark']);
+
+            for(var ri=2;ri<sheetRaw.length;ri++){
+              var row=sheetRaw[ri];
+              if(!row||!row.length)continue;
+              var dv=dC2>=0?String(row[dC2]||'').trim():'';
+              if(!dv||/total/i.test(dv))continue;
+              var pd=parseFlexDate(dv);if(!pd)continue;
+              var cr=crC2>=0?parseAmt(row[crC2]):0;
+              if(cr<=0)continue;
+              var narr=nC2>=0?String(row[nC2]||'').trim():'';
+              var billRef=brefC>=0?String(row[brefC]||'').trim():'';
+              var mode=(modeC>=0?String(row[modeC]||'').trim().toUpperCase():'NEFT')||'NEFT';
+              var grossAmt=grossC>=0?parseAmt(row[grossC]):0;
+              var rem=remC2>=0?String(row[remC2]||'').trim():'';
+
+              var txn={date:pd,narration:narr||partyName,amount:cr,type:'credit',balance:'',
+                mode:mode,rebate:0,grossAmt:grossAmt||0,
+                _party:partyName,_billNo:billRef,_billId:'',_include:true,_saved:false,
+                remarks:rem};
+
+              // Auto-match bill by bill number
+              if(billRef){
+                var matchBill=bills.find(function(b){
+                  return b.billNo===billRef&&b.party===partyName;
+                });
+                if(!matchBill){
+                  // Try without party match
+                  matchBill=bills.find(function(b){return b.billNo===billRef;});
+                }
+                if(matchBill){txn._billId=matchBill.id;txn._party=matchBill.party;}
+              }
+              rows.push(txn);
+            }
+          });
+          state.rows=rows;
+          var creds=rows.filter(function(r){return r.type==='credit';});
+          statusDiv.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ <strong>'+creds.length+' payments extracted</strong> from '+wb2.SheetNames.length+' parties — Bill# auto-matched!</div>';
+          refresh();
+
+        } else {
+          // ── Standard bank statement format ──
+          var raw=[];
+          wb2.SheetNames.forEach(function(sn){
+            var ws=wb2.Sheets[sn];
+            var sheetRaw=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+            if(sheetRaw&&sheetRaw.length>2) raw=raw.concat(sheetRaw);
+          });
+          var headerRow=0;
+          for(var i=0;i<Math.min(15,raw.length);i++){
+            var rowStr=(raw[i]||[]).join(' ').toLowerCase();
+            if(/date/.test(rowStr)&&/(credit|deposit|withdrawal|debit|amount)/.test(rowStr)){headerRow=i;break;}
+          }
+          var headers=(raw[headerRow]||[]).map(function(c){return String(c||'').trim().toLowerCase();});
+          function fc(pats){
+            for(var pi=0;pi<pats.length;pi++){
+              for(var hi=0;hi<headers.length;hi++){
+                var pat=pats[pi];
+                if(pat instanceof RegExp?pat.test(headers[hi]):headers[hi].indexOf(pat)>=0)return hi;
+              }
+            }return -1;
+          }
+          var dC=fc(['value date','tran date','transaction date','date','dt']);
+          var nC=fc(['transaction remarks','narration','description','particular','remark','cheque no','ref no']);
+          var crC=fc([/^deposit/,/\bdeposit/,/^credit/,/\bcredit/,/\(cr\)/,'received']);
+          var drC=fc([/^withdrawal/,/\bwithdrawal/,/^debit/,/\bdebit/,/\(dr\)/,'paid out']);
+          var balC=fc(['balance']);
+          if(crC===-1)crC=fc(['amount','amt']);
+          for(var ri=headerRow+1;ri<raw.length;ri++){
+            var row=raw[ri];
+            if(!row||!row.length)continue;
+            var allEmpty=row.every(function(c){return !c||String(c).trim()==='';});
+            if(allEmpty)continue;
+            var dv=dC>=0?String(row[dC]||'').trim():'';
+            if(!dv)continue;
+            var pd=parseFlexDate(dv);if(!pd)continue;
+            var narr=nC>=0?String(row[nC]||'').trim():'';
+            var cr=crC>=0?parseAmt(row[crC]):0;
+            var dr=drC>=0?parseAmt(row[drC]):0;
+            var bal=balC>=0?String(row[balC]||'').replace(/[^\d\.\-,]/g,'').replace(/,/g,''):'';
+            if(!cr&&!dr)continue;
+            if(cr>0){
+              var extractedMode='NEFT';
+              var nParts=narr.split('|');
+              if(nParts.length>=3){var m2=nParts[2].trim().toUpperCase();if(m2&&m2.length<=8&&/^[A-Z]+$/.test(m2))extractedMode=m2;}
+              rows.push({date:pd,narration:narr,amount:cr,type:'credit',balance:bal,mode:extractedMode,rebate:0,grossAmt:0,_party:'',_billId:'',_include:true,_saved:false});
+            }
+            if(dr>0)rows.push({date:pd,narration:narr,amount:dr,type:'debit',balance:bal,mode:'',rebate:0,grossAmt:0,_party:'',_billId:'',_include:false,_saved:false});
+          }
+          state.rows=rows; autoMatch(rows);
+          var creds=rows.filter(function(r){return r.type==='credit';});
+          statusDiv.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ <strong>'+rows.length+' rows extracted</strong> ('+creds.length+' credits, '+(rows.length-creds.length)+' debits hidden)</div>';
+          refresh();
+        }
       }catch(ex){
         statusDiv.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ Error: '+ex.message+'</div>';
       }
@@ -7835,7 +7912,8 @@ function pgBillImport() {
           pymt:   fc2(['pymt mode','payment mode','mode']),
           broker: fc2(['broker']),
           grades: fc2(['grades sold','grades','grade']),
-          transport:fc2(['transport','transporter'])
+          transport:fc2(['transport','transporter']),
+          remarks:fc2(['remarks','remark','note','notes'])
         };
 
         var rows=[];
@@ -7872,7 +7950,7 @@ function pgBillImport() {
             rows:[{grade:gradeStr,qty:0,weight:wt,rate:rate,taxable:taxable}],
             taxable:taxable,cgst:cgst,sgst:sgst,igst:igst,
             packing:gn2(cols.bardhana),round:gn2(cols.round),stp:stp,
-            netAmt:netAmt,remarks:'',
+            netAmt:netAmt,remarks:gv2(cols.remarks)||'',
             _include:true,_dup:false
           });
         }
