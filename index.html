@@ -2892,6 +2892,7 @@ function pgNewBill() {
 // ── ALL BILLS ──
 function pgAllBills() {
   var state=pageState.allBills=pageState.allBills||{q:'',sortKey:'date',sortDir:-1,showPay:false,printMode:false,zoom:100,filters:{},showPaid:true};
+  state._pageLimit=null; // Reset on every load so PAGE_SIZE=3000 applies
   if(!state.sel)state.sel=new Set();
 
   var uParty=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
@@ -2935,7 +2936,7 @@ function pgAllBills() {
       if(state.sortKey==='bal'){av=getBillStatus(a).bal;bv=getBillStatus(b2).bal;}
       else if(state.sortKey==='recv'){av=getBillStatus(a).recv;bv=getBillStatus(b2).recv;}
       else if(state.sortKey==='status'){av=getBillStatus(a).status;bv=getBillStatus(b2).status;}
-      else if(state.sortKey==='date'){av=toISO(a.date||'');bv=toISO(b2.date||'');}else{av=a[state.sortKey]||'';bv=b2[state.sortKey]||'';}
+      else if(state.sortKey==='date'){av=toISO(a.date||'');bv=toISO(b2.date||'');}else if(state.sortKey==='billNo'){av=parseInt(a.billNo)||0;bv=parseInt(b2.billNo)||0;}else{av=a[state.sortKey]||'';bv=b2[state.sortKey]||'';}
       if(typeof av==='number'&&typeof bv==='number')return(av-bv)*state.sortDir;
       return String(av).localeCompare(String(bv))*state.sortDir;
     });
@@ -3172,7 +3173,7 @@ function pgAllBills() {
       etr.appendChild(etd);tbody.appendChild(etr);return;
     }
     // ── PAGINATION: only render first PAGE_SIZE rows at a time ──
-    var PAGE_SIZE=150;
+    var PAGE_SIZE=3000;
     var pageLimit=state._pageLimit||PAGE_SIZE;
     var visData=d.slice(0,pageLimit);
 
@@ -5070,7 +5071,7 @@ function pgPartyLedger(party) {
       bpays.forEach(function(p,pi){
         ph+='<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:5px 8px;color:#6b7280">'+(pi+1)+'</td>'+
           '<td style="padding:5px 8px">'+p.date+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;font-weight:600">₹'+fmt(p.amount||0)+'</td>'+
+          '<td style="padding:5px 8px;text-align:right;font-weight:600">₹'+fmt(p.amount||0)+(p.grossAmt&&p.grossAmt>0?'<br><span style="font-size:9px;color:#6b7280;font-weight:400">GROSS:₹'+fmt(p.grossAmt)+'</span>':'')+'</td>'+
           '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
           '<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>'+
           '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
@@ -6193,6 +6194,7 @@ function pgSettings() {
     {t:'💾 JSON Backup',fn:exportBackupJSON,cls:'btn btn-green'},
     {t:'☁️ Save to Drive',fn:saveBackupToDrive,cls:'btn btn-blue'},
     {t:'📊 Excel Backup',fn:exportBackupExcel,cls:'btn btn-outline'},
+    {t:'☁️ Cloud Restore',fn:restoreFromCloudBackup,cls:'btn btn-outline'},
     {t:'Styled PDF Report',fn:function(){exportStyledReport(bills);},cls:'btn btn-outline'},
     {t:'Styled Excel Report',fn:function(){exportStyledReportExcel(bills);},cls:'btn btn-outline'},
   ].forEach(function(item){
@@ -7055,8 +7057,9 @@ function pgBankUpload() {
     return isNaN(n)||n<0?0:n;
   }
 
-  // ── AUTO PARTY + BILL MATCH ──
+  // ── AUTO PARTY + BILL MATCH (with GROSS group support) ──
   function autoMatch(rows) {
+    // Step 1: Party name match from narration
     rows.forEach(function(row){
       if(row.type!=='credit')return;
       var narr=(row.narration||'').toUpperCase();
@@ -7068,13 +7071,56 @@ function pgBankUpload() {
       });
       if(bestScore>=4)row._party=best;
     });
+
+    // Step 2: Bill match — single bill OR gross group
     rows.forEach(function(row){
       if(row.type!=='credit'||!row._party||row._billId)return;
       var pb=bills.filter(function(b){return b.party===row._party&&getBillStatus(b).status!=='paid';});
       if(!pb.length)return;
-      var closest=pb.slice().sort(function(a,b2){return Math.abs(getBillStatus(a).bal-row.amount)-Math.abs(getBillStatus(b2).bal-row.amount);})[0];
-      row._billId=closest.id;
+      var amt=row.amount;
+
+      // Check: kya yeh amount kisi GROSS group ka total hai?
+      // GROSS group = same party ke kuch bills jinka sum = amount (within 5%)
+      var grossMatch = null;
+      if(pb.length > 1) {
+        // Try combinations of 2-6 bills
+        for(var n=2; n<=Math.min(6,pb.length); n++) {
+          var found = findGrossGroup(pb, amt, n);
+          if(found) { grossMatch = found; break; }
+        }
+      }
+
+      if(grossMatch) {
+        // GROSS group mila — sab bills mark karo
+        row._billId = grossMatch[0].id;
+        row._grossBills = grossMatch.map(function(b){return b.id;});
+        row._isGross = true;
+        row._grossAmt = amt;
+      } else {
+        // Single bill closest match
+        var closest=pb.slice().sort(function(a,b2){return Math.abs(getBillStatus(a).bal-amt)-Math.abs(getBillStatus(b2).bal-amt);})[0];
+        var diff = Math.abs(getBillStatus(closest).bal - amt);
+        if(diff / amt <= 0.05) row._billId=closest.id; // within 5%
+      }
     });
+  }
+
+  // Find bills whose balance sum = target amount (within 0.5%)
+  function findGrossGroup(bills, target, n) {
+    var bals = bills.map(function(b){ return {b:b, bal:getBillStatus(b).bal}; });
+    function combo(start, remaining, chosen) {
+      if(chosen.length === n) {
+        var sum = chosen.reduce(function(s,x){return s+x.bal;},0);
+        if(Math.abs(sum-target)/target <= 0.005) return chosen.map(function(x){return x.b;});
+        return null;
+      }
+      for(var i=start; i<=bals.length-(n-chosen.length); i++) {
+        var res = combo(i+1, remaining-1, chosen.concat([bals[i]]));
+        if(res) return res;
+      }
+      return null;
+    }
+    return combo(0, n, []);
   }
 
   // ── EXCEL PARSER ──
@@ -7492,22 +7538,65 @@ function pgBankUpload() {
   function saveTxns(){
     var toSave=state.rows.filter(function(r){return r.type==='credit'&&r._include&&r._party&&!r._saved;});
     if(!toSave.length){toast('Party assign karo pehle!','err');return;}
-    var cnt=0,advCnt=0;
+    var cnt=0,advCnt=0,grossCnt=0;
+
     toSave.forEach(function(row){
       var bid=row._billId||'';
       var isInterest=bid.indexOf('|interest')>=0;
       var actualBid=isInterest?bid.replace('|interest',''):bid;
-      if(actualBid&&!isInterest){
-        payments.push({id:uid(),billId:actualBid,amount:row.amount,rebate:row.rebate||0,date:row.date,mode:row.mode||'NEFT',chequeNo:'',receiptNo:row.narration||'',remarks:'Bank Statement'});
-      } else {
+      var grossRef='GROSS:'+Math.round(row.amount); // e.g. GROSS:206268
+
+      // ── GROSS GROUP: ek payment → multiple bills ──
+      if(row._isGross && row._grossBills && row._grossBills.length > 1) {
+        var grossBillObjs = row._grossBills.map(function(id){return bills.find(function(b){return b.id===id;});}).filter(Boolean);
+        var leftover = row.amount;
+        grossBillObjs.forEach(function(gb, gi){
+          if(leftover <= 0.5) return;
+          var s = getBillStatus(gb);
+          var this_amt = Math.min(leftover, s.bal);
+          var rebate = 0;
+          // Last bill mein rebate
+          if(gi === grossBillObjs.length-1) {
+            var diff_pct = Math.abs(s.bal - leftover) / gb.netAmt * 100;
+            if(s.bal > leftover && diff_pct <= 5) { rebate = round2(s.bal-leftover); this_amt = leftover; }
+          }
+          payments.push({
+            id: uid(), billId: gb.id,
+            amount: round2(this_amt), rebate: rebate, interest: 0,
+            date: row.date, mode: row.mode||'NEFT',
+            chequeNo: row.chequeNo||'',
+            receiptNo: row.narration||'',
+            grossAmt: row.amount,     // Original total — search ke liye
+            remarks: grossRef         // GROSS:206268
+          });
+          leftover = round2(leftover - this_amt - rebate);
+        });
+        grossCnt++;
+      }
+      // ── SINGLE BILL payment ──
+      else if(actualBid && !isInterest){
+        payments.push({
+          id: uid(), billId: actualBid,
+          amount: row.amount, rebate: row.rebate||0, interest: 0,
+          date: row.date, mode: row.mode||'NEFT',
+          chequeNo: row.chequeNo||'',
+          receiptNo: row.narration||'',
+          grossAmt: 0,
+          remarks: 'Bank Statement'
+        });
+      }
+      // ── Advance / Interest ──
+      else {
         var rmk=isInterest?('Interest on Bill #'+((bills.find(function(b){return b.id===actualBid;})||{billNo:''}).billNo)+' | '+row.narration):'Bank: '+row.narration;
         advances.push({id:uid(),party:row._party,amount:row.amount,date:row.date,mode:row.mode||'NEFT',remarks:rmk,linked:false,createdAt:new Date().toISOString()});
         advCnt++;
       }
-      row._saved=true;cnt++;
+      row._saved=true; cnt++;
     });
+
+    function round2(v){return Math.round(v*100)/100;}
     invalidateBillStatusCache();DB.set('payments',payments);invalidateBillStatusCache();DB.set('advances',advances);
-    toast('✅ '+cnt+' saved! ('+(cnt-advCnt)+' payments, '+advCnt+' advances)');
+    toast('✅ '+cnt+' saved! ('+(cnt-advCnt-grossCnt)+' payments, '+grossCnt+' GROSS groups, '+advCnt+' advances)');
     refresh();
   }
   return wrap;
@@ -10999,7 +11088,45 @@ function exportBackupJSON() {
   document.body.appendChild(a); a.click();
   setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href);},1500);
   saveBackupToHistory(data._meta.label);
-  toast('✅ JSON backup downloaded!');
+  // Also save to Firestore as cloud backup
+  if(_user) {
+    var ts = new Date().toISOString().replace(/[:.]/g,'-');
+    _fdb.collection('users').doc(_user.uid).collection('cloudBackups').doc('latest')
+      .set({ data: json, ts: ts, bills: bills.length, payments: payments.length,
+             t: firebase.firestore.FieldValue.serverTimestamp() })
+      .then(function(){ console.log('Cloud backup saved'); })
+      .catch(function(e){ console.error('Cloud backup failed', e); });
+  }
+  toast('✅ JSON backup downloaded + cloud mein save!');
+}
+
+// Restore from cloud backup
+function restoreFromCloudBackup() {
+  if(!_user){ toast('Login required','err'); return; }
+  _fdb.collection('users').doc(_user.uid).collection('cloudBackups').doc('latest').get()
+    .then(function(doc){
+      if(!doc.exists){ toast('Koi cloud backup nahi mila','err'); return; }
+      var d = doc.data();
+      if(confirm('Cloud backup restore karo?\n\nBills: '+d.bills+'\nPayments: '+d.payments+'\nDate: '+d.ts+'\n\nCurrent data replace hoga.')) {
+        try {
+          var parsed = JSON.parse(d.data);
+          saveUndo('Before Cloud Restore');
+          bills=parsed.bills||[]; payments=parsed.payments||[];
+          cheques=parsed.cheques||[]; advances=parsed.advances||[];
+          expenses=parsed.expenses||[]; returns_=parsed.returns||parsed.returns_||[];
+          purchases=parsed.purchases||[]; suspense=parsed.suspense||[];
+          invalidateBillStatusCache();
+          DB.set('bills',bills); DB.set('payments',payments);
+          DB.set('cheques',cheques); DB.set('advances',advances);
+          DB.set('expenses',expenses); DB.set('returns',returns_);
+          DB.set('purchases',purchases); DB.set('suspense',suspense);
+          saveBackupToHistory('Restored from Cloud Backup');
+          toast('✅ Cloud backup restore hua! Bills: '+bills.length);
+          refresh();
+        } catch(e){ toast('Restore error: '+e.message,'err'); }
+      }
+    })
+    .catch(function(e){ toast('Cloud backup fetch failed: '+e.message,'err'); });
 }
 
 // ── Export Excel Backup ──
@@ -11187,8 +11314,56 @@ function restoreFromExcel(file) {
         saveUndo('Before Excel Restore');
 
         // Map Excel rows back to internal format
-        function mapBill(r){return{id:r.ID||r.id||uid(),billNo:r['Bill#']||'',date:r.Date||today(),party:r.Party||'',broker:r.Broker||'',netAmt:parseFloat(r['Net Amt'])||0,remarks:r.Remarks||'',rows:[],taxable:0,cgst:0,sgst:0,igst:0};}
-        function mapPay(r){return{id:r.ID||r.id||uid(),billId:r.BillID||r.billId||'',amount:parseFloat(r.Amount)||0,rebate:parseFloat(r.Rebate)||0,date:r.Date||today(),mode:r.Mode||'',chequeNo:r.ChequeNo||'',receiptNo:r.ReceiptNo||'',remarks:r.Remarks||''};}
+        function mapBill(r){
+          var taxable=parseFloat(r.Taxable)||0;
+          var cgst=parseFloat(r.CGST)||0;
+          var sgst=parseFloat(r.SGST)||0;
+          var packing=parseFloat(r.Packing)||0;
+          var netAmt=parseFloat(r['Net Amt'])||0;
+          var grade=r.Grade||r.Grades||'MIXED';
+          var wt=parseFloat(r.Weight||r.Wt||0)||0;
+          var rate=parseFloat(r.Rate)||0;
+          return{
+            id:r.ID||r.id||uid(),
+            billNo:r['Bill#']||'',
+            date:r.Date||today(),
+            party:r.Party||'',
+            station:r.Station||'',
+            broker:r.Broker||'',
+            transport:r.Transport||'',
+            pymt:'credit',billType:'credit',
+            gstRate:parseFloat(r['Tax%']||r.TaxRate||5)||5,
+            gstType:'cgst_sgst',
+            stp:parseFloat(r.STP||0)||0,
+            brokerRate:0,
+            remarks:r.Remarks||'',
+            rows:[{grade:grade,qty:parseFloat(r.Qty||r.Peti||0)||0,weight:wt,rate:rate,taxable:taxable}],
+            taxable:taxable,cgst:cgst,sgst:sgst,igst:0,
+            packing:packing,round:0,
+            netAmt:netAmt||taxable+cgst+sgst+packing
+          };
+        }
+        function mapPay(r){
+          // Bill# se billId dhundho (agar BillID nahi hai)
+          var bId = r.BillID||r.billId||'';
+          if(!bId && r['Bill#']) {
+            var mb = bills.find(function(b){ return b.billNo===String(r['Bill#']); });
+            if(mb) bId = mb.id;
+          }
+          return{
+            id: r.ID||r.id||uid(),
+            billId: bId,
+            amount: parseFloat(r.Amount)||0,
+            rebate: parseFloat(r.Rebate)||0,
+            interest: parseFloat(r.Interest)||0,
+            date: r.Date||today(),
+            mode: r.Mode||'',
+            chequeNo: r.ChequeNo||'',
+            receiptNo: r.ReceiptNo||'',
+            grossAmt: parseFloat(r.GrossAmt||r.grossAmt||0)||0,  // GROSS group original amount
+            remarks: r.Remarks||''
+          };
+        }
 
         bills     = rawBills.filter(function(r){return !r.note;}).map(mapBill);
         payments  = rawPays.filter(function(r){return !r.note;}).map(mapPay);
