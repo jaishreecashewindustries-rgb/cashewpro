@@ -13077,25 +13077,40 @@ function erpParsePayments(sheets) {
     });
   } else {
     // Single-sheet format (flat table)
-    var shName = sheets['ALL_PAYMENTS'] || sheets[sheetNames[0]];
+    var shName = sheets['Payments'] || sheets['ALL_PAYMENTS'] || sheets[sheetNames[0]];
     var raw2 = erpParseSheet(shName || []);
     raw2.forEach(function(r) {
-      var credit = erpNum(erpGetField(r, ['CREDIT','CREDIT (₹)','Credit Received','CREDIT RECEIVED (₹)']));
+      var credit = erpNum(erpGetField(r, ['CREDIT','CREDIT (₹)','Credit Received','CREDIT RECEIVED (₹)','AMOUNT','Amount']));
       if (!credit) return;
       var remarks = erpStr(erpGetField(r, ['REMARKS','REMARKS RAW','Remarks']));
-      var party   = erpStr(erpGetField(r, ['PARTY NAME','Party Name','PARTY']));
+      var party   = erpStr(erpGetField(r, ['PARTY NAME','Party Name','PARTY','Party']));
+
+      // ── BILL NO: read from dedicated column (comma-separated bill numbers) ──
+      var billNoRaw = erpStr(erpGetField(r, ['BILL NO','BILL NO.','Bill No','BillNo','BILL_NO','BILL NUMBER']));
+      // Normalise: trim, remove blanks, deduplicate
+      var billNoArr = billNoRaw
+        ? billNoRaw.split(/[,;\/\s]+/).map(function(s){return s.trim();}).filter(Boolean)
+        : [];
+      var billNoStr = billNoArr.join(', ');  // canonical comma-separated string stored on payment
+
+      // isGross: YES if multiple bill numbers — column value is fallback only when no BILL NO
+      var isGrossFromCol = /YES|TRUE|1/i.test(erpStr(erpGetField(r, ['IS_GROSS','isGross','ISGROSS','IS GROSS'])));
+      var isGross = billNoArr.length > 1 ? true : (billNoArr.length === 0 ? (/GROSS/i.test(remarks) || isGrossFromCol) : false);
+
       rows.push({
-        _id:       erpUID(),
-        party:     erpNorm(party),
-        partyOrig: party,
-        date:      erpStr(erpGetField(r, ['DATE','PAY DATE','Pay Date'])),
-        credit:    erp2(credit),
-        billRef:   erpStr(erpGetField(r, ['BILL REF','BILL NO.','Bill No.'])),
-        mode:      erpStr(erpGetField(r, ['MODE','Mode'])),
-        grossAmt:  erpNum(erpGetField(r, ['GROSS AMT','GROSS AMT DECLARED (₹)'])),
-        remarks:   remarks,
-        isGross:   /GROSS/i.test(remarks),
-        narration: erpStr(erpGetField(r, ['NARRATION','Narration'])),
+        _id:        erpUID(),
+        party:      erpNorm(party),
+        partyOrig:  party,
+        date:       erpStr(erpGetField(r, ['DATE','PAY DATE','Pay Date'])),
+        credit:     erp2(credit),
+        billRef:    erpStr(erpGetField(r, ['BILL REF','BILL NO.','Bill No.'])),  // legacy field
+        billNo:     billNoStr,     // ★ NEW: comma-separated bill numbers from dedicated column
+        billNoArr:  billNoArr,     // ★ NEW: parsed array for matching
+        mode:       erpStr(erpGetField(r, ['MODE','Mode'])),
+        grossAmt:   erpNum(erpGetField(r, ['GROSS AMT','GROSS AMT DECLARED (₹)'])),
+        remarks:    remarks,
+        isGross:    isGross,
+        narration:  erpStr(erpGetField(r, ['NARRATION','Narration'])),
         flagDCash:  /D\.?\s*CASH/i.test(remarks),
         flagIntDue: /INT\s*DUE|INT\b/i.test(remarks),
         flagDalali: /DALALI|\.5%/i.test(remarks),
@@ -13439,8 +13454,57 @@ function erpReconcile() {
 
       var payDateInt = erpDateInt(p.date);
 
-      // ── CASE A: Any bill reference present → PRIORITY MATCH ───────────────
-      // Rule: if ANY bill ref exists → only use those bills, never combination logic
+      // ══════════════════════════════════════════════════════════════════════
+      // CASE A  ★ FIRST PRIORITY — BILL NO column present
+      //
+      // Rules (strict):
+      //  1. Use ONLY the bills listed in billNoArr — no auto-match, no combination
+      //  2. No confusion generated for any outcome
+      //  3. Duplicate bills: silently skip already-paid ones, link the rest
+      //  4. Bill not found in file: silently skip that ref, link what exists
+      //  5. Always produces a linked result → ZERO confusion from Bill No rows
+      // ══════════════════════════════════════════════════════════════════════
+      var hasBillNo = p.billNoArr && p.billNoArr.length > 0;
+      if (hasBillNo) {
+        var billNoRefs  = p.billNoArr;
+        var billNoFound = [];
+
+        billNoRefs.forEach(function(ref) {
+          var refStr = String(ref).trim();
+          var hit = (partyMap[matchedKey] || []).find(function(b2) {
+            return String(b2.invNo).trim() === refStr;
+          });
+          // Silent skip: not found OR already paid (no confusion generated)
+          if (hit && isDue(matchedKey, hit.invNo) && !hit.paid && hit.netAmt > 0) {
+            billNoFound.push(hit);
+          }
+        });
+
+        // If nothing matched at all (all already paid / all not found) — still no confusion,
+        // just skip this payment silently so it doesn't block other rows
+        if (!billNoFound.length) return;
+
+        // Build result — no scoreCombination needed, we trust the explicit Bill No
+        var totalBN = erp2(billNoFound.reduce(function(s,b){ return s + b.netAmt; }, 0));
+        var diffBN  = erp2(p.credit - totalBN);
+        var scBN    = {
+          total:     totalBN,
+          diff:      diffBN,
+          pct:       totalBN > 0 ? Math.abs(diffBN)/totalBN : 0,
+          matchType: Math.abs(diffBN) <= 1 ? 'EXACT' : 'APPROX',
+          score:     Math.abs(diffBN) <= 1 ? 100 : 90,
+          basis:     'Manual Bill Mapping'
+        };
+
+        var resBN = buildResult(p, billNoFound.length > 1 ? 'GROSS' : 'BILL', matchedKey, billNoFound, scBN);
+        resBN.manualBillMapping = true;   // ★ UI badge flag
+        resBN.billNoList        = billNoRefs;  // ★ Verify Mode: show original Bill Nos
+        pushResult(resBN);
+        billNoFound.forEach(function(b){ markPaid(matchedKey, b.invNo); });
+        return;  // ← DONE. No confusion. No fallback. No combination logic.
+      }
+
+      // ── CASE A-legacy: billRef field (old format, kept for backward compat) ──
       if (p.billRef) {
         var refs = String(p.billRef).split(/[,\/\s]+/).map(function(s){return s.trim();}).filter(Boolean);
         var refBills = [];
@@ -13461,11 +13525,9 @@ function erpReconcile() {
           return;
         }
 
-        // Over-allocation protection: filter bills where already paid amount < bill.netAmt
         refBills = refBills.filter(function(b) { return !b.paid && b.netAmt > 0; });
-
         var sc  = scoreCombination(credit, refBills);
-        sc.basis = 'Invoice';   // explicit invoice reference — mark as invoice basis
+        sc.basis = 'Invoice';
         var res = buildResult(p, refBills.length > 1 ? 'GROSS' : 'BILL', matchedKey, refBills, sc);
         pushResult(res);
         refBills.forEach(function(b) { markPaid(matchedKey, b.invNo); });
@@ -13850,12 +13912,31 @@ function erpRenderVerify(wrap, resultId) {
 
   var head = document.createElement('div');
   head.className = 'card-head';
-  head.innerHTML = '<h4>🔍 Verify Mode — ' + res.party + ' | ' + res.date + '</h4>' +
+  var manualBadgeHtml = res.manualBillMapping
+    ? '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:800;margin-left:8px;letter-spacing:.3px">📌 MANUAL BILL MAPPING</span>'
+    : '';
+  head.innerHTML = '<h4>🔍 Verify Mode — ' + res.party + ' | ' + res.date + manualBadgeHtml + '</h4>' +
     '<button onclick="ERP.tab=\'linked\';erpRefreshPage()" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-3)">✕ Close</button>';
   panel.appendChild(head);
 
   var body = document.createElement('div');
   body.style.padding = '14px 16px';
+
+  // ── Manual Bill Mapping info strip (shown only when billNoList present) ──
+  if (res.manualBillMapping && res.billNoList && res.billNoList.length) {
+    var mbStrip = document.createElement('div');
+    mbStrip.style.cssText = 'background:#f5f3ff;border:1.5px solid #7c3aed;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+    mbStrip.innerHTML =
+      '<span style="font-size:13px">📌</span>' +
+      '<div>' +
+        '<div style="font-size:11px;font-weight:800;color:#5b21b6;margin-bottom:2px">Manual Bill Mapping — Bill No column used</div>' +
+        '<div style="font-size:10px;color:#7c3aed">Exact Bill Nos from payment file: ' +
+          res.billNoList.map(function(n){ return '<strong>#' + n + '</strong>'; }).join(' &nbsp;·&nbsp; ') +
+        '</div>' +
+        '<div style="font-size:10px;color:#6b7280;margin-top:2px">Auto-matching was SKIPPED. Bills linked directly from Bill No column.</div>' +
+      '</div>';
+    body.appendChild(mbStrip);
+  }
 
   // Breakdown
   var bd = document.createElement('div');
@@ -13869,7 +13950,11 @@ function erpRenderVerify(wrap, resultId) {
     (res.rebate > 0 ? '<tr><td style="padding:3px 0;color:#92400e">→ Rebate (≤2%)</td><td style="text-align:right;color:#92400e;font-weight:700">₹' + fmt(res.rebate) + '</td></tr>' : '') +
     (res.interest > 0 ? '<tr><td style="padding:3px 0;color:#1e40af">→ Interest (≤4%)</td><td style="text-align:right;color:#1e40af;font-weight:700">₹' + fmt(res.interest) + '</td></tr>' : '') +
     '<tr style="border-top:1px solid #e5e7eb"><td style="padding:4px 0;font-weight:700">Classification</td><td style="text-align:right">' + erpBadge2(res.cls) + '</td></tr>' +
-    '<tr><td style="padding:3px 0;color:var(--text-3)">Match Type</td><td style="text-align:right">' + erpMatchBadge(res.matchType||'—', res.matchScore) + '</td></tr>' +
+    '<tr><td style="padding:3px 0;color:var(--text-3)">Match Basis</td><td style="text-align:right">' +
+      (res.manualBillMapping
+        ? '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 7px;font-size:9px;font-weight:800">📌 Manual Bill Mapping</span>'
+        : erpMatchBadge(res.matchType||'—', res.matchScore)) +
+    '</td></tr>' +
     '</table>';
   body.appendChild(bd);
 
@@ -14085,7 +14170,8 @@ function erp2RenderLinked(wrap) {
     var totInt    = f.reduce(function(s,r){return s+r.interest;},0);
 
     var rows = f.slice(0, 500).map(function(r) {
-      var bg = r.cls==='EXACT'?'#f0fdf4':r.cls==='REBATE'?'#fffdf0':r.cls==='INTEREST'||r.cls==='INTEREST_DUE'?'#eff6ff':r.cls==='PARTIAL'||r.cls==='EXCESS'?'#fff8f0':undefined;
+      var bg = r.manualBillMapping ? '#faf5ff'   // purple tint for manual mapped rows
+             : r.cls==='EXACT'?'#f0fdf4':r.cls==='REBATE'?'#fffdf0':r.cls==='INTEREST'||r.cls==='INTEREST_DUE'?'#eff6ff':r.cls==='PARTIAL'||r.cls==='EXCESS'?'#fff8f0':undefined;
       var billsStr = r.linkedBills.map(function(b){return '#'+b.invNo;}).join(', ');
       return {
         _bg: r.edited ? '#fef9ee' : bg,
@@ -14101,8 +14187,12 @@ function erp2RenderLinked(wrap) {
           { t: r.interest>0?'₹'+fmt(r.interest):'—', s:'text-align:right;color:#1e40af;font-weight:'+(r.interest>0?'700':'400') },
           { h: erpBadge2(r.cls) + erpEditedBadge(r) },
           { h: '<span style="font-size:10px;color:var(--text-3)" title="'+billsStr+'">'+billsStr+'</span> <span style="font-size:9px;color:#166534" title="Locked">🔒</span>', s:'max-width:160px' },
-          { h: erpMatchBadge(r.matchType || '—', r.matchScore) },
-          { h: '<span style="background:#f0f9ff;color:#0369a1;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">'+(r.matchBasis||'Auto')+'</span>' },
+          { h: r.manualBillMapping
+              ? '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:800;letter-spacing:.2px">📌 Manual</span>'
+              : erpMatchBadge(r.matchType || '—', r.matchScore) },
+          { h: r.manualBillMapping
+              ? '<span style="background:#f5f3ff;color:#5b21b6;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">Manual Bill Mapping</span>'
+              : '<span style="background:#f0f9ff;color:#0369a1;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">'+(r.matchBasis||'Auto')+'</span>' },
           { h: erpFlagHtml(r) },
           { h: '<button style="padding:3px 9px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:4px;cursor:pointer;font-size:10px;font-weight:700" onclick="ERP.verifyId=\''+r._id+'\';ERP.tab=\'verify\';erpRefreshPage()">🔍 Verify</button>' },
         ]
