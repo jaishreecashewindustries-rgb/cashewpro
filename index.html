@@ -6303,39 +6303,50 @@ function pgSettings() {
     var pwd=prompt('Password enter karo:');
     if(pwd===null)return;
     if(pwd!=='you2338685'){toast('Wrong password!','err');return;}
-    if(!confirm('ALL DATA WILL BE DELETED. Are you sure?'))return;
-    // ── Full Clean Reset ──────────────────────────────────────────────
-    // 1. Clear all known localStorage keys
-    var lsKeys = ['bills','payments','erp_v2_data','app_history',
-      'erp_last_saved','erp_reconcile_data','cp_lastBackup','cp_autoBackup'];
-    lsKeys.forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
-    // Clear cp_ prefixed DB keys (bills/payments use chunked storage)
-    ['bills','payments','cheques','advances','expenses','returns','purchases','suspense','bankCredits'].forEach(function(k){
-      try{ localStorage.removeItem('cp_'+k); }catch(e){}
-      for(var i=0;i<20;i++){ try{ localStorage.removeItem('cp_'+k+'_'+i); }catch(e){} }
-    });
-    // Clear sessionStorage
+    if(!confirm('ALL DATA WILL BE DELETED permanently (localStorage + Cloud). Are you sure?'))return;
+
+    toast('⏳ Clearing data...','info');
+
+    /* ── Step 1: Clear localStorage completely ── */
+    try{ localStorage.clear(); }catch(e){}
     try{ sessionStorage.clear(); }catch(e){}
-    // 2. Reset all in-memory variables
+
+    /* ── Step 2: Reset every in-memory variable ── */
     bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];suspense=[];
     cfg={};
-    // Reset ERP v1 state
-    erpS.loaded={};erpS.allPay=[];erpS.grossPay=[];erpS.billAdj=[];erpS.rebate=[];
-    erpS.interest=[];erpS.opening=[];erpS.confMap=[];erpS.confPartial=[];erpS.summary=null;
-    // Reset ERP v2 state
-    ERP.rawBills=[];ERP.rawPayments=[];ERP.partyMap={};ERP.results=[];
-    ERP.rebateList=[];ERP.interestList=[];ERP.confusionList=[];ERP.openingList=[];
-    ERP.auditLog=[];ERP.summary=null;ERP.overrides={};ERP.savedAt=null;
-    // Reset history
-    HIST.entries=[];
-    // 3. Persist cleared state to DB (clears Firestore-pending queue too)
-    invalidateBillStatusCache();
-    DB.set('bills',bills);DB.set('payments',payments);DB.set('cheques',cheques);
-    DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
-    DB.set('purchases',purchases);DB.set('suspense',suspense);
-    // 4. Reload UI and show confirmation toast
-    toast('✅ All data cleared successfully','success');
-    setTimeout(function(){ location.reload(); },800);
+    try{erpS.loaded={};erpS.allPay=[];erpS.grossPay=[];erpS.billAdj=[];erpS.rebate=[];
+      erpS.interest=[];erpS.opening=[];erpS.confMap=[];erpS.confPartial=[];erpS.summary=null;}catch(ex){}
+    try{ERP.rawBills=[];ERP.rawPayments=[];ERP.partyMap={};ERP.results=[];
+      ERP.rebateList=[];ERP.interestList=[];ERP.confusionList=[];ERP.openingList=[];
+      ERP.auditLog=[];ERP.summary=null;ERP.overrides={};ERP.savedAt=null;}catch(ex){}
+    try{HIST.entries=[];if(HIST._autoTimer)clearInterval(HIST._autoTimer);}catch(ex){}
+    try{invalidateBillStatusCache();}catch(ex){}
+
+    /* ── Step 3: Delete ALL Firestore documents for this user, then reload ── */
+    function doReload(){
+      toast('✅ All data cleared successfully','success');
+      setTimeout(function(){ location.reload(); },900);
+    }
+    if(_user && _fdb){
+      _fdb.collection('users').doc(_user.uid).collection('data').get()
+        .then(function(snap){
+          if(snap.empty){ doReload(); return; }
+          /* Batch-delete in groups of 450 (Firestore limit=500) */
+          var docs=[];
+          snap.forEach(function(d){ docs.push(d.ref); });
+          var batches=[];
+          for(var i=0;i<docs.length;i+=450){
+            var batch=_fdb.batch();
+            docs.slice(i,i+450).forEach(function(ref){ batch.delete(ref); });
+            batches.push(batch.commit());
+          }
+          return Promise.all(batches);
+        })
+        .then(function(){ doReload(); })
+        .catch(function(err){ console.error('Firestore clear error',err); doReload(); });
+    } else {
+      doReload();
+    }
   });
   dzSec.appendChild(clrDataBtn);bb.appendChild(dzSec);
 
@@ -6403,38 +6414,48 @@ function pgSettings() {
     if(pwd===null)return;
     if(pwd!=='you2338685'){toast('Wrong password! Data delete nahi hua.','err');return;}
     if(!confirm('ALL DATA will be deleted — bills, payments, everything. Confirm?'))return;
-    // ── Full Clean Reset ──────────────────────────────────────────────
-    // 1. Clear all known localStorage keys
-    var lsKeys = ['bills','payments','erp_v2_data','app_history',
-      'erp_last_saved','erp_reconcile_data','cp_lastBackup','cp_autoBackup'];
-    lsKeys.forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
-    // Clear cp_ prefixed DB keys (bills/payments use chunked storage)
-    ['bills','payments','cheques','advances','expenses','returns','purchases','suspense','bankCredits'].forEach(function(k){
-      try{ localStorage.removeItem('cp_'+k); }catch(e){}
-      for(var i=0;i<20;i++){ try{ localStorage.removeItem('cp_'+k+'_'+i); }catch(e){} }
-    });
-    // Clear sessionStorage
+
+    toast('⏳ Clearing data...','info');
+
+    /* ── Step 1: Clear localStorage completely ── */
+    try{ localStorage.clear(); }catch(e){}
     try{ sessionStorage.clear(); }catch(e){}
-    // 2. Reset all in-memory variables
+
+    /* ── Step 2: Reset every in-memory variable ── */
     bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];suspense=[];
     cfg={};
-    // Reset ERP v1 state
-    erpS.loaded={};erpS.allPay=[];erpS.grossPay=[];erpS.billAdj=[];erpS.rebate=[];
-    erpS.interest=[];erpS.opening=[];erpS.confMap=[];erpS.confPartial=[];erpS.summary=null;
-    // Reset ERP v2 state
-    ERP.rawBills=[];ERP.rawPayments=[];ERP.partyMap={};ERP.results=[];
-    ERP.rebateList=[];ERP.interestList=[];ERP.confusionList=[];ERP.openingList=[];
-    ERP.auditLog=[];ERP.summary=null;ERP.overrides={};ERP.savedAt=null;
-    // Reset history
-    HIST.entries=[];
-    // 3. Persist cleared state to DB (clears Firestore-pending queue too)
-    invalidateBillStatusCache();
-    DB.set('bills',bills);DB.set('payments',payments);DB.set('cheques',cheques);
-    DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
-    DB.set('purchases',purchases);DB.set('suspense',suspense);
-    // 4. Reload UI and show confirmation toast
-    toast('✅ All data cleared successfully','success');
-    setTimeout(function(){ location.reload(); },800);
+    try{erpS.loaded={};erpS.allPay=[];erpS.grossPay=[];erpS.billAdj=[];erpS.rebate=[];
+      erpS.interest=[];erpS.opening=[];erpS.confMap=[];erpS.confPartial=[];erpS.summary=null;}catch(ex){}
+    try{ERP.rawBills=[];ERP.rawPayments=[];ERP.partyMap={};ERP.results=[];
+      ERP.rebateList=[];ERP.interestList=[];ERP.confusionList=[];ERP.openingList=[];
+      ERP.auditLog=[];ERP.summary=null;ERP.overrides={};ERP.savedAt=null;}catch(ex){}
+    try{HIST.entries=[];if(HIST._autoTimer)clearInterval(HIST._autoTimer);}catch(ex){}
+    try{invalidateBillStatusCache();}catch(ex){}
+
+    /* ── Step 3: Delete ALL Firestore documents for this user, then reload ── */
+    function doReload(){
+      toast('✅ All data cleared successfully','success');
+      setTimeout(function(){ location.reload(); },900);
+    }
+    if(_user && _fdb){
+      _fdb.collection('users').doc(_user.uid).collection('data').get()
+        .then(function(snap){
+          if(snap.empty){ doReload(); return; }
+          var docs=[];
+          snap.forEach(function(d){ docs.push(d.ref); });
+          var batches=[];
+          for(var i=0;i<docs.length;i+=450){
+            var batch=_fdb.batch();
+            docs.slice(i,i+450).forEach(function(ref){ batch.delete(ref); });
+            batches.push(batch.commit());
+          }
+          return Promise.all(batches);
+        })
+        .then(function(){ doReload(); })
+        .catch(function(err){ console.error('Firestore clear error',err); doReload(); });
+    } else {
+      doReload();
+    }
   });
 
   bb2.appendChild(styledExpBtn);bb2.appendChild(styledXlsxBtn);bb2.appendChild(expBtn3);bb2.appendChild(impLbl);bb2.appendChild(clrDataBtn);bc.appendChild(bb2);
