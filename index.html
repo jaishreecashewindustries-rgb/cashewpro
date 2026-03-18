@@ -1091,31 +1091,43 @@ var DB = {
 // AUTH — login / logout / state
 // ════════════════════════════════════════════════════════
 function doGoogleLogin(){
+  /* Safety: if already signed in, just show the app */
+  if(_auth.currentUser){
+    var ls=document.getElementById('login-screen');
+    if(ls) ls.classList.add('hidden');
+    return;
+  }
+
   var btn=document.getElementById('li-google');
   var sp=document.getElementById('li-g-sp');
   var txt=document.getElementById('li-g-txt');
   var errEl=document.getElementById('li-err');
-  errEl.className='le';
 
-  btn.disabled=true;
-  sp.className='lsp show';
-  txt.textContent='Redirecting...';
+  /* Always reset to clean state first — prevents freeze if called twice */
+  if(btn){ btn.disabled=false; }
+  if(sp){ sp.className='lsp'; }
+  if(txt){ txt.textContent='Continue with Google'; }
+  if(errEl){ errEl.className='le'; errEl.textContent=''; }
+
+  if(btn){ btn.disabled=true; }
+  if(sp){ sp.className='lsp show'; }
+  if(txt){ txt.textContent='Redirecting...'; }
 
   var provider=new firebase.auth.GoogleAuthProvider();
   provider.setCustomParameters({prompt:'select_account'});
 
   _auth.signInWithPopup(provider)
     .catch(function(err){
-      btn.disabled=false;
-      sp.className='lsp';
-      txt.textContent='Continue with Google';
+      if(btn){ btn.disabled=false; }
+      if(sp){ sp.className='lsp'; }
+      if(txt){ txt.textContent='Continue with Google'; }
       var m='Google login failed. Try again.';
       if(err.code==='auth/popup-closed-by-user') m='Popup was closed. Please try again.';
       else if(err.code==='auth/popup-blocked')   m='⚠ Popup blocked. Please allow popups in browser.';
       else if(err.code==='auth/network-request-failed') m='⚠ No internet. Check connection.';
       else if(err.code==='auth/unauthorized-domain') m='⚠ Domain not authorized — add it in Firebase Console.';
       else m='❌ '+(err.message||'Login failed.');
-      errEl.textContent=m; errEl.className='le show';
+      if(errEl){ errEl.textContent=m; errEl.className='le show'; }
     });
 }
 
@@ -1162,13 +1174,16 @@ document.addEventListener('DOMContentLoaded',function(){
 function _doFullClearAndReload() {
   toast('⏳ Clearing all data...', 'info');
 
-  // 1. Wipe ALL localStorage and sessionStorage immediately
+  /* Step 1 — wipe localStorage and sessionStorage */
   try { localStorage.clear(); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
 
-  // 2. Reset every in-memory variable so UI is empty right now
+  /* Step 2 — cancel any pending Firestore writes */
+  try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
+
+  /* Step 3 — reset every in-memory variable */
   try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
-  try { cfg = {}; hiddenPages = {}; } catch(e) {}
+  try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
         erpS.interest=[]; erpS.opening=[]; erpS.confMap=[]; erpS.confPartial=[]; erpS.summary=null; } catch(e) {}
   try { ERP.rawBills=[]; ERP.rawPayments=[]; ERP.partyMap={}; ERP.results=[];
@@ -1176,25 +1191,27 @@ function _doFullClearAndReload() {
         ERP.auditLog=[]; ERP.summary=null; ERP.overrides={}; ERP.savedAt=null; } catch(e) {}
   try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
   try { invalidateBillStatusCache(); } catch(e) {}
-  try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
 
-  // 3. Set a reload flag so onAuthStateChanged skips DB.loadAll after reload
-  try { localStorage.setItem('_clearReload','1'); } catch(e) {}
-
-  // 4. Delete all Firestore docs, then hard-reload
-  function _hardReload() {
-    // Clear the flag we just set (will be cleared again by localStorage.clear on next run but set it anyway)
-    try { localStorage.setItem('_clearReload','1'); } catch(e) {}
-    toast('✅ All data cleared successfully', 'success');
-    setTimeout(function() { location.reload(true); }, 800);
+  /* Step 4 — delete Firestore docs, then sign out.
+     signOut() triggers onAuthStateChanged(null) which shows the clean login screen.
+     No location.reload() needed — signOut handles the state reset naturally. */
+  function _signOutAndFinish() {
+    _auth.signOut()
+      .then(function() {
+        toast('✅ All data cleared. Please sign in again.', 'success');
+      })
+      .catch(function() {
+        toast('✅ All data cleared. Please sign in again.', 'success');
+        setTimeout(function() { location.reload(true); }, 800);
+      });
   }
 
   if (_user && _fdb) {
     _fdb.collection('users').doc(_user.uid).collection('data').get()
       .then(function(snap) {
         if (!snap || snap.empty) {
-          _hardReload();
-          return Promise.resolve();
+          _signOutAndFinish();
+          return;
         }
         var refs = [];
         snap.forEach(function(doc) { refs.push(doc.ref); });
@@ -1204,16 +1221,19 @@ function _doFullClearAndReload() {
           refs.slice(i, i + 450).forEach(function(ref) { b.delete(ref); });
           batches.push(b.commit());
         }
-        return Promise.all(batches).then(function() {
-          _hardReload();
-        });
+        Promise.all(batches)
+          .then(function() { _signOutAndFinish(); })
+          .catch(function(err) {
+            console.error('Firestore clear error:', err);
+            _signOutAndFinish();
+          });
       })
       .catch(function(err) {
-        console.error('Firestore clear error:', err);
-        _hardReload(); // reload anyway — localStorage is already cleared
+        console.error('Firestore read error:', err);
+        _signOutAndFinish();
       });
   } else {
-    _hardReload();
+    _signOutAndFinish();
   }
 }
 
@@ -1231,17 +1251,6 @@ _auth.onAuthStateChanged(function(user){
     if(app) app.style.display='none';
     if(nav) nav.style.display='none';
 
-    // Skip loading if we just did a full clear
-    if(localStorage.getItem('_clearReload')==='1'){
-      localStorage.removeItem('_clearReload');
-      bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[];
-      cfg={}; hiddenPages={};
-      if(loader) loader.classList.add('hidden');
-      if(app){ app.style.display='flex'; }
-      if(nav) nav.style.display='';
-      buildNav(); go('dashboard');
-      return;
-    }
     DB.loadAll(user.uid, function(){
       // populate in-memory arrays from cache
       bills     = DB.get('bills');
