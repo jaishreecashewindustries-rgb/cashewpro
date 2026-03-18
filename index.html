@@ -1279,7 +1279,6 @@ _auth.onAuthStateChanged(function(user){
       histUpdateTopbarBtn(); // Sync topbar undo button state
       // Auto backup is manual only
     }); // end DB.loadAll
-  } // end if(_clearReload)
   } else {
     _user=null;
     if(loader) loader.classList.add('hidden');
