@@ -12922,9 +12922,28 @@ var ERP = {
    UTILITIES
    ──────────────────────────────────────────────────────────────────────────── */
 function erp2(n) { return Math.round((+n || 0) * 100) / 100; }
+
+/* ── erpNum: THE single source of truth for all amount parsing ─────────────
+   Handles: "1,63,725.00"  "₹11,68,94,494.84"  163725  "163725.00"
+            "(1500)"=negative  "1.5L"=ignored  null/undefined → 0
+   Called by erpParseBills, erpParsePayments, and erp2ParseAmt everywhere.
+   DO NOT bypass this with raw Number() or parseFloat() on untrusted input. */
 function erpNum(v) {
-  var n = parseFloat(String(v || '').replace(/[₹,\s]/g, ''));
-  return isNaN(n) ? 0 : n;
+  if (v === null || v === undefined || v === '') return 0;
+  // If already a finite number (XLSX raw:true numeric cell), round and return
+  if (typeof v === 'number') return isFinite(v) ? Math.round(v * 100) / 100 : 0;
+  var s = String(v)
+    .replace(/\u00a0/g, ' ')   // non-breaking space
+    .replace(/₹/g, '')         // rupee symbol
+    .replace(/,/g, '')         // ALL commas (handles Indian 1,63,725 and 11,68,94,494)
+    .replace(/\s/g, '')        // any remaining whitespace
+    .trim();
+  // Parentheses = negative: (1500) → -1500
+  if (s.charAt(0) === '(' && s.charAt(s.length-1) === ')') {
+    s = '-' + s.slice(1, -1);
+  }
+  var n = parseFloat(s);
+  return isNaN(n) ? 0 : Math.round(n * 100) / 100;
 }
 function erpNorm(s) {
   if (!s) return '';
@@ -12970,10 +12989,14 @@ function erpReadXLSX(file, cb) {
   var reader = new FileReader();
   reader.onload = function(e) {
     try {
-      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      // raw:false → XLSX formats all cells as strings (numbers keep full precision,
+      // no locale commas added). This gives erpNum a clean string to parse every time.
+      // raw:true caused mixed types: numeric cells came as JS numbers (fine) but text
+      // cells with Indian comma amounts came as strings that parseFloat truncated at comma.
+      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: false });
       var result = {};
       wb.SheetNames.forEach(function(name) {
-        result[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });
+        result[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' });
       });
       cb(null, result);
     } catch(err) { cb(err, null); }
@@ -12989,6 +13012,8 @@ function erpParseBills(sheets) {
   var sheetName = sheets['Bills'] ? 'Bills' : sheets['DEBTORS'] ? 'DEBTORS' : Object.keys(sheets)[0];
   if (!sheetName) return [];
   var raw = erpParseSheet(sheets[sheetName] || []);
+  var debugTotal = 0;   // ← validation: compare against Excel SUM
+  var skipped    = 0;
   raw.forEach(function(r) {
     var invNo  = erpGetField(r, ['INVOICE NO.','Invoice No.','INVOICE_NO','S.NO.','SNO','Bill No','BILL NO']);
     var party  = erpGetField(r, ['BUYER NAME','BUYER_NAME','DEBITORS','PARTY','Party Name']);
@@ -12999,13 +13024,12 @@ function erpParseBills(sheets) {
     var grade  = erpStr(erpGetField(r, ['GRADES SOLD','GRADE','Grading','GRADING']));
     var weight = erpNum(erpGetField(r, ['WEIGHT','WT.','Wt']));
     var rate   = erpNum(erpGetField(r, ['RATE','Rate','STP RATE','STP_RATE','OUR PRICE FOR REMARKS','OUR PRICE']));
-    // PRICE REMARKS — case-insensitive, trimmed (backward compatible)
     var priceRemarks = erpStr(
       erpGetField(r, ['PRICE REMARKS','PRICE_REMARKS','Price Remarks','REMARKS','Remarks','OUR PRICE FOR REMARKS'])
     );
-    // Detect GROSS flag from priceRemarks
     var isGrossBill = /GROSS/i.test(priceRemarks);
-    if (!party || !netAmt) return;
+    if (!party || !netAmt) { skipped++; return; }
+    debugTotal += netAmt;   // accumulate for validation
     rows.push({
       _id:          erpUID(),
       invNo:        erpStr(invNo),
@@ -13024,6 +13048,9 @@ function erpParseBills(sheets) {
       linkedPayId:  null,
     });
   });
+  console.log('[ERP Bills] Loaded: ' + rows.length + ' | Skipped: ' + skipped +
+              ' | Total NET AMOUNT: ₹' + debugTotal.toLocaleString('en-IN', {maximumFractionDigits:2}) +
+              ' ← verify against Excel SUM');
   return rows;
 }
 
@@ -13079,19 +13106,22 @@ function erpParsePayments(sheets) {
     // Single-sheet format (flat table)
     var shName = sheets['Payments'] || sheets['ALL_PAYMENTS'] || sheets[sheetNames[0]];
     var raw2 = erpParseSheet(shName || []);
+    var debugPayTotal = 0;
+    var skippedPay    = 0;
     raw2.forEach(function(r) {
+      // erpNum handles ALL formats: "1,63,725.00"  163725  "₹163725"  "(1500)" etc.
       var credit = erpNum(erpGetField(r, ['CREDIT','CREDIT (₹)','Credit Received','CREDIT RECEIVED (₹)','AMOUNT','Amount']));
-      if (!credit) return;
+      if (!credit) { skippedPay++; return; }
+      debugPayTotal += credit;
       var remarks = erpStr(erpGetField(r, ['REMARKS','REMARKS RAW','Remarks']));
       var party   = erpStr(erpGetField(r, ['PARTY NAME','Party Name','PARTY','Party']));
 
-      // ── BILL NO: read from dedicated column (comma-separated bill numbers) ──
+      // BILL NO: read from dedicated column (comma-separated bill numbers)
       var billNoRaw = erpStr(erpGetField(r, ['BILL NO','BILL NO.','Bill No','BillNo','BILL_NO','BILL NUMBER']));
-      // Normalise: trim, remove blanks, deduplicate
       var billNoArr = billNoRaw
         ? billNoRaw.split(/[,;\/\s]+/).map(function(s){return s.trim();}).filter(Boolean)
         : [];
-      var billNoStr = billNoArr.join(', ');  // canonical comma-separated string stored on payment
+      var billNoStr = billNoArr.join(', ');
 
       // isGross: YES if multiple bill numbers — column value is fallback only when no BILL NO
       var isGrossFromCol = /YES|TRUE|1/i.test(erpStr(erpGetField(r, ['IS_GROSS','isGross','ISGROSS','IS GROSS'])));
@@ -13103,9 +13133,9 @@ function erpParsePayments(sheets) {
         partyOrig:  party,
         date:       erpStr(erpGetField(r, ['DATE','PAY DATE','Pay Date'])),
         credit:     erp2(credit),
-        billRef:    erpStr(erpGetField(r, ['BILL REF','BILL NO.','Bill No.'])),  // legacy field
-        billNo:     billNoStr,     // ★ NEW: comma-separated bill numbers from dedicated column
-        billNoArr:  billNoArr,     // ★ NEW: parsed array for matching
+        billRef:    erpStr(erpGetField(r, ['BILL REF','BILL NO.','Bill No.'])),
+        billNo:     billNoStr,
+        billNoArr:  billNoArr,
         mode:       erpStr(erpGetField(r, ['MODE','Mode'])),
         grossAmt:   erpNum(erpGetField(r, ['GROSS AMT','GROSS AMT DECLARED (₹)'])),
         remarks:    remarks,
@@ -13118,6 +13148,9 @@ function erpParsePayments(sheets) {
         dalaliPct:  (remarks.match(/(\d+\.?\d*)\s*%\s*DALALI/i) || [])[1] || 0,
       });
     });
+    console.log('[ERP Payments] Loaded: ' + rows.length + ' | Skipped (zero/blank): ' + skippedPay +
+                ' | Total CREDIT: ₹' + debugPayTotal.toLocaleString('en-IN', {maximumFractionDigits:2}) +
+                ' ← verify against Excel SUM');
   }
   return rows;
 }
@@ -13254,13 +13287,7 @@ function erpReconcile() {
     });
   }
 
-  // ── Score a combination vs a payment credit ───────────────────────────────
-  // Returns { score, matchType, diff, diffPct }
-  // matchType: 'EXACT' | 'APPROX' | 'RISK' | 'PARTIAL' | 'EXCESS'
-  // ── Score a combination vs credit (pure math, no date logic here) ──────────
-  // FIXED: EXCESS (bills > credit beyond 4%) is now score=0 so it never wins.
-  // Previously score=15 for any excess → weak EXCESS matches got linked,
-  // making totalBills > totalCredit in the summary.
+  // ── Score a combination (kept for legacy billRef path only) ─────────────────
   function scoreCombination(credit, combo) {
     var total = erp2(combo.reduce(function(s, b) { return s + b.netAmt; }, 0));
     var diff  = erp2(credit - total);
@@ -13273,114 +13300,71 @@ function erpReconcile() {
     else if (diff < 0 && pct <= 0.10)  { mt = 'RISK';    score = 40 - Math.round(pct * 500); }
     else if (diff > 0 && pct <= 0.10)  { mt = 'RISK';    score = 35 - Math.round(pct * 500); }
     else if (diff < 0)                  { mt = 'PARTIAL'; score = 20; }
-    else                                { mt = 'EXCESS';  score = 0; }  // FIXED: was 15, now 0 → never auto-links
+    else                                { mt = 'EXCESS';  score = 0; }
     return { total: total, diff: diff, pct: pct, matchType: mt, score: score };
   }
 
-  // ── Convert a date string "DD-MM-YYYY" or "YYYY-MM-DD" to comparable int ─
+  // ── Date string → comparable integer ─────────────────────────────────────
   function erpDateInt(s) {
     if (!s) return 0;
     s = String(s).trim();
-    // DD-MM-YYYY or DD/MM/YYYY
     var m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
     if (m) return parseInt(m[3]+('0'+m[2]).slice(-2)+('0'+m[1]).slice(-2), 10);
-    // YYYY-MM-DD
     m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
     if (m) return parseInt(m[1]+('0'+m[2]).slice(-2)+('0'+m[3]).slice(-2), 10);
     return 0;
   }
 
-  var MAX_POOL  = 15;  // top bills to consider per payment (performance limit)
-  var MAX_COMBO = 5;   // max bills in one combination
-
-  // ── Build optimised candidate pool for a payment ─────────────────────────
-  // Rules:
-  //   1. Bill must be DUE (not paid)
-  //   2. Bill date ≤ payment date (never match future bills)
-  //   3. Sort: closest netAmt to credit first, then oldest bill first
-  //   4. Limit to MAX_POOL bills
-  function buildCandidatePool(credit, dueBills, payDateInt) {
-    var eligible = dueBills.filter(function(b) {
-      if (b.paid) return false;
-      // Date guard: bill must be on or before payment date
-      var bd = erpDateInt(b.date);
-      if (bd > 0 && payDateInt > 0 && bd > payDateInt) return false;
-      return true;
-    });
-    // Sort: closest single amount first, ties broken by oldest (smallest dateInt)
-    eligible.sort(function(a, b) {
-      var da = Math.abs(a.netAmt - credit);
-      var db = Math.abs(b.netAmt - credit);
-      if (da !== db) return da - db;
-      return erpDateInt(a.date) - erpDateInt(b.date);
-    });
-    return eligible.slice(0, MAX_POOL);
-  }
-
-  // ── Find best combinations from candidate pool ────────────────────────────
-  function findBestCombinations(credit, dueBills, payDateInt) {
-    var pool = buildCandidatePool(credit, dueBills, payDateInt || 0);
-    var n    = pool.length;
-    var best = [];
-
-    // 1. Single bill check (fastest + most common)
-    pool.forEach(function(b) {
-      var sc = scoreCombination(credit, [b]);
-      if (sc.score >= 15) best.push({ combo: [b], scored: sc, basis: 'Single' });
-    });
-
-    // 2. Multi-bill only if no good single match
-    var singleTop = best.length ? Math.max.apply(null, best.map(function(x){return x.scored.score;})) : 0;
-    if (singleTop < 90 && n > 1) {
-      (function combineSearch(k) {
-        if (k > Math.min(MAX_COMBO, n)) return;
-        (function pick(start, current, runTotal) {
-          if (current.length === k) {
-            var sc = scoreCombination(credit, current);
-            if (sc.score >= 15) best.push({ combo: current.slice(), scored: sc, basis: 'Combination' });
-            return;
-          }
-          for (var i = start; i < pool.length; i++) {
-            var next = runTotal + pool[i].netAmt;
-            if (next > credit * 1.06) break;   // prune: over-allocated beyond interest band
-            current.push(pool[i]);
-            pick(i + 1, current, next);
-            current.pop();
-          }
-        })(0, [], 0);
-        // Early exit if we found an EXACT
-        var hasExact = best.some(function(x){return x.scored.matchType==='EXACT';});
-        if (!hasExact) combineSearch(k + 1);
-      })(2);
-    }
-
-    // Sort: score desc, then fewest bills, then oldest combo
-    best.sort(function(a, b) {
-      if (b.scored.score !== a.scored.score) return b.scored.score - a.scored.score;
-      if (a.combo.length !== b.combo.length) return a.combo.length - b.combo.length;
-      return erpDateInt(a.combo[0].date) - erpDateInt(b.combo[0].date);
-    });
-    return best;
-  }
-
-  // ── Classify diff → rebate/interest/cls ──────────────────────────────────
+  // ── Classify diff → rebate / interest / cls ──────────────────────────────
   function classifyDiff(credit, billsTotal, flagIntDue) {
-    var diff = erp2(credit - billsTotal);
-    var pct  = billsTotal > 0 ? Math.abs(diff) / billsTotal : 1;
+    var diff   = erp2(credit - billsTotal);
+    var pct    = billsTotal > 0 ? Math.abs(diff) / billsTotal : 1;
     var rebate = 0, interest = 0, cls;
-    if (Math.abs(diff) <= 1)           { cls = 'EXACT'; }
-    else if (diff < 0 && pct <= 0.02)  { rebate = erp2(Math.abs(diff)); cls = 'REBATE'; }
-    else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff); cls = flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
+    if (Math.abs(diff) <= 0.01)        { cls = 'EXACT'; }
+    else if (diff < 0 && pct <= 0.02)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
+    else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
     else if (diff < 0)                  { cls = 'PARTIAL'; }
     else                                { cls = 'EXCESS'; }
     return { diff: diff, rebate: rebate, interest: interest, cls: cls };
   }
 
+  // ── Proportional bill-level interest / rebate allocation ─────────────────
+  // Returns lbs array with { invNo, billAmt, billId, date, allocated, interest, rebate }
+  // Ensures sum(interest) == totalInterest, sum(rebate) == totalRebate exactly.
+  function allocateBillLevel(combo, credit, totalBills, totalInterest, totalRebate) {
+    var lbs = combo.map(function(b) {
+      return { invNo: b.invNo, billAmt: b.netAmt, billId: b._id, date: b.date,
+               allocated: 0, interest: 0, rebate: 0 };
+    });
+    if (!lbs.length) return lbs;
+
+    // Each bill gets credit proportional to its share of totalBills
+    var runCredit = 0, runInt = 0, runReb = 0;
+    lbs.forEach(function(lb, i) {
+      var isLast = i === lbs.length - 1;
+      var ratio  = totalBills > 0 ? lb.billAmt / totalBills : 1 / lbs.length;
+      if (isLast) {
+        // Last bill absorbs rounding residual
+        lb.allocated = erp2(credit       - runCredit);
+        lb.interest  = erp2(totalInterest - runInt);
+        lb.rebate    = erp2(totalRebate   - runReb);
+      } else {
+        lb.allocated = erp2(ratio * credit);
+        lb.interest  = erp2(ratio * totalInterest);
+        lb.rebate    = erp2(ratio * totalRebate);
+        runCredit += lb.allocated;
+        runInt    += lb.interest;
+        runReb    += lb.rebate;
+      }
+    });
+    return lbs;
+  }
+
   // ── Build result object ───────────────────────────────────────────────────
   function buildResult(p, type, matchedParty, combo, scored) {
     var cd  = classifyDiff(p.credit, scored.total, p.flagIntDue);
-    var lbs = combo.map(function(b) { return { invNo: b.invNo, billAmt: b.netAmt, billId: b._id, date: b.date }; });
-    var basisLabel = scored.basis || 'Combination';
+    var lbs = allocateBillLevel(combo, p.credit, scored.total, cd.interest, cd.rebate);
+    var basisLabel = scored.basis || 'Auto';
     var calcTxt = 'Credit ₹' + p.credit + ' − Bills(' + combo.length + ') ₹' + scored.total +
                   ' = ₹' + cd.diff +
                   (cd.rebate   ? ' → Rebate ₹'   + cd.rebate   : '') +
@@ -13390,7 +13374,7 @@ function erpReconcile() {
       _id:          erpUID(),
       payId:        p._id,
       type:         type,
-      party:        p.partyOrig,
+      party:        p.partyOrig || matchedParty,
       matchedParty: matchedParty,
       date:         p.date,
       mode:         p.mode,
@@ -13402,9 +13386,9 @@ function erpReconcile() {
       rebate:       cd.rebate,
       interest:     cd.interest,
       cls:          cd.cls,
-      matchType:    scored.matchType,  // EXACT / APPROX / RISK / PARTIAL / EXCESS
+      matchType:    scored.matchType,
       matchScore:   scored.score,
-      matchBasis:   scored.basis || 'Combination',
+      matchBasis:   basisLabel,
       remarks:      p.remarks,
       flagDCash:    p.flagDCash,
       flagIntDue:   p.flagIntDue,
@@ -13421,10 +13405,71 @@ function erpReconcile() {
     results.push(res);
     if (res.rebate   > 0) rebateList.push(res);
     if (res.interest > 0) interestList.push(res);
-    auditLog.push({
-      ts: new Date().toISOString(), action: 'AUTO_LINKED',
-      resultId: res._id, original: null,
-      calculated: res.originalCalc, edited: null,
+    auditLog.push({ ts: new Date().toISOString(), action: 'AUTO_LINKED',
+                    resultId: res._id, original: null, calculated: res.originalCalc, edited: null });
+  }
+
+  // ── FIFO bill selection with strict hard limit ────────────────────────────
+  // Sorts oldest-first, accumulates bills while total+bill <= credit.
+  // Returns { selected: [], skipped: [] }
+  function fifoSelect(credit, billPool) {
+    var sorted = billPool.slice().sort(function(a, b) {
+      var da = erpDateInt(a.date), db = erpDateInt(b.date);
+      if (da !== db) return da - db;
+      return (parseFloat(a.invNo) || 0) - (parseFloat(b.invNo) || 0);
+    });
+    var selected = [], skipped = [], running = 0;
+    sorted.forEach(function(b) {
+      if (b.paid || !isDue('_', b.invNo)) return; // use local paid flag
+      var next = erp2(running + b.netAmt);
+      if (next <= erp2(credit + 0.01)) {           // HARD LIMIT ≤ credit + ₹0.01 tolerance
+        selected.push(b);
+        running = next;
+      } else {
+        skipped.push(b);
+      }
+    });
+    return { selected: selected, skipped: skipped, total: running };
+  }
+
+  // ── FIFO on partyMap bills (uses isDue per party) ─────────────────────────
+  function fifoSelectParty(credit, pk, billPool) {
+    var sorted = billPool.slice().sort(function(a, b) {
+      var da = erpDateInt(a.date), db = erpDateInt(b.date);
+      if (da !== db) return da - db;
+      return (parseFloat(a.invNo) || 0) - (parseFloat(b.invNo) || 0);
+    });
+    var selected = [], skipped = [], running = 0;
+    sorted.forEach(function(b) {
+      if (!isDue(pk, b.invNo)) return;
+      var next = erp2(running + b.netAmt);
+      if (next <= erp2(credit + 0.01)) {
+        selected.push(b);
+        running = next;
+      } else {
+        skipped.push(b);
+      }
+    });
+    return { selected: selected, skipped: skipped, total: running };
+  }
+
+  // ── confusion helper ─────────────────────────────────────────────────────
+  function addConfusion(p, matchedKey, reason, action, severity, dueBills) {
+    confusionList.push({
+      _id:      erpUID(),
+      payId:    p._id,
+      party:    p.partyOrig || matchedKey || '',
+      date:     p.date,
+      credit:   p.credit,
+      billRef:  p.billRef || p.billNo || '',
+      mode:     p.mode,
+      reason:   reason,
+      remarks:  p.remarks || '',
+      action:   action,
+      severity: severity,
+      dueBills: (dueBills || []).map(function(b) {
+        return { invNo: b.invNo, netAmt: b.netAmt, date: b.date, _id: b._id };
+      }),
     });
   }
 
@@ -13435,195 +13480,199 @@ function erpReconcile() {
     payByParty[p.party].push(p);
   });
 
-  // ── Process each party ────────────────────────────────────────────────────
+  // ── Main reconciliation loop ──────────────────────────────────────────────
   Object.keys(payByParty).forEach(function(payParty) {
     var matchedKey = erpFuzzyMatch(payParty, partyMap);
     var partyPays  = payByParty[payParty];
 
-    // ── No party match → all to confusion ────────────────────────────────────
+    // No party match → all to confusion
     if (!matchedKey) {
       partyPays.forEach(function(p) {
-        confusionList.push({
-          _id: erpUID(), payId: p._id, party: p.partyOrig,
-          date: p.date, credit: p.credit, billRef: p.billRef, mode: p.mode,
-          reason: 'PARTY NOT FOUND IN BILLS FILE',
-          remarks: p.remarks, action: 'Verify party name spelling', severity: 'error',
-        });
+        addConfusion(p, null,
+          'PARTY NOT FOUND IN BILLS FILE — "' + (p.partyOrig || payParty) + '"',
+          'Verify party name spelling matches Bills file exactly', 'error', []);
       });
       return;
     }
 
-    // ── Process each payment for this party ───────────────────────────────────
+    // Each payment is independent — do NOT merge
     partyPays.forEach(function(p) {
       var credit = p.credit;
+      if (!credit || credit <= 0) return;   // skip zero / negative credits
 
-      var payDateInt = erpDateInt(p.date);
+      var due = dueBillsFor(matchedKey);     // bills not yet paid in this run
 
-      // ══════════════════════════════════════════════════════════════════════
-      // CASE A  ★ FIRST PRIORITY — BILL NO column present
-      //
-      // Rules (strict):
-      //  1. Use ONLY the bills listed in billNoArr — no auto-match, no combination
-      //  2. No confusion generated for any outcome
-      //  3. Duplicate bills: silently skip already-paid ones, link the rest
-      //  4. Bill not found in file: silently skip that ref, link what exists
-      //  5. Always produces a linked result → ZERO confusion from Bill No rows
-      // ══════════════════════════════════════════════════════════════════════
-      var hasBillNo = p.billNoArr && p.billNoArr.length > 0;
-      if (hasBillNo) {
-        var billNoRefs  = p.billNoArr;
-        var billNoFound = [];
+      // ══════════════════════════════════════════════════════════════════
+      // STEP 1 — BILL NO COLUMN (explicit mapping, highest priority)
+      // ══════════════════════════════════════════════════════════════════
+      if (p.billNoArr && p.billNoArr.length > 0) {
+        var bnFound = [], bnMissing = [], bnRunning = 0;
 
-        billNoRefs.forEach(function(ref) {
+        p.billNoArr.forEach(function(ref) {
           var refStr = String(ref).trim();
           var hit = (partyMap[matchedKey] || []).find(function(b2) {
             return String(b2.invNo).trim() === refStr;
           });
-          // Silent skip: not found OR already paid (no confusion generated)
-          if (hit && isDue(matchedKey, hit.invNo) && !hit.paid && hit.netAmt > 0) {
-            billNoFound.push(hit);
+          if (!hit || !isDue(matchedKey, hit.invNo) || hit.paid || hit.netAmt <= 0) {
+            bnMissing.push(refStr);
+            return;
+          }
+          // STEP 1a: Try exact amount match first
+          if (bnFound.length === 0 && Math.abs(hit.netAmt - credit) <= 0.01) {
+            bnFound = [hit];
+            bnRunning = hit.netAmt;
+            return;
+          }
+          // STEP 1b: FIFO with hard limit
+          var next = erp2(bnRunning + hit.netAmt);
+          if (next <= erp2(credit + 0.01)) {
+            bnFound.push(hit);
+            bnRunning = next;
+          } else {
+            bnMissing.push(refStr + ' (exceeds payment)');
           }
         });
 
-        // If nothing matched at all (all already paid / all not found) — still no confusion,
-        // just skip this payment silently so it doesn't block other rows
-        if (!billNoFound.length) return;
+        if (!bnFound.length) {
+          addConfusion(p, matchedKey,
+            'BILL NO NOT FOUND OR ALREADY PAID — [' + p.billNoArr.join(', ') + ']',
+            'Cross-check bill numbers in Bills file', 'error',
+            due.filter(function(b){ return b.netAmt <= credit + 0.01; }));
+          return;
+        }
 
-        // Build result — no scoreCombination needed, we trust the explicit Bill No
-        var totalBN = erp2(billNoFound.reduce(function(s,b){ return s + b.netAmt; }, 0));
-        var diffBN  = erp2(p.credit - totalBN);
-        var scBN    = {
-          total:     totalBN,
-          diff:      diffBN,
-          pct:       totalBN > 0 ? Math.abs(diffBN)/totalBN : 0,
-          matchType: Math.abs(diffBN) <= 1 ? 'EXACT' : 'APPROX',
-          score:     Math.abs(diffBN) <= 1 ? 100 : 90,
-          basis:     'Manual Bill Mapping'
-        };
+        var bnTotal = erp2(bnFound.reduce(function(s,b){ return s+b.netAmt; },0));
+        // Final hard-limit guard (paranoia)
+        if (bnTotal > erp2(credit + 0.01)) {
+          addConfusion(p, matchedKey,
+            'OVER-ALLOCATION (Bill No): Bills ₹' + bnTotal + ' > Credit ₹' + credit,
+            'Fix Bill No column — bills total exceeds payment', 'error', []);
+          return;
+        }
 
-        var resBN = buildResult(p, billNoFound.length > 1 ? 'GROSS' : 'BILL', matchedKey, billNoFound, scBN);
-        resBN.manualBillMapping = true;   // ★ UI badge flag
-        resBN.billNoList        = billNoRefs;  // ★ Verify Mode: show original Bill Nos
+        var scBN = { total: bnTotal, diff: erp2(credit-bnTotal),
+                     pct: bnTotal>0?Math.abs(erp2(credit-bnTotal))/bnTotal:0,
+                     matchType: Math.abs(erp2(credit-bnTotal))<=0.01?'EXACT':'APPROX',
+                     score: Math.abs(erp2(credit-bnTotal))<=0.01?100:90,
+                     basis: 'Bill No' };
+        var resBN = buildResult(p, bnFound.length>1?'GROSS':'BILL', matchedKey, bnFound, scBN);
+        resBN.manualBillMapping = true;
+        resBN.billNoList        = p.billNoArr;
         pushResult(resBN);
-        billNoFound.forEach(function(b){ markPaid(matchedKey, b.invNo); });
-        return;  // ← DONE. No confusion. No fallback. No combination logic.
-      }
+        bnFound.forEach(function(b){ markPaid(matchedKey, b.invNo); });
 
-      // ── CASE A-legacy: billRef field (old format, kept for backward compat) ──
-      if (p.billRef) {
-        var refs = String(p.billRef).split(/[,\/\s]+/).map(function(s){return s.trim();}).filter(Boolean);
-        var refBills = [];
-        refs.forEach(function(ref) {
-          var b = (partyMap[matchedKey] || []).find(function(b2) {
-            return String(b2.invNo).trim() === ref && isDue(matchedKey, b2.invNo);
-          });
-          if (b) refBills.push(b);
-        });
-
-        if (!refBills.length) {
-          confusionList.push({
-            _id: erpUID(), payId: p._id, party: p.partyOrig,
-            date: p.date, credit: p.credit, billRef: p.billRef, mode: p.mode,
-            reason: 'BILL REF #' + p.billRef + ' NOT FOUND OR ALREADY PAID',
-            remarks: p.remarks, action: 'Cross-check invoice number in bills file', severity: 'warn',
-          });
-          return;
-        }
-
-        refBills = refBills.filter(function(b) { return !b.paid && b.netAmt > 0; });
-        var sc  = scoreCombination(credit, refBills);
-        sc.basis = 'Invoice';
-        var res = buildResult(p, refBills.length > 1 ? 'GROSS' : 'BILL', matchedKey, refBills, sc);
-        pushResult(res);
-        refBills.forEach(function(b) { markPaid(matchedKey, b.invNo); });
-
-        if (res.cls === 'PARTIAL' || res.cls === 'EXCESS') {
-          confusionList.push({
-            _id: erpUID(), payId: p._id, party: p.partyOrig,
-            date: p.date, credit: p.credit, billRef: p.billRef, mode: p.mode,
-            reason: res.cls + ' — diff ₹' + Math.abs(res.diff) + ' (beyond tolerance)',
-            remarks: p.remarks, action: 'Confirm balance with party', severity: 'warn',
-          });
+        if (bnMissing.length) {
+          addConfusion(p, matchedKey,
+            'PARTIAL BILL NO MATCH — skipped: [' + bnMissing.join(', ') + ']',
+            'Some bill numbers were not found or would exceed payment amount', 'warn', []);
         }
         return;
       }
 
-      // ── CASE B: No Bill No, no billRef → FIFO on oldest unpaid bills ─────────
-      var due = dueBillsFor(matchedKey);
-
+      // ══════════════════════════════════════════════════════════════════
+      // STEP 2 — EXACT AMOUNT MATCH (single bill, no bill no)
+      // ══════════════════════════════════════════════════════════════════
       if (!due.length) {
-        confusionList.push({
-          _id: erpUID(), payId: p._id, party: p.partyOrig,
-          date: p.date, credit: p.credit, billRef: p.billRef, mode: p.mode,
-          reason: 'NO DUE BILLS FOUND — All bills already paid or no bills in file',
-          remarks: p.remarks, action: 'Check if this is an advance payment', severity: 'warn',
-          dueBills: [],
-        });
+        addConfusion(p, matchedKey,
+          'NO DUE BILLS — All bills already paid or file has no bills for this party',
+          'Check if this is an advance payment', 'warn', []);
         return;
       }
 
-      // FIFO: sort oldest bill first (smallest invNo / earliest date)
-      var fifoPool = due.slice().sort(function(a, b) {
-        var da = erpDateInt(a.date), db = erpDateInt(b.date);
-        if (da !== db) return da - db;
-        return (parseFloat(a.invNo) || 0) - (parseFloat(b.invNo) || 0);
-      });
-
-      // Try EXACT single-bill match first (most common case)
-      var exactMatch = null;
-      for (var fi = 0; fi < fifoPool.length; fi++) {
-        if (Math.abs(fifoPool[fi].netAmt - credit) <= 1) { exactMatch = fifoPool[fi]; break; }
+      var exactBill = null;
+      for (var ei = 0; ei < due.length; ei++) {
+        if (Math.abs(due[ei].netAmt - credit) <= 0.01) { exactBill = due[ei]; break; }
       }
 
-      if (exactMatch) {
-        // Single EXACT match → auto-link, no ambiguity
-        var scEx = { total: exactMatch.netAmt, diff: erp2(credit - exactMatch.netAmt), pct: 0, matchType: 'EXACT', score: 100, basis: 'FIFO-Exact' };
-        var resEx = buildResult(p, 'BILL', matchedKey, [exactMatch], scEx);
+      if (exactBill) {
+        var scEx = { total: exactBill.netAmt, diff: erp2(credit-exactBill.netAmt),
+                     pct: 0, matchType: 'EXACT', score: 100, basis: 'Exact Amount' };
+        var resEx = buildResult(p, 'BILL', matchedKey, [exactBill], scEx);
         pushResult(resEx);
-        markPaid(matchedKey, exactMatch.invNo);
-        auditLog.push({ ts: new Date().toISOString(), action: 'AUTO_MATCH_FIFO_EXACT', resultId: resEx._id, party: p.partyOrig, invNo: exactMatch.invNo, credit: p.credit });
+        markPaid(matchedKey, exactBill.invNo);
+        auditLog.push({ ts: new Date().toISOString(), action: 'EXACT_MATCH',
+                        resultId: resEx._id, party: p.partyOrig||matchedKey,
+                        invNo: exactBill.invNo, credit: p.credit });
         return;
       }
 
-      // Try APPROX single-bill match (within 4%)
-      var approxMatch = null;
-      for (var ai = 0; ai < fifoPool.length; ai++) {
-        var ad = Math.abs(fifoPool[ai].netAmt - credit);
-        var ap = fifoPool[ai].netAmt > 0 ? ad / fifoPool[ai].netAmt : 1;
-        if (ap <= 0.04) { approxMatch = fifoPool[ai]; break; }
-      }
+      // ══════════════════════════════════════════════════════════════════
+      // STEP 3 — FIFO MULTI-BILL (oldest first, hard limit enforced)
+      // ══════════════════════════════════════════════════════════════════
+      var fifo = fifoSelectParty(credit, matchedKey, due);
 
-      if (approxMatch) {
-        var scAp = scoreCombination(credit, [approxMatch]);
-        scAp.basis = 'FIFO-Approx';
-        if (scAp.score >= 60) {
-          var resAp = buildResult(p, 'BILL', matchedKey, [approxMatch], scAp);
-          pushResult(resAp);
-          markPaid(matchedKey, approxMatch.invNo);
-          auditLog.push({ ts: new Date().toISOString(), action: 'AUTO_MATCH_FIFO_APPROX', resultId: resAp._id, party: p.partyOrig, invNo: approxMatch.invNo, credit: p.credit, diff: scAp.diff });
+      if (fifo.selected.length) {
+        var fifoTotal = fifo.total;
+        // Require at least one bill was selected AND total is not trivially small
+        var fDiff  = erp2(credit - fifoTotal);
+        var fPct   = fifoTotal > 0 ? Math.abs(fDiff)/fifoTotal : 1;
+        var fMT    = Math.abs(fDiff) <= 0.01 ? 'EXACT' :
+                     (fPct <= 0.04 ? 'APPROX' : (fPct <= 0.10 ? 'RISK' : 'PARTIAL'));
+        var fScore = fMT==='EXACT'?100:fMT==='APPROX'?80:fMT==='RISK'?50:20;
+
+        // Only auto-link EXACT or APPROX; RISK and PARTIAL go to Confusion
+        if (fMT === 'EXACT' || fMT === 'APPROX') {
+          var scFifo = { total: fifoTotal, diff: fDiff, pct: fPct, matchType: fMT, score: fScore, basis: 'FIFO' };
+          var resFifo = buildResult(p, fifo.selected.length>1?'GROSS':'BILL', matchedKey, fifo.selected, scFifo);
+          pushResult(resFifo);
+          fifo.selected.forEach(function(b){ markPaid(matchedKey, b.invNo); });
+          auditLog.push({ ts: new Date().toISOString(), action: 'FIFO_MATCH',
+                          resultId: resFifo._id, party: p.partyOrig||matchedKey,
+                          bills: fifo.selected.map(function(b){return b.invNo;}), credit: p.credit });
           return;
         }
       }
 
-      // No single-bill match → send to Confusion with full due-bills list for manual selection
-      confusionList.push({
-        _id: erpUID(), payId: p._id, party: p.partyOrig,
-        date: p.date, credit: p.credit, billRef: p.billRef, mode: p.mode,
-        reason: 'NO EXACT MATCH — ' + fifoPool.length + ' unpaid bill(s) available. Select manually.',
-        remarks: p.remarks,
-        action: 'Select bill(s) from the list below and confirm',
-        severity: 'warn',
-        dueBills: fifoPool.slice(0, 20).map(function(b) {
-          return { invNo: b.invNo, netAmt: b.netAmt, date: b.date, _id: b._id };
-        }),
-        alternatives: fifoPool.slice(0, 5).map(function(b) {
-          var sc2 = scoreCombination(credit, [b]);
-          return { bills: [{ invNo: b.invNo, amt: b.netAmt }], total: b.netAmt,
-                   diff: sc2.diff, matchType: sc2.matchType, score: sc2.score };
-        }),
-      });
+      // ══════════════════════════════════════════════════════════════════
+      // STEP 4 — CONFUSION (no clean match found)
+      // ══════════════════════════════════════════════════════════════════
+      var eligibleDue = due.filter(function(b){ return b.netAmt <= erp2(credit + 0.01); });
+      var reason4 = fifo.selected.length
+        ? 'PARTIAL FIFO — best FIFO total ₹' + fifo.total + ' vs credit ₹' + credit + ' (diff ₹' + Math.abs(erp2(credit-fifo.total)) + ', ' + Math.round(erp2(Math.abs(credit-fifo.total)/Math.max(fifo.total,0.01)*100)) + '%) — manual review needed'
+        : 'NO BILL FITS — ' + due.length + ' unpaid bills, none within tolerance of ₹' + credit;
+      addConfusion(p, matchedKey, reason4,
+        'Select bill(s) — total must not exceed ₹' + credit, 'warn', eligibleDue);
     });
   });
+
+  // ── POST-RUN HARD VALIDATION ────────────────────────────────────────────────
+  // Every linked result MUST have billsTotal <= credit (within ₹1 rounding tolerance).
+  // If any result violates this, engine reports it but does NOT stop — instead moves
+  // the violating row to confusion for manual review.
+  var overAllocViolations = [];
+  var safeResults = [];
+  results.forEach(function(r) {
+    if (r.billsTotal > erp2(r.credit + 1)) {
+      // This is a hard accounting error — move to confusion, do not keep in results
+      overAllocViolations.push(r);
+      confusionList.push({
+        _id: erpUID(), payId: r.payId, party: r.party || r.matchedParty,
+        date: r.date, credit: r.credit, billRef: '', mode: r.mode,
+        reason: 'OVER-ALLOCATION ERROR — Bills ₹' + r.billsTotal + ' > Credit ₹' + r.credit +
+                ' by ₹' + erp2(r.billsTotal - r.credit) + ' | Bills: ' + r.linkedBills.map(function(b){return '#'+b.invNo;}).join(', '),
+        remarks: r.remarks || '', action: 'Fix bill assignment — total bills must not exceed payment', severity: 'error',
+        dueBills: [],
+      });
+      // Un-mark bills as paid so they remain available for correct assignment
+      (r.linkedBills || []).forEach(function(b) {
+        var pk = r.matchedParty;
+        if (paidSet[pk]) delete paidSet[pk][String(b.invNo)];
+        if (ERP._lockedBills[pk]) delete ERP._lockedBills[pk][String(b.invNo)];
+        (partyMap[pk] || []).forEach(function(pb) {
+          if (String(pb.invNo) === String(b.invNo)) { pb.paid = false; pb.locked = false; }
+        });
+      });
+    } else {
+      safeResults.push(r);
+    }
+  });
+  if (overAllocViolations.length) {
+    console.error('[ERP] OVER-ALLOCATION: ' + overAllocViolations.length + ' row(s) moved to Confusion:', overAllocViolations.map(function(r){ return r.party + ' credit:' + r.credit + ' bills:' + r.billsTotal; }));
+  }
+  results = safeResults;
+  // Rebuild rebate/interest lists from safe results only
+  rebateList   = safeResults.filter(function(r){ return r.rebate   > 0; });
+  interestList = safeResults.filter(function(r){ return r.interest > 0; });
 
   ERP.results       = results;
   ERP.rebateList    = rebateList;
@@ -13993,27 +14042,28 @@ function erpRenderVerify(wrap, resultId) {
   billsHdr.style.cssText = 'font-size:12px;font-weight:700;color:#1f3864;margin-bottom:6px';
   billsHdr.textContent = '🧾 Linked Bills (' + res.linkedBills.length + ')';
   body.appendChild(billsHdr);
-  var billRows = res.linkedBills.map(function(b) {
-    return { cells: [
-      { t: '#' + b.invNo, s: 'font-family:var(--font-mono);font-weight:700' },
-      { t: b.date || '' },
-      { t: '₹' + fmt(b.billAmt), s: 'text-align:right;color:var(--brand)' },
-    ]};
-  });
-  // Enrich linkedBills with priceRemarks from rawBills map
+  // Enrich linkedBills with priceRemarks from rawBills map + show per-bill allocation
   var rawBillMap = {};
   ERP.rawBills.forEach(function(b){ rawBillMap[b._id] = b; });
+  var hasAlloc = res.linkedBills.some(function(b){ return b.allocated > 0 || b.interest > 0 || b.rebate > 0; });
   var billRowsEnriched = res.linkedBills.map(function(b) {
     var raw = rawBillMap[b.billId] || {};
-    return { cells: [
+    var cells = [
       { t: '#' + b.invNo, s: 'font-family:var(--font-mono);font-weight:700' },
       { t: b.date || '' },
       { t: '₹' + fmt(b.billAmt), s: 'text-align:right;color:var(--brand)' },
-      { t: raw.priceRemarks || '—', s: 'font-size:10px;color:var(--text-3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: raw.priceRemarks || '' },
-      { t: raw.rate ? '₹'+fmt(raw.rate) : '—', s: 'text-align:right;color:var(--text-3)' },
-    ]};
+      { t: raw.priceRemarks || '—', s: 'font-size:10px;color:var(--text-3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: raw.priceRemarks||'' },
+    ];
+    if (hasAlloc) {
+      cells.push({ t: b.allocated > 0 ? '₹'+fmt(b.allocated) : '—', s: 'text-align:right;color:#166534;font-weight:600' });
+      cells.push({ t: b.interest  > 0 ? '₹'+fmt(b.interest)  : '—', s: 'text-align:right;color:#1e40af' });
+      cells.push({ t: b.rebate    > 0 ? '₹'+fmt(b.rebate)    : '—', s: 'text-align:right;color:#92400e' });
+    }
+    return { cells: cells };
   });
-  body.appendChild(erp2Table(['Invoice #','Bill Date','Bill Amount','Price Remarks','Rate'], billRowsEnriched));
+  var billHdrs = ['Invoice #','Bill Date','Bill Amount','Remarks'];
+  if (hasAlloc) billHdrs = billHdrs.concat(['Allocated','Interest','Rebate']);
+  body.appendChild(erp2Table(billHdrs, billRowsEnriched));
 
   // Flags
   var flagDiv = document.createElement('div');
@@ -14420,12 +14470,21 @@ function erp2RenderConfusion(wrap) {
         });
         tot = erp2(tot);
         var diff = erp2(c.credit - tot);
-        var col = Math.abs(diff) <= 1 ? '#166534' : (diff > 0 ? '#92400e' : '#dc2626');
+        var isOver = tot > erp2(c.credit + 1);
+        var col = isOver ? '#dc2626' : (Math.abs(diff) <= 1 ? '#166534' : (diff > 0 ? '#92400e' : '#dc2626'));
         var rtEl = document.getElementById('runtot-' + c._id);
         if (rtEl) rtEl.innerHTML =
-          'Selected: <strong style="color:'+col+'">₹'+fmt(tot)+'</strong> / ₹'+fmt(c.credit) +
-          (Math.abs(diff) <= 1 ? ' <span style="color:#166534;font-size:9px">✅ Exact</span>' :
-           ' <span style="color:'+col+';font-size:9px">diff ₹'+fmt(diff)+'</span>');
+          'Selected: <strong style="color:' + col + '">₹' + fmt(tot) + '</strong> / ₹' + fmt(c.credit) +
+          (isOver
+            ? ' <span style="color:#dc2626;font-size:9px;font-weight:800">⛔ EXCEEDS CREDIT by ₹' + fmt(erp2(tot - c.credit)) + ' — uncheck a bill</span>'
+            : Math.abs(diff) <= 1 ? ' <span style="color:#166534;font-size:9px">✅ Exact</span>'
+            : ' <span style="color:' + col + ';font-size:9px">diff ₹' + fmt(diff) + '</span>');
+        // Visually disable confirm button when over-allocated
+        if (confirmBtn) {
+          confirmBtn.disabled = isOver;
+          confirmBtn.style.opacity = isOver ? '0.4' : '1';
+          confirmBtn.style.cursor = isOver ? 'not-allowed' : 'pointer';
+        }
       }
 
       c.dueBills.forEach(function(b) {
@@ -14471,6 +14530,16 @@ function erp2RenderConfusion(wrap) {
         var selected = c.dueBills.filter(function(b){ return selectedBillIds[b.invNo]; });
         if (!selected.length) { toast('⚠️ Koi bill select nahi ki — pehle tick karo', 'error'); return; }
 
+        // HARD LIMIT: total selected bills must NOT exceed credit
+        var selectedTotal = erp2(selected.reduce(function(s,b){ return s + b.netAmt; }, 0));
+        if (selectedTotal > erp2(c.credit + 1)) {
+          toast('❌ OVER-ALLOCATION: Selected bills ₹' + selectedTotal.toLocaleString('en-IN') +
+                ' > Payment ₹' + c.credit.toLocaleString('en-IN') +
+                ' | Difference: ₹' + erp2(selectedTotal - c.credit).toLocaleString('en-IN') +
+                ' | Uncheck some bills', 'error');
+          return;
+        }
+
         // Validate: bills must not already be paid
         var alreadyPaid = selected.filter(function(b){
           return !isDueGlobal(c.party, b.invNo);
@@ -14488,6 +14557,13 @@ function erp2RenderConfusion(wrap) {
         }).filter(Boolean);
         if (!billObjs.length) { toast('❌ Bills not found in loaded data', 'error'); return; }
 
+        // Final over-allocation check on billObjs (paranoia guard)
+        var finalTotal = erp2(billObjs.reduce(function(s,b){ return s+b.netAmt; },0));
+        if (finalTotal > erp2(c.credit + 1)) {
+          toast('❌ Cannot confirm: Bills ₹' + finalTotal + ' exceed Credit ₹' + c.credit, 'error');
+          return;
+        }
+
         // Build payment object (mock)
         var mockP = {
           _id: c.payId, party: erpNorm(c.party), partyOrig: c.party,
@@ -14501,7 +14577,7 @@ function erp2RenderConfusion(wrap) {
           dalaliPct: 0,
         };
 
-        var totalSel = erp2(billObjs.reduce(function(s,b){ return s+b.netAmt; },0));
+        var totalSel = finalTotal;
         var diffSel  = erp2(c.credit - totalSel);
         var scManual = {
           total: totalSel, diff: diffSel,
@@ -14591,17 +14667,35 @@ function buildResultGlobal(p, type, matchedParty, combo, scored) {
   var diff = erp2(p.credit - scored.total);
   var pct  = scored.total > 0 ? Math.abs(diff)/scored.total : 1;
   var rebate = 0, interest = 0, cls;
-  if (Math.abs(diff) <= 1)          { cls = 'EXACT'; }
-  else if (diff < 0 && pct <= 0.02) { rebate = erp2(Math.abs(diff)); cls = 'REBATE'; }
-  else if (diff > 0 && pct <= 0.04) { interest = erp2(diff); cls = p.flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
-  else if (diff < 0)                 { cls = 'PARTIAL'; }
-  else                               { cls = 'EXCESS'; }
-  var lbs = combo.map(function(b){ return { invNo: b.invNo, billAmt: b.netAmt, billId: b._id, date: b.date }; });
+  if (Math.abs(diff) <= 0.01)        { cls = 'EXACT'; }
+  else if (diff < 0 && pct <= 0.02)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
+  else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = p.flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
+  else if (diff < 0)                  { cls = 'PARTIAL'; }
+  else                                { cls = 'EXCESS'; }
+  // Proportional bill-level allocation (interest/rebate distributed by share)
+  var runC=0, runI=0, runR=0;
+  var lbs = combo.map(function(b, i) {
+    var isLast = i === combo.length - 1;
+    var ratio  = scored.total > 0 ? b.netAmt / scored.total : 1/combo.length;
+    var lb = { invNo: b.invNo, billAmt: b.netAmt, billId: b._id, date: b.date,
+               allocated: 0, interest: 0, rebate: 0 };
+    if (isLast) {
+      lb.allocated = erp2(p.credit  - runC);
+      lb.interest  = erp2(interest  - runI);
+      lb.rebate    = erp2(rebate    - runR);
+    } else {
+      lb.allocated = erp2(ratio * p.credit);
+      lb.interest  = erp2(ratio * interest);
+      lb.rebate    = erp2(ratio * rebate);
+      runC += lb.allocated; runI += lb.interest; runR += lb.rebate;
+    }
+    return lb;
+  });
   return {
     _id:          erpUID(),
     payId:        p._id,
     type:         type,
-    party:        p.partyOrig,
+    party:        p.partyOrig || matchedParty,
     matchedParty: matchedParty,
     date:         p.date,
     mode:         p.mode,
@@ -14616,7 +14710,7 @@ function buildResultGlobal(p, type, matchedParty, combo, scored) {
     matchType:    scored.matchType,
     matchScore:   scored.score,
     matchBasis:   scored.basis || 'Manual Select',
-    remarks:      p.remarks,
+    remarks:      p.remarks || '',
     flagDCash:    p.flagDCash,
     flagIntDue:   p.flagIntDue,
     flagDalali:   p.flagDalali,
@@ -14754,9 +14848,15 @@ function pgERPEngine() {
   upGrid2.appendChild(makeUploadCard('bills', 'Bills File', '🧾', 'APP_BILL_IMPORT.xlsx / DEBTORS.xlsx', function(sheets) {
     ERP.rawBills = erpParseBills(sheets);
     ERP.partyMap = erpBuildPartyMap(erpDeepClone(ERP.rawBills));
+    // Show total for manual validation against Excel SUM
+    var billTotal = ERP.rawBills.reduce(function(s,b){ return s+b.netAmt; }, 0);
+    toast('🧾 Bills loaded: ' + ERP.rawBills.length + ' bills | Total: ₹' + billTotal.toLocaleString('en-IN',{maximumFractionDigits:2}) + ' — verify vs Excel SUM', 'success');
   }));
   upGrid2.appendChild(makeUploadCard('payments', 'Payments File', '💳', 'Party-wise payment sheets / flat table', function(sheets) {
     ERP.rawPayments = erpParsePayments(sheets);
+    // Show total for manual validation against Excel SUM
+    var payTotal = ERP.rawPayments.reduce(function(s,p){ return s+p.credit; }, 0);
+    toast('💳 Payments loaded: ' + ERP.rawPayments.length + ' rows | Total: ₹' + payTotal.toLocaleString('en-IN',{maximumFractionDigits:2}) + ' — verify vs Excel SUM', 'success');
   }));
   upBody.appendChild(upGrid2);
 
