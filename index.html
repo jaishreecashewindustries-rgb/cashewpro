@@ -1156,6 +1156,68 @@ document.addEventListener('DOMContentLoaded',function(){
 // ════════════════════════════════════════════════════════
 // AUTH STATE — single source of truth
 // ════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
+   FULL CLEAR FUNCTION — clears localStorage + Firestore + reloads
+   ══════════════════════════════════════════════════════════════════ */
+function _doFullClearAndReload() {
+  toast('⏳ Clearing all data...', 'info');
+
+  // 1. Wipe ALL localStorage and sessionStorage immediately
+  try { localStorage.clear(); } catch(e) {}
+  try { sessionStorage.clear(); } catch(e) {}
+
+  // 2. Reset every in-memory variable so UI is empty right now
+  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
+  try { cfg = {}; hiddenPages = {}; } catch(e) {}
+  try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
+        erpS.interest=[]; erpS.opening=[]; erpS.confMap=[]; erpS.confPartial=[]; erpS.summary=null; } catch(e) {}
+  try { ERP.rawBills=[]; ERP.rawPayments=[]; ERP.partyMap={}; ERP.results=[];
+        ERP.rebateList=[]; ERP.interestList=[]; ERP.confusionList=[]; ERP.openingList=[];
+        ERP.auditLog=[]; ERP.summary=null; ERP.overrides={}; ERP.savedAt=null; } catch(e) {}
+  try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
+  try { invalidateBillStatusCache(); } catch(e) {}
+  try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
+
+  // 3. Set a reload flag so onAuthStateChanged skips DB.loadAll after reload
+  try { localStorage.setItem('_clearReload','1'); } catch(e) {}
+
+  // 4. Delete all Firestore docs, then hard-reload
+  function _hardReload() {
+    // Clear the flag we just set (will be cleared again by localStorage.clear on next run but set it anyway)
+    try { localStorage.setItem('_clearReload','1'); } catch(e) {}
+    toast('✅ All data cleared successfully', 'success');
+    setTimeout(function() { location.reload(true); }, 800);
+  }
+
+  if (_user && _fdb) {
+    _fdb.collection('users').doc(_user.uid).collection('data').get()
+      .then(function(snap) {
+        if (!snap || snap.empty) {
+          _hardReload();
+          return Promise.resolve();
+        }
+        var refs = [];
+        snap.forEach(function(doc) { refs.push(doc.ref); });
+        var batches = [];
+        for (var i = 0; i < refs.length; i += 450) {
+          var b = _fdb.batch();
+          refs.slice(i, i + 450).forEach(function(ref) { b.delete(ref); });
+          batches.push(b.commit());
+        }
+        return Promise.all(batches).then(function() {
+          _hardReload();
+        });
+      })
+      .catch(function(err) {
+        console.error('Firestore clear error:', err);
+        _hardReload(); // reload anyway — localStorage is already cleared
+      });
+  } else {
+    _hardReload();
+  }
+}
+
+
 _auth.onAuthStateChanged(function(user){
   var ls=document.getElementById('login-screen');
   var app=document.querySelector('.app');
@@ -1169,6 +1231,17 @@ _auth.onAuthStateChanged(function(user){
     if(app) app.style.display='none';
     if(nav) nav.style.display='none';
 
+    // Skip loading if we just did a full clear
+    if(localStorage.getItem('_clearReload')==='1'){
+      localStorage.removeItem('_clearReload');
+      bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[];
+      cfg={}; hiddenPages={};
+      if(loader) loader.classList.add('hidden');
+      if(app){ app.style.display='flex'; }
+      if(nav) nav.style.display='';
+      buildNav(); go('dashboard');
+      return;
+    }
     DB.loadAll(user.uid, function(){
       // populate in-memory arrays from cache
       bills     = DB.get('bills');
@@ -1205,7 +1278,8 @@ _auth.onAuthStateChanged(function(user){
       histStartAutoTimer(); // Start auto-snapshot every 10 min
       histUpdateTopbarBtn(); // Sync topbar undo button state
       // Auto backup is manual only
-    });
+    }); // end DB.loadAll
+  } // end if(_clearReload)
   } else {
     _user=null;
     if(loader) loader.classList.add('hidden');
@@ -6303,50 +6377,8 @@ function pgSettings() {
     var pwd=prompt('Password enter karo:');
     if(pwd===null)return;
     if(pwd!=='you2338685'){toast('Wrong password!','err');return;}
-    if(!confirm('ALL DATA WILL BE DELETED permanently (localStorage + Cloud). Are you sure?'))return;
-
-    toast('⏳ Clearing data...','info');
-
-    /* ── Step 1: Clear localStorage completely ── */
-    try{ localStorage.clear(); }catch(e){}
-    try{ sessionStorage.clear(); }catch(e){}
-
-    /* ── Step 2: Reset every in-memory variable ── */
-    bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];suspense=[];
-    cfg={};
-    try{erpS.loaded={};erpS.allPay=[];erpS.grossPay=[];erpS.billAdj=[];erpS.rebate=[];
-      erpS.interest=[];erpS.opening=[];erpS.confMap=[];erpS.confPartial=[];erpS.summary=null;}catch(ex){}
-    try{ERP.rawBills=[];ERP.rawPayments=[];ERP.partyMap={};ERP.results=[];
-      ERP.rebateList=[];ERP.interestList=[];ERP.confusionList=[];ERP.openingList=[];
-      ERP.auditLog=[];ERP.summary=null;ERP.overrides={};ERP.savedAt=null;}catch(ex){}
-    try{HIST.entries=[];if(HIST._autoTimer)clearInterval(HIST._autoTimer);}catch(ex){}
-    try{invalidateBillStatusCache();}catch(ex){}
-
-    /* ── Step 3: Delete ALL Firestore documents for this user, then reload ── */
-    function doReload(){
-      toast('✅ All data cleared successfully','success');
-      setTimeout(function(){ location.reload(); },900);
-    }
-    if(_user && _fdb){
-      _fdb.collection('users').doc(_user.uid).collection('data').get()
-        .then(function(snap){
-          if(snap.empty){ doReload(); return; }
-          /* Batch-delete in groups of 450 (Firestore limit=500) */
-          var docs=[];
-          snap.forEach(function(d){ docs.push(d.ref); });
-          var batches=[];
-          for(var i=0;i<docs.length;i+=450){
-            var batch=_fdb.batch();
-            docs.slice(i,i+450).forEach(function(ref){ batch.delete(ref); });
-            batches.push(batch.commit());
-          }
-          return Promise.all(batches);
-        })
-        .then(function(){ doReload(); })
-        .catch(function(err){ console.error('Firestore clear error',err); doReload(); });
-    } else {
-      doReload();
-    }
+    if(!confirm('ALL DATA WILL BE DELETED permanently. Are you sure?'))return;
+    _doFullClearAndReload();
   });
   dzSec.appendChild(clrDataBtn);bb.appendChild(dzSec);
 
@@ -6414,48 +6446,7 @@ function pgSettings() {
     if(pwd===null)return;
     if(pwd!=='you2338685'){toast('Wrong password! Data delete nahi hua.','err');return;}
     if(!confirm('ALL DATA will be deleted — bills, payments, everything. Confirm?'))return;
-
-    toast('⏳ Clearing data...','info');
-
-    /* ── Step 1: Clear localStorage completely ── */
-    try{ localStorage.clear(); }catch(e){}
-    try{ sessionStorage.clear(); }catch(e){}
-
-    /* ── Step 2: Reset every in-memory variable ── */
-    bills=[];payments=[];cheques=[];advances=[];expenses=[];returns_=[];purchases=[];suspense=[];
-    cfg={};
-    try{erpS.loaded={};erpS.allPay=[];erpS.grossPay=[];erpS.billAdj=[];erpS.rebate=[];
-      erpS.interest=[];erpS.opening=[];erpS.confMap=[];erpS.confPartial=[];erpS.summary=null;}catch(ex){}
-    try{ERP.rawBills=[];ERP.rawPayments=[];ERP.partyMap={};ERP.results=[];
-      ERP.rebateList=[];ERP.interestList=[];ERP.confusionList=[];ERP.openingList=[];
-      ERP.auditLog=[];ERP.summary=null;ERP.overrides={};ERP.savedAt=null;}catch(ex){}
-    try{HIST.entries=[];if(HIST._autoTimer)clearInterval(HIST._autoTimer);}catch(ex){}
-    try{invalidateBillStatusCache();}catch(ex){}
-
-    /* ── Step 3: Delete ALL Firestore documents for this user, then reload ── */
-    function doReload(){
-      toast('✅ All data cleared successfully','success');
-      setTimeout(function(){ location.reload(); },900);
-    }
-    if(_user && _fdb){
-      _fdb.collection('users').doc(_user.uid).collection('data').get()
-        .then(function(snap){
-          if(snap.empty){ doReload(); return; }
-          var docs=[];
-          snap.forEach(function(d){ docs.push(d.ref); });
-          var batches=[];
-          for(var i=0;i<docs.length;i+=450){
-            var batch=_fdb.batch();
-            docs.slice(i,i+450).forEach(function(ref){ batch.delete(ref); });
-            batches.push(batch.commit());
-          }
-          return Promise.all(batches);
-        })
-        .then(function(){ doReload(); })
-        .catch(function(err){ console.error('Firestore clear error',err); doReload(); });
-    } else {
-      doReload();
-    }
+    _doFullClearAndReload();
   });
 
   bb2.appendChild(styledExpBtn);bb2.appendChild(styledXlsxBtn);bb2.appendChild(expBtn3);bb2.appendChild(impLbl);bb2.appendChild(clrDataBtn);bc.appendChild(bb2);
