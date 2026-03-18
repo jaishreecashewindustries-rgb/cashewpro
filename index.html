@@ -13320,7 +13320,7 @@ function erpReconcile() {
     var diff   = erp2(credit - billsTotal);
     var pct    = billsTotal > 0 ? Math.abs(diff) / billsTotal : 1;
     var rebate = 0, interest = 0, cls;
-    if (Math.abs(diff) <= 0.01)        { cls = 'EXACT'; }
+    if (Math.abs(diff) <= 1)           { cls = 'EXACT'; }
     else if (diff < 0 && pct <= 0.02)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
     else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
     else if (diff < 0)                  { cls = 'PARTIAL'; }
@@ -13422,7 +13422,7 @@ function erpReconcile() {
     sorted.forEach(function(b) {
       if (b.paid || !isDue('_', b.invNo)) return; // use local paid flag
       var next = erp2(running + b.netAmt);
-      if (next <= erp2(credit + 0.01)) {           // HARD LIMIT ≤ credit + ₹0.01 tolerance
+      if (next <= erp2(credit + 1)) {           // HARD LIMIT ≤ credit + ₹1 tolerance
         selected.push(b);
         running = next;
       } else {
@@ -13443,7 +13443,7 @@ function erpReconcile() {
     sorted.forEach(function(b) {
       if (!isDue(pk, b.invNo)) return;
       var next = erp2(running + b.netAmt);
-      if (next <= erp2(credit + 0.01)) {
+      if (next <= erp2(credit + 1)) {
         selected.push(b);
         running = next;
       } else {
@@ -13518,14 +13518,14 @@ function erpReconcile() {
             return;
           }
           // STEP 1a: Try exact amount match first
-          if (bnFound.length === 0 && Math.abs(hit.netAmt - credit) <= 0.01) {
+          if (bnFound.length === 0 && Math.abs(hit.netAmt - credit) <= 1) {
             bnFound = [hit];
             bnRunning = hit.netAmt;
             return;
           }
           // STEP 1b: FIFO with hard limit
           var next = erp2(bnRunning + hit.netAmt);
-          if (next <= erp2(credit + 0.01)) {
+          if (next <= erp2(credit + 1)) {
             bnFound.push(hit);
             bnRunning = next;
           } else {
@@ -13537,13 +13537,13 @@ function erpReconcile() {
           addConfusion(p, matchedKey,
             'BILL NO NOT FOUND OR ALREADY PAID — [' + p.billNoArr.join(', ') + ']',
             'Cross-check bill numbers in Bills file', 'error',
-            due.filter(function(b){ return b.netAmt <= credit + 0.01; }));
+            due.filter(function(b){ return b.netAmt <= credit + 1; }));
           return;
         }
 
         var bnTotal = erp2(bnFound.reduce(function(s,b){ return s+b.netAmt; },0));
         // Final hard-limit guard (paranoia)
-        if (bnTotal > erp2(credit + 0.01)) {
+        if (bnTotal > erp2(credit + 1)) {
           addConfusion(p, matchedKey,
             'OVER-ALLOCATION (Bill No): Bills ₹' + bnTotal + ' > Credit ₹' + credit,
             'Fix Bill No column — bills total exceeds payment', 'error', []);
@@ -13552,8 +13552,8 @@ function erpReconcile() {
 
         var scBN = { total: bnTotal, diff: erp2(credit-bnTotal),
                      pct: bnTotal>0?Math.abs(erp2(credit-bnTotal))/bnTotal:0,
-                     matchType: Math.abs(erp2(credit-bnTotal))<=0.01?'EXACT':'APPROX',
-                     score: Math.abs(erp2(credit-bnTotal))<=0.01?100:90,
+                     matchType: Math.abs(erp2(credit-bnTotal))<=1?'EXACT':'APPROX',
+                     score: Math.abs(erp2(credit-bnTotal))<=1?100:90,
                      basis: 'Bill No' };
         var resBN = buildResult(p, bnFound.length>1?'GROSS':'BILL', matchedKey, bnFound, scBN);
         resBN.manualBillMapping = true;
@@ -13581,7 +13581,7 @@ function erpReconcile() {
 
       var exactBill = null;
       for (var ei = 0; ei < due.length; ei++) {
-        if (Math.abs(due[ei].netAmt - credit) <= 0.01) { exactBill = due[ei]; break; }
+        if (Math.abs(due[ei].netAmt - credit) <= 1) { exactBill = due[ei]; break; }
       }
 
       if (exactBill) {
@@ -13606,7 +13606,7 @@ function erpReconcile() {
         // Require at least one bill was selected AND total is not trivially small
         var fDiff  = erp2(credit - fifoTotal);
         var fPct   = fifoTotal > 0 ? Math.abs(fDiff)/fifoTotal : 1;
-        var fMT    = Math.abs(fDiff) <= 0.01 ? 'EXACT' :
+        var fMT    = Math.abs(fDiff) <= 1 ? 'EXACT' :
                      (fPct <= 0.04 ? 'APPROX' : (fPct <= 0.10 ? 'RISK' : 'PARTIAL'));
         var fScore = fMT==='EXACT'?100:fMT==='APPROX'?80:fMT==='RISK'?50:20;
 
@@ -13626,7 +13626,7 @@ function erpReconcile() {
       // ══════════════════════════════════════════════════════════════════
       // STEP 4 — CONFUSION (no clean match found)
       // ══════════════════════════════════════════════════════════════════
-      var eligibleDue = due.filter(function(b){ return b.netAmt <= erp2(credit + 0.01); });
+      var eligibleDue = due.filter(function(b){ return b.netAmt <= erp2(credit + 1); });
       var reason4 = fifo.selected.length
         ? 'PARTIAL FIFO — best FIFO total ₹' + fifo.total + ' vs credit ₹' + credit + ' (diff ₹' + Math.abs(erp2(credit-fifo.total)) + ', ' + Math.round(erp2(Math.abs(credit-fifo.total)/Math.max(fifo.total,0.01)*100)) + '%) — manual review needed'
         : 'NO BILL FITS — ' + due.length + ' unpaid bills, none within tolerance of ₹' + credit;
@@ -13691,16 +13691,13 @@ function erpCalcSummary2() {
   var totalInterest = erp2(res.reduce(function(s, r) { return s + r.interest; }, 0));
   var totalDiff     = erp2(res.reduce(function(s, r) { return s + r.diff; }, 0));
 
-  // ── FIXED accounting formula ─────────────────────────────────────────────
-  // Correct identity: Credit = Bills - Rebate + Interest + Diff
-  // Simplified check: Bills + Interest - Rebate should ≈ Credit (EXACT/APPROX rows)
-  // For PARTIAL rows diff is negative (credit < bills) — these genuinely inflate totalBills.
-  // We track separately:
-  //   - netBills = bills actually COVERED by credit = totalCredit - totalInterest + totalRebate
-  //   - overAlloc = totalBills - totalCredit (positive = bills > credit = problem)
+  // ── ALL PAYMENTS TOTAL (including confusion) ── THE CORRECT GRAND TOTAL ──
+  var totalAllCredit = erp2((ERP.rawPayments || []).reduce(function(s, p) { return s + (p.credit || 0); }, 0));
+  var totalConfusionCredit = erp2((ERP.confusionList || []).reduce(function(s, c) { return s + (c.credit || 0); }, 0));
+  var totalUnlinked  = erp2(totalAllCredit - totalCredit);
+
   var check      = erp2(totalBills + totalInterest - totalRebate);
   var overAlloc  = erp2(totalBills - totalCredit);
-  // A true mismatch is when bills exceed credit beyond what interest explains
   var mismatch   = overAlloc > 1;
 
   // ── Debug: find top over-allocating rows ─────────────────────────────────
@@ -13709,7 +13706,7 @@ function erpCalcSummary2() {
     .sort(function(a,b){ return (b.billsTotal - b.credit) - (a.billsTotal - a.credit); })
     .slice(0, 10)
     .map(function(r) {
-      return { party: r.partyOrig, date: r.date, credit: r.credit,
+      return { party: r.partyOrig || r.party, date: r.date, credit: r.credit,
                billsTotal: r.billsTotal, over: erp2(r.billsTotal - r.credit),
                cls: r.cls, matchType: r.matchType, matchBasis: r.matchBasis };
     });
@@ -13721,7 +13718,7 @@ function erpCalcSummary2() {
     (r.linkedBills || []).forEach(function(b) {
       var k = (r.matchedParty || r.party) + '|' + b.invNo;
       if (invUsed[k]) {
-        dupBills.push({ party: r.partyOrig, invNo: b.invNo, date: r.date, credit: r.credit });
+        dupBills.push({ party: r.partyOrig || r.party, invNo: b.invNo, date: r.date, credit: r.credit });
       } else {
         invUsed[k] = true;
       }
@@ -13732,24 +13729,27 @@ function erpCalcSummary2() {
   res.forEach(function(r) { clsCounts[r.cls] = (clsCounts[r.cls] || 0) + 1; });
 
   ERP.summary = {
-    totalCredit:    totalCredit,
-    totalBills:     totalBills,
-    totalRebate:    totalRebate,
-    totalInterest:  totalInterest,
-    totalDiff:      totalDiff,
-    check:          check,
-    overAlloc:      overAlloc,
-    mismatch:       mismatch,
-    excessRows:     excessRows,
-    dupBills:       dupBills,
-    clsCounts:      clsCounts,
-    resultsCount:   res.length,
-    confusionCount: ERP.confusionList.length,
-    rebateCount:    ERP.rebateList.length,
-    interestCount:  ERP.interestList.length,
-    billsCount:     ERP.rawBills.length,
-    paymentsCount:  ERP.rawPayments.length,
-    partiesMatched: new Set(res.map(function(r) { return r.matchedParty; })).size,
+    totalAllCredit:      totalAllCredit,       // ← ALL payments (linked + confusion)
+    totalCredit:         totalCredit,           // ← only linked payments credit
+    totalUnlinked:       totalUnlinked,         // ← confusion payments credit
+    totalConfusionCredit:totalConfusionCredit,
+    totalBills:          totalBills,
+    totalRebate:         totalRebate,
+    totalInterest:       totalInterest,
+    totalDiff:           totalDiff,
+    check:               check,
+    overAlloc:           overAlloc,
+    mismatch:            mismatch,
+    excessRows:          excessRows,
+    dupBills:            dupBills,
+    clsCounts:           clsCounts,
+    resultsCount:        res.length,
+    confusionCount:      ERP.confusionList.length,
+    rebateCount:         ERP.rebateList.length,
+    interestCount:       ERP.interestList.length,
+    billsCount:          ERP.rawBills.length,
+    paymentsCount:       (ERP.rawPayments || []).length,
+    partiesMatched:      new Set(res.map(function(r) { return r.matchedParty; })).size,
   };
 }
 
@@ -14180,26 +14180,29 @@ function erp2RenderSummary(wrap) {
   } else {
     var okDiv = document.createElement('div');
     okDiv.style.cssText = 'background:var(--brand-light);border:1px solid var(--green-b,#bbf7d0);border-radius:var(--radius-lg);padding:10px 16px;margin-bottom:12px;font-size:12px;font-weight:700;color:var(--brand)';
-    okDiv.innerHTML = '✅ Totals Balanced — Bills ≤ Credits &nbsp;|&nbsp; No duplicate bill allocations &nbsp;|&nbsp; Credit ₹' + fmt(s.totalCredit) + ' = Bills ₹' + fmt(s.totalBills) + ' + Interest ₹' + fmt(s.totalInterest) + ' − Rebate ₹' + fmt(s.totalRebate);
+    okDiv.innerHTML =
+      '✅ Totals Balanced — Bills ≤ Credits &nbsp;|&nbsp; No duplicate bill allocations<br>' +
+      '<span style="font-weight:400;font-size:11px">Total Payments: <strong>₹'+fmt(s.totalAllCredit)+'</strong> &nbsp;|&nbsp; ' +
+      'Linked: ₹'+fmt(s.totalCredit)+' &nbsp;|&nbsp; ' +
+      'Pending Confusion: ₹'+fmt(s.totalConfusionCredit)+' &nbsp;|&nbsp; ' +
+      'Bills ₹'+fmt(s.totalBills)+' + Interest ₹'+fmt(s.totalInterest)+' − Rebate ₹'+fmt(s.totalRebate)+'</span>';
     wrap.appendChild(okDiv);
   }
 
-  // KPI grid
+  // KPI grid — totalAllCredit is the TRUE total of all payments uploaded
   var kpi = document.createElement('div');
   kpi.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:10px;margin-bottom:16px';
   [
-    {icon:'💰', val:'₹'+fmt(s.totalCredit),   lbl:'Total Credit Received',       bg:'var(--brand-light)', bc:'#bbf7d0', fc:'var(--brand)'},
-    {icon:'🧾', val:'₹'+fmt(s.totalBills),    lbl:'Total Bills Linked ('+s.resultsCount+')', bg:'#eff6ff', bc:'#bfdbfe', fc:'#1e40af'},
-    {icon:'🏷️', val:'₹'+fmt(s.totalRebate),  lbl:'Total Rebate ('+s.rebateCount+')',    bg:'#fffbeb', bc:'#fde68a', fc:'#92400e'},
-    {icon:'📈', val:'₹'+fmt(s.totalInterest), lbl:'Total Interest ('+s.interestCount+')',  bg:'#eff6ff', bc:'#bfdbfe', fc:'#1e40af'},
-    {icon:'⚠️', val:s.confusionCount,         lbl:'Confusion (Manual Review)',    bg:'#fff1f2', bc:'#fecdd3', fc:'#9f1239'},
-    {icon:'🏢', val:s.partiesMatched,          lbl:'Parties Matched',              bg:'#f0fdf4', bc:'#bbf7d0', fc:'#166534'},
+    {icon:'💰', val:'₹'+fmt(s.totalAllCredit),  lbl:'Total Payments Received ('+s.paymentsCount+')', bg:'var(--brand-light)', bc:'#bbf7d0', fc:'var(--brand)'},
+    {icon:'🔗', val:'₹'+fmt(s.totalCredit),     lbl:'Linked Credit ('+s.resultsCount+' payments)',    bg:'#eff6ff', bc:'#bfdbfe', fc:'#1e40af'},
+    {icon:'🧾', val:'₹'+fmt(s.totalBills),      lbl:'Bills Linked',                                   bg:'#f0f9ff', bc:'#bae6fd', fc:'#0369a1'},
+    {icon:'🏷️', val:'₹'+fmt(s.totalRebate),    lbl:'Total Rebate ('+s.rebateCount+')',                bg:'#fffbeb', bc:'#fde68a', fc:'#92400e'},
+    {icon:'📈', val:'₹'+fmt(s.totalInterest),   lbl:'Total Interest ('+s.interestCount+')',            bg:'#eff6ff', bc:'#bfdbfe', fc:'#1e40af'},
+    {icon:'⚠️', val:s.confusionCount+' (₹'+fmt(s.totalConfusionCredit)+')', lbl:'Confusion — pending review', bg:'#fff1f2', bc:'#fecdd3', fc:'#9f1239'},
   ].forEach(function(k) {
-    // fix template literal syntax for old-style JS
-    var fc = k.fc;
     var card = document.createElement('div');
-    card.style.cssText = 'background:'+k.bg+';border:1px solid '+k.bc+';border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer';
-    card.innerHTML = '<div style="font-size:26px">'+k.icon+'</div><div><div style="font-size:19px;font-weight:800;color:'+fc+'">'+k.val+'</div><div style="font-size:10.5px;color:var(--text-3);margin-top:2px">'+k.lbl+'</div></div>';
+    card.style.cssText = 'background:'+k.bg+';border:1px solid '+k.bc+';border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px';
+    card.innerHTML = '<div style="font-size:26px">'+k.icon+'</div><div><div style="font-size:17px;font-weight:800;color:'+k.fc+'">'+k.val+'</div><div style="font-size:10.5px;color:var(--text-3);margin-top:2px">'+k.lbl+'</div></div>';
     kpi.appendChild(card);
   });
   wrap.appendChild(kpi);
@@ -14227,8 +14230,9 @@ function erp2RenderSummary(wrap) {
   var checkB = document.createElement('div'); checkB.style.cssText = 'padding:12px 16px;font-size:11px';
   checkB.innerHTML =
     '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">' +
-    '<div style="background:#f9fafb;border-radius:6px;padding:8px 12px"><div style="color:var(--text-3)">Total Credit</div><div style="font-weight:800;font-size:14px;color:var(--brand)">₹'+fmt(s.totalCredit)+'</div></div>' +
-    '<div style="background:#f9fafb;border-radius:6px;padding:8px 12px"><div style="color:var(--text-3)">Total Bills Linked</div><div style="font-weight:700;font-size:14px">₹'+fmt(s.totalBills)+'</div></div>' +
+    '<div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;border:1px solid #bbf7d0"><div style="color:var(--text-3)">Total Payments (All)</div><div style="font-weight:800;font-size:15px;color:var(--brand)">₹'+fmt(s.totalAllCredit)+'</div><div style="font-size:9px;color:#6b7280">'+s.paymentsCount+' payments uploaded</div></div>' +
+    '<div style="background:#f9fafb;border-radius:6px;padding:8px 12px"><div style="color:var(--text-3)">Linked Credit</div><div style="font-weight:700;font-size:14px">₹'+fmt(s.totalCredit)+'</div><div style="font-size:9px;color:#6b7280">'+s.resultsCount+' payments matched</div></div>' +
+    '<div style="background:'+(s.totalUnlinked>0?'#fffbeb':'#f9fafb')+';border-radius:6px;padding:8px 12px"><div style="color:var(--text-3)">Unlinked (Confusion)</div><div style="font-weight:700;font-size:14px;color:'+(s.totalUnlinked>0?'#92400e':'#166534')+'">₹'+fmt(s.totalUnlinked)+'</div><div style="font-size:9px;color:#6b7280">'+s.confusionCount+' items pending</div></div>' +
     '<div style="background:#f9fafb;border-radius:6px;padding:8px 12px"><div style="color:var(--text-3)">Bills − Credit (Over-alloc)</div><div style="font-weight:700;font-size:14px;color:'+(s.overAlloc>1?'#dc2626':'#166534')+'">₹'+fmt(s.overAlloc)+'</div></div>' +
     '<div style="background:'+(s.mismatch?'#fff1f2':'#f0fdf4')+';border-radius:6px;padding:8px 12px;border:1px solid '+(s.mismatch?'#fecdd3':'#bbf7d0')+'"><div style="color:var(--text-3)">Balance Status</div><div style="font-weight:800;font-size:13px;color:'+(s.mismatch?'#dc2626':'#166534')+'">'+( s.mismatch?'❌ MISMATCH ₹'+fmt(s.overAlloc):'✅ BALANCED')+'</div></div>' +
     '<div style="background:#f9fafb;border-radius:6px;padding:8px 12px"><div style="color:var(--text-3)">Total Rebate (−)</div><div style="font-weight:700;font-size:14px;color:#92400e">₹'+fmt(s.totalRebate)+'</div></div>' +
@@ -14667,7 +14671,7 @@ function buildResultGlobal(p, type, matchedParty, combo, scored) {
   var diff = erp2(p.credit - scored.total);
   var pct  = scored.total > 0 ? Math.abs(diff)/scored.total : 1;
   var rebate = 0, interest = 0, cls;
-  if (Math.abs(diff) <= 0.01)        { cls = 'EXACT'; }
+  if (Math.abs(diff) <= 1)           { cls = 'EXACT'; }
   else if (diff < 0 && pct <= 0.02)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
   else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = p.flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
   else if (diff < 0)                  { cls = 'PARTIAL'; }
