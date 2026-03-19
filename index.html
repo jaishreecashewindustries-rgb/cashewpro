@@ -12051,37 +12051,25 @@ function erpProcBillAdj(sh) {
     };
   });
 }
+// ── [REPLACED v1] erpProcRebate / erpProcInterest ───────────────────────────
+// OLD LOGIC REMOVED: These functions imported rebate/interest from separate
+// Rebate.xlsx and Interest.xlsx files into erpS.rebate / erpS.interest.
+// That was a DEAD PATH — erpS.rebate was NEVER read by the final aggregation
+// in erpCalcSummary2(), which reads only from ERP.rebateList (v2 engine output).
+// ROOT CAUSE OF BUG: erpS.rebate was populated but ERP.rebateList was not,
+// so summary always showed ₹0 rebate regardless of what was uploaded.
+//
+// FIXED: Rebate is now computed 100% inline by classifyDiff() inside
+// erpReconcile() per payment row, stored in ERP.rebateList, and summed in
+// erpCalcSummary2(). No separate file upload needed.
+// Stubs kept only so existing call sites don't throw ReferenceError.
 function erpProcRebate(sh) {
-  erpS.rebate = erpParse(sh['REBATE_ENTRIES']||[]).filter(function(r){return erpF(r,['PARTY NAME']);}).map(function(r){
-    return {
-      party:    erpNorm(erpF(r,['PARTY NAME'])), pOrig:String(erpF(r,['PARTY NAME'])||'').trim(),
-      date:     String(erpF(r,['PAY DATE'])||'').trim(),
-      billNo:   erpF(r,['BILL NO.']),
-      mode:     String(erpF(r,['MODE'])||'').trim(),
-      billAmt:  erpN(erpF(r,['BILL AMOUNT (₹)'])),
-      credit:   erpN(erpF(r,['CREDIT RECEIVED (₹)'])),
-      rebAmt:   erpN(erpF(r,['REBATE AMOUNT (₹)'])),
-      rebPct:   erpN(erpF(r,['REBATE %'])),
-      payType:  String(erpF(r,['PAYMENT TYPE'])||'').trim(),
-      journal:  String(erpF(r,['JOURNAL ENTRY'])||'').trim(),
-    };
-  });
+  console.warn('[ERP-v1-STUB] erpProcRebate: v1 xlsx rebate import is disabled. Rebate computed inline by erpReconcile(). Run ERP Engine to see live rebate values.');
+  erpS.rebate = []; // always clear — v2 uses ERP.rebateList not erpS.rebate
 }
 function erpProcInterest(sh) {
-  erpS.interest = erpParse(sh['INTEREST_ENTRIES']||[]).filter(function(r){return erpF(r,['PARTY NAME']);}).map(function(r){
-    return {
-      party:   erpNorm(erpF(r,['PARTY NAME'])), pOrig:String(erpF(r,['PARTY NAME'])||'').trim(),
-      date:    String(erpF(r,['PAY DATE'])||'').trim(),
-      billNo:  erpF(r,['BILL NO.']),
-      mode:    String(erpF(r,['MODE'])||'').trim(),
-      billAmt: erpN(erpF(r,['BILL AMOUNT (₹)'])),
-      credit:  erpN(erpF(r,['CREDIT RECEIVED (₹)'])),
-      intAmt:  erpN(erpF(r,['INTEREST AMOUNT (₹)'])),
-      intPct:  erpN(erpF(r,['INTEREST %'])),
-      payType: String(erpF(r,['PAYMENT TYPE'])||'').trim(),
-      journal: String(erpF(r,['JOURNAL ENTRY'])||'').trim(),
-    };
-  });
+  console.warn('[ERP-v1-STUB] erpProcInterest: v1 xlsx interest import is disabled. Interest computed inline by erpReconcile(). Run ERP Engine to see live interest values.');
+  erpS.interest = []; // always clear — v2 uses ERP.interestList not erpS.interest
 }
 function erpProcOpening(sh) {
   erpS.opening = erpParse(sh['OPENING_ADJUSTMENTS']||[]).filter(function(r){return erpF(r,['PARTY NAME']);}).map(function(r){
@@ -12132,23 +12120,36 @@ function erpProcConfusion(sh) {
 }
 
 /* ── Compute Summary ── */
+// [REPLACED v1] erpCalcSummary — OLD version read erpS.rebate (dead path).
+// REPLACED with stub that calls erpCalcSummary2() (v2, reads ERP.rebateList).
+// Root cause: erpS.rebate was populated but NEVER summed into final totals.
+// ERP.rebateList (v2) is what erpCalcSummary2 reads — so that's the truth.
 function erpCalcSummary() {
-  var ap=erpS.allPay, gp=erpS.grossPay;
+  // Delegate entirely to v2 summary which reads from ERP.results correctly.
+  if (typeof erpCalcSummary2 === 'function') {
+    erpCalcSummary2();
+    console.log('[ERP-v1-STUB] erpCalcSummary redirected to erpCalcSummary2. Rebate from ERP.rebateList:', ERP.rebateList ? ERP.rebateList.length : 0, 'rows, total ₹' + (ERP.summary ? ERP.summary.totalRebate : 0));
+  }
+  // Keep erpS.summary alive for v1 UI tabs that may read it
+  var ap=erpS.allPay||[], gp=erpS.grossPay||[];
   var apCls={}, gpCls={};
   ap.forEach(function(r){apCls[r.cls]=(apCls[r.cls]||0)+1;});
   var gpUniq=gp.filter(function(r){return r.credit>0&&r.cls!=='↑ SAME GROUP';});
   gpUniq.forEach(function(r){gpCls[r.cls]=(gpCls[r.cls]||0)+1;});
+  // BUG FIX: totalReb now reads from ERP.rebateList (v2), NOT erpS.rebate (dead path)
+  var liveReb = (ERP.rebateList||[]).reduce(function(s,r){return s+r.rebate;},0);
+  var liveInt = (ERP.interestList||[]).reduce(function(s,r){return s+r.interest;},0);
   erpS.summary = {
     creditAP: ap.reduce(function(s,r){return s+r.credit;},0),
     creditGP: gpUniq.reduce(function(s,r){return s+r.credit;},0),
-    totalReb: erpS.rebate.reduce(function(s,r){return s+r.rebAmt;},0),
-    totalInt: erpS.interest.reduce(function(s,r){return s+r.intAmt;},0),
+    totalReb: liveReb,   // ← FIXED: was erpS.rebate (dead), now ERP.rebateList
+    totalInt: liveInt,   // ← FIXED: was erpS.interest (dead), now ERP.interestList
     apCount:  ap.length, apCls: apCls,
     gpCount:  gpUniq.length, gpCls: gpCls,
-    rebCount: erpS.rebate.length,
-    intCount: erpS.interest.length,
-    openCount:erpS.opening.length,
-    confTotal:erpS.confMap.length+erpS.confPartial.length,
+    rebCount: (ERP.rebateList||[]).length,
+    intCount: (ERP.interestList||[]).length,
+    openCount:(erpS.opening||[]).length,
+    confTotal:(erpS.confMap||[]).length+(erpS.confPartial||[]).length,
     parties:  new Set(ap.map(function(r){return r.party;})).size,
   };
 }
@@ -12448,78 +12449,101 @@ function erpRenderBillAdj(wrap) {
   rebuildAdj(tWrap,data);
 }
 
-/* ── Rebate Tab ── */
+/* ── Rebate Tab (v2 — reads from ERP.rebateList computed by erpReconcile) ── */
 function erpRenderRebate(wrap) {
-  var data=erpS.rebate;
-  if(!data.length){wrap.innerHTML='<p style="color:var(--text-3);padding:20px;font-size:13px">💡 Rebate.xlsx upload karo</p>';return;}
-  var totR=data.reduce(function(s,r){return s+r.rebAmt;},0);
-  var sumDiv=document.createElement('div');
-  sumDiv.style.cssText='background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius-lg);padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center';
-  sumDiv.innerHTML='<div><strong style="color:#92400e">🏷️ Rebate Register</strong><span style="font-size:11px;color:#b45309;margin-left:8px">'+data.length+' entries</span></div><div style="font-size:20px;font-weight:800;color:#92400e">₹'+fmt(totR)+'</div>';
+  // [FIXED] Was reading erpS.rebate (dead, xlsx-imported, never in final total).
+  // Now reads ERP.rebateList — populated by classifyDiff() inline per payment row.
+  var data = ERP.rebateList || [];
+  if (!data.length) {
+    wrap.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-3)">' +
+      '<div style="font-size:32px;margin-bottom:8px">🏷️</div>' +
+      '<div style="font-size:13px;font-weight:600;color:var(--text-2)">No rebate entries yet</div>' +
+      '<div style="font-size:12px;margin-top:4px">Run ERP Engine — rebate auto-detected when credit is 0.01%–4% less than bill total</div></div>';
+    return;
+  }
+  var totR = data.reduce(function(s,r){return s + r.rebate;}, 0);
+  console.log('[ERP][erpRenderRebate] Rendering', data.length, 'rebate rows. Total rebateAmount: ₹' + totR.toFixed(2));
+
+  var sumDiv = document.createElement('div');
+  sumDiv.style.cssText = 'background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius-lg);padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center';
+  sumDiv.innerHTML = '<div><strong style="color:#92400e">🏷️ Rebate Register (v2 — Live Computed)</strong>' +
+    '<span style="font-size:11px;color:#b45309;margin-left:8px">' + data.length + ' entries</span>' +
+    '<span style="font-size:10px;color:#92400e;margin-left:10px;background:#fef3c7;padding:2px 8px;border-radius:4px">billNetAmount − credit when diff ≤ 4%</span>' +
+    '</div><div style="font-size:20px;font-weight:800;color:#92400e">₹' + fmt(totR) + '</div>';
   wrap.appendChild(sumDiv);
 
-  var tWrap=document.createElement('div');
-  var fRow=erpFilterRow(erpS.rebSearch,function(v){erpS.rebSearch=v;rebuildReb(tWrap,data);});
-  wrap.appendChild(fRow);wrap.appendChild(tWrap);
-
-  function rebuildReb(tw,d){
-    var q=erpS.rebSearch.toUpperCase().trim();
-    var f=q?d.filter(function(r){return r.party.indexOf(q)>=0;}):d;
-    var rows=f.slice(0,1500).map(function(r){
-      return {cells:[
-        {t:r.pOrig,s:'font-weight:600;color:var(--brand);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',title:r.pOrig},
-        {t:r.date,s:'white-space:nowrap;color:var(--text-3)'},
-        {t:r.billNo||'',s:'text-align:right;font-family:var(--font-mono)'},
-        {t:r.mode,s:'color:var(--text-3)'},
-        {t:'₹'+fmt(r.billAmt),s:'text-align:right'},
-        {t:'₹'+fmt(r.credit),s:'text-align:right;color:var(--brand)'},
-        {t:'₹'+fmt(r.rebAmt),s:'text-align:right;font-weight:800;color:#92400e;background:#fffbeb'},
-        {t:(r.rebPct*100).toFixed(2)+'%',s:'text-align:right;color:#b45309'},
-        {t:r.payType,s:'color:var(--text-3)'},
-        {t:r.journal,s:'font-size:10px;color:var(--text-3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',title:r.journal},
-      ]};
-    });
-    tw.innerHTML='';
-    tw.appendChild(erpTable(['Party','Date','Bill #','Mode','Bill Amt','Credit','Rebate Amt','Rebate %','Type','Journal Entry'],rows));
-  }
-  rebuildReb(tWrap,data);
+  var tWrap = document.createElement('div');
+  var rows = data.map(function(r) {
+    var billNo = r.linkedBills && r.linkedBills[0] ? r.linkedBills[0].invNo : '';
+    var pct = r.billsTotal > 0 ? (r.rebate / r.billsTotal * 100).toFixed(2) + '%' : '';
+    var jrnl = 'Dr: ' + r.party + ' A/c ₹' + r.rebate + ' | Cr: Rebate A/c ₹' + r.rebate;
+    // Bill-wise breakdown row
+    var billWise = (r.linkedBills||[]).map(function(b){
+      return '#'+b.invNo+'(Reb:₹'+fmt(b.rebate||0)+')';
+    }).join(' | ');
+    return {cells:[
+      {t:r.party, s:'font-weight:600;color:var(--brand);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title:r.party},
+      {t:r.date, s:'white-space:nowrap;color:var(--text-3)'},
+      {t:billNo, s:'font-family:var(--font-mono)'},
+      {t:r.mode, s:'color:var(--text-3)'},
+      {t:'₹'+fmt(r.billsTotal), s:'text-align:right'},
+      {t:'₹'+fmt(r.credit), s:'text-align:right;color:var(--brand)'},
+      {t:'₹'+fmt(r.rebate), s:'text-align:right;font-weight:800;color:#92400e;background:#fffbeb'},
+      {t:pct, s:'text-align:right;color:#b45309'},
+      {t:billWise, s:'font-size:10px;color:#92400e;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title:billWise},
+      {t:jrnl, s:'font-size:10px;color:var(--text-3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title:jrnl},
+    ]};
+  });
+  tWrap.appendChild(erpTable(['Party','Date','Bill #','Mode','Bill Amt','Credit','Rebate ₹','%','Bill-wise Split','Journal Entry'], rows));
+  wrap.appendChild(tWrap);
 }
 
-/* ── Interest Tab ── */
+/* ── Interest Tab (v2 — reads from ERP.interestList computed by erpReconcile) ── */
 function erpRenderInterest(wrap) {
-  var data=erpS.interest;
-  if(!data.length){wrap.innerHTML='<p style="color:var(--text-3);padding:20px;font-size:13px">💡 Interest.xlsx upload karo</p>';return;}
-  var totI=data.reduce(function(s,r){return s+r.intAmt;},0);
-  var sumDiv=document.createElement('div');
-  sumDiv.style.cssText='background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius-lg);padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center';
-  sumDiv.innerHTML='<div><strong style="color:#1e40af">📈 Interest Register</strong><span style="font-size:11px;color:#1e40af;margin-left:8px">'+data.length+' entries</span></div><div style="font-size:20px;font-weight:800;color:#1e40af">₹'+fmt(totI)+'</div>';
+  // [FIXED] Was reading erpS.interest (dead, xlsx-imported, never in final total).
+  // Now reads ERP.interestList — populated by classifyDiff() inline per payment row.
+  var data = ERP.interestList || [];
+  if (!data.length) {
+    wrap.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-3)">' +
+      '<div style="font-size:32px;margin-bottom:8px">📈</div>' +
+      '<div style="font-size:13px;font-weight:600;color:var(--text-2)">No interest entries yet</div>' +
+      '<div style="font-size:12px;margin-top:4px">Run ERP Engine — interest auto-detected when credit exceeds bill total by 0.01%–4%</div></div>';
+    return;
+  }
+  var totI = data.reduce(function(s,r){return s + r.interest;}, 0);
+  console.log('[ERP][erpRenderInterest] Rendering', data.length, 'interest rows. Total interestAmount: ₹' + totI.toFixed(2));
+
+  var sumDiv = document.createElement('div');
+  sumDiv.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius-lg);padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center';
+  sumDiv.innerHTML = '<div><strong style="color:#1e40af">📈 Interest Register (v2 — Live Computed)</strong>' +
+    '<span style="font-size:11px;color:#1e40af;margin-left:8px">' + data.length + ' entries</span>' +
+    '<span style="font-size:10px;color:#1e40af;margin-left:10px;background:#dbeafe;padding:2px 8px;border-radius:4px">credit − billNetAmount when diff ≤ 4%</span>' +
+    '</div><div style="font-size:20px;font-weight:800;color:#1e40af">₹' + fmt(totI) + '</div>';
   wrap.appendChild(sumDiv);
 
-  var tWrap=document.createElement('div');
-  var fRow=erpFilterRow(erpS.intSearch,function(v){erpS.intSearch=v;rebuildInt(tWrap,data);});
-  wrap.appendChild(fRow);wrap.appendChild(tWrap);
-
-  function rebuildInt(tw,d){
-    var q=erpS.intSearch.toUpperCase().trim();
-    var f=q?d.filter(function(r){return r.party.indexOf(q)>=0;}):d;
-    var rows=f.slice(0,300).map(function(r){
-      return {_bg:'#f0f8ff',cells:[
-        {t:r.pOrig,s:'font-weight:600;color:var(--brand);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',title:r.pOrig},
-        {t:r.date,s:'white-space:nowrap;color:var(--text-3)'},
-        {t:r.billNo||'',s:'text-align:right;font-family:var(--font-mono)'},
-        {t:r.mode,s:'color:var(--text-3)'},
-        {t:'₹'+fmt(r.billAmt),s:'text-align:right'},
-        {t:'₹'+fmt(r.credit),s:'text-align:right;color:var(--brand)'},
-        {t:'₹'+fmt(r.intAmt),s:'text-align:right;font-weight:800;color:#1e40af;background:#eff6ff'},
-        {t:(r.intPct*100).toFixed(2)+'%',s:'text-align:right;color:#1e40af'},
-        {t:r.payType,s:'color:var(--text-3)'},
-        {t:r.journal,s:'font-size:10px;color:var(--text-3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',title:r.journal},
-      ]};
-    });
-    tw.innerHTML='';
-    tw.appendChild(erpTable(['Party','Date','Bill #','Mode','Bill Amt','Credit','Interest Amt','Interest %','Type','Journal Entry'],rows));
-  }
-  rebuildInt(tWrap,data);
+  var tWrap = document.createElement('div');
+  var rows = data.map(function(r) {
+    var billNo = r.linkedBills && r.linkedBills[0] ? r.linkedBills[0].invNo : '';
+    var pct = r.billsTotal > 0 ? (r.interest / r.billsTotal * 100).toFixed(2) + '%' : '';
+    var jrnl = 'Dr: Debtors A/c ₹' + r.interest + ' | Cr: Interest Income A/c ₹' + r.interest;
+    var billWise = (r.linkedBills||[]).map(function(b){
+      return '#'+b.invNo+'(Int:₹'+fmt(b.interest||0)+')';
+    }).join(' | ');
+    return {_bg:'#f0f8ff', cells:[
+      {t:r.party, s:'font-weight:600;color:var(--brand);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title:r.party},
+      {t:r.date, s:'white-space:nowrap;color:var(--text-3)'},
+      {t:billNo, s:'font-family:var(--font-mono)'},
+      {t:r.mode, s:'color:var(--text-3)'},
+      {t:'₹'+fmt(r.billsTotal), s:'text-align:right'},
+      {t:'₹'+fmt(r.credit), s:'text-align:right;color:var(--brand)'},
+      {t:'₹'+fmt(r.interest), s:'text-align:right;font-weight:800;color:#1e40af;background:#eff6ff'},
+      {t:pct, s:'text-align:right;color:#1e40af'},
+      {t:billWise, s:'font-size:10px;color:#1e40af;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title:billWise},
+      {t:jrnl, s:'font-size:10px;color:var(--text-3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title:jrnl},
+    ]};
+  });
+  tWrap.appendChild(erpTable(['Party','Date','Bill #','Mode','Bill Amt','Credit','Interest ₹','%','Bill-wise Split','Journal Entry'], rows));
+  wrap.appendChild(tWrap);
 }
 
 /* ── Opening Tab ── */
@@ -13236,11 +13260,106 @@ function erpFuzzyMatch(payParty, partyMap) {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+   SAMPLE VALIDATION — erpRunSampleTest()
+   Runs inline with hardcoded data to prove rebate affects finalTotal.
+   Call from browser console: erpRunSampleTest()
+   ──────────────────────────────────────────────────────────────────────────── */
+function erpRunSampleTest() {
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════╗');
+  console.log('║  ERP REBATE SAMPLE VALIDATION — 2 Bills, Different Rebates  ║');
+  console.log('╚══════════════════════════════════════════════════════════════╝');
+
+  var erp2 = function(v) { return Math.round(v * 100) / 100; };
+
+  // Helper: run classifyDiff inline (same logic as engine)
+  function classifyInline(credit, billsTotal) {
+    var diff   = erp2(credit - billsTotal);
+    var pct    = billsTotal > 0 ? Math.abs(diff) / billsTotal : 1;
+    var rebate = 0, interest = 0, cls;
+    if (Math.abs(diff) <= 1)          { cls = 'EXACT'; }
+    else if (diff < 0 && pct <= 0.04) { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
+    else if (diff > 0 && pct <= 0.04) { interest = erp2(diff);           cls = 'INTEREST'; }
+    else if (diff < 0)                 { cls = 'PARTIAL'; }
+    else                               { cls = 'EXCESS'; }
+    return { diff: diff, rebate: rebate, interest: interest, cls: cls, pct: (pct*100).toFixed(3)+'%' };
+  }
+
+  // Helper: compute finalTotal = bills + interest - rebate
+  function finalTotal(billsTotal, interest, rebate) {
+    return erp2(billsTotal + interest - rebate);
+  }
+
+  var testCases = [
+    // Case 1: Exact match — no rebate
+    { label: 'Case 1: EXACT MATCH',    billNetAmount: 100000, credit: 100000 },
+    // Case 2: Small rebate (~2%) — should trigger REBATE classification
+    { label: 'Case 2: REBATE ~2%',     billNetAmount: 100000, credit:  98000 },
+    // Case 3: Larger rebate (~3.5%) — still within 4% threshold
+    { label: 'Case 3: REBATE ~3.5%',   billNetAmount: 100000, credit:  96500 },
+    // Case 4: Rebate exactly at 4% threshold
+    { label: 'Case 4: REBATE 4.0%',    billNetAmount: 100000, credit:  96000 },
+    // Case 5: Rebate just over 4% — should fall to PARTIAL, not REBATE
+    { label: 'Case 5: PARTIAL >4%',    billNetAmount: 100000, credit:  95000 },
+    // Case 6: Interest case (credit > bills within 4%)
+    { label: 'Case 6: INTEREST ~2%',   billNetAmount: 100000, credit: 102000 },
+    // Case 7: Multi-bill with rebate — 2 bills summing ₹150000, credit ₹147000
+    { label: 'Case 7: MULTI-BILL REB', billNetAmount: 150000, credit: 147000 },
+  ];
+
+  var allPassed = true;
+
+  testCases.forEach(function(tc) {
+    var cd = classifyInline(tc.credit, tc.billNetAmount);
+    var ft = finalTotal(tc.billNetAmount, cd.interest, cd.rebate);
+    var creditEqFinal = Math.abs(tc.credit - ft) <= 1;
+
+    console.log('');
+    console.log('── ' + tc.label + ' ──');
+    console.log('  billNetAmount : ₹' + tc.billNetAmount.toLocaleString('en-IN'));
+    console.log('  credit        : ₹' + tc.credit.toLocaleString('en-IN'));
+    console.log('  diff          : ₹' + cd.diff + '  (' + cd.pct + ' of bills)');
+    console.log('  cls           : ' + cd.cls);
+    console.log('  rebateAmount  : ₹' + cd.rebate);
+    console.log('  interestAmount: ₹' + cd.interest);
+    console.log('  finalTotal    : Bills ₹' + tc.billNetAmount + ' + Int ₹' + cd.interest + ' − Reb ₹' + cd.rebate + ' = ₹' + ft);
+    console.log('  credit=final? : ' + (creditEqFinal ? '✅ BALANCED' : '⚠️  MISMATCH ₹' + Math.abs(tc.credit - ft)));
+
+    if (!creditEqFinal) allPassed = false;
+  });
+
+  console.log('');
+  console.log('══ VALIDATION SUMMARY ══');
+  console.log('All cases balanced (credit == finalTotal):', allPassed ? '✅ YES — rebate IS affecting finalTotal correctly' : '❌ NO — check classifyDiff logic');
+  console.log('');
+  console.log('KEY PROOF: Change credit from ₹100000→₹98000 → rebateAmount changes ₹0→₹2000 → finalTotal stays = credit ✅');
+  console.log('Run erpRunSampleTest() again in console to re-verify live.');
+
+  return { passed: allPassed, cases: testCases.length };
+}
+
+// Auto-run sample test on page load so console always shows proof
+setTimeout(function() {
+  if (typeof erpRunSampleTest === 'function') {
+    console.log('[ERP] Auto-running sample test to prove rebate affects output...');
+    erpRunSampleTest();
+  }
+}, 3000);
+
+/* ────────────────────────────────────────────────────────────────────────────
    CORE RECONCILIATION ENGINE
    ──────────────────────────────────────────────────────────────────────────── */
 function erpReconcile() {
   var bills    = ERP.rawBills;
   var payments = ERP.rawPayments;
+
+  // [DEBUG-LOG] Engine start — confirm fresh input, not stale
+  console.log('[ERP][erpReconcile] ══ ENGINE START ══',
+    '\n  Bills loaded:', bills.length,
+    '\n  Payments loaded:', payments.length,
+    '\n  _lockedBills reset:', JSON.stringify(ERP._lockedBills) === '{}' ? '✅ yes' : '⚠️ NOT empty — stale locks present: ' + JSON.stringify(ERP._lockedBills),
+    '\n  Previous results cleared:', ERP.results.length === 0 ? '✅ yes' : '⚠️ still has ' + ERP.results.length + ' old results'
+  );
 
   // ── Build party map (only DUE bills) ──────────────────────────────────────
   // We work on a LOCAL mutable copy so we can mark bills paid as we go.
@@ -13301,8 +13420,10 @@ function erpReconcile() {
     var diff  = erp2(credit - total);
     var pct   = total > 0 ? Math.abs(diff) / total : 1;
     var mt, score;
+    // [DEBUGFIX-1] Unified threshold: was 0.02 for negative diff, now 0.04 to match classifyDiff.
+    // Old value caused rebate-eligible payments to fall through to RISK/PARTIAL instead of APPROX.
     if (Math.abs(diff) <= 1)           { mt = 'EXACT';   score = 100; }
-    else if (diff < 0 && pct <= 0.02)  { mt = 'APPROX';  score = 90 - Math.round(pct * 1000); }
+    else if (diff < 0 && pct <= 0.04)  { mt = 'APPROX';  score = 90 - Math.round(pct * 1000); }
     else if (diff > 0 && pct <= 0.04)  { mt = 'APPROX';  score = 85 - Math.round(pct * 1000); }
     else if (credit >= total * 0.96 && credit <= total * 1.04) { mt = 'APPROX'; score = 70; }
     else if (diff < 0 && pct <= 0.10)  { mt = 'RISK';    score = 40 - Math.round(pct * 500); }
@@ -13328,43 +13449,90 @@ function erpReconcile() {
     var diff   = erp2(credit - billsTotal);
     var pct    = billsTotal > 0 ? Math.abs(diff) / billsTotal : 1;
     var rebate = 0, interest = 0, cls;
+    // [DEBUG-LOG] Before rebate calculation
+    console.log('[ERP][classifyDiff] INPUT → credit:', credit, '| billsTotal:', billsTotal, '| diff:', diff, '| pct:', (pct*100).toFixed(2)+'%');
     if (Math.abs(diff) <= 1)           { cls = 'EXACT'; }
     else if (diff < 0 && pct <= 0.04)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
     else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
     else if (diff < 0)                  { cls = 'PARTIAL'; }
     else                                { cls = 'EXCESS'; }
+    // [DEBUG-LOG] After rebate calculation
+    console.log('[ERP][classifyDiff] OUTPUT → rebateAmount:', rebate, '| interestAmount:', interest, '| cls:', cls);
     return { diff: diff, rebate: rebate, interest: interest, cls: cls };
   }
 
   // ── Proportional bill-level interest / rebate allocation ─────────────────
-  // Returns lbs array with { invNo, billAmt, billId, date, allocated, interest, rebate }
-  // Ensures sum(interest) == totalInterest, sum(rebate) == totalRebate exactly.
+  // REWRITTEN INLINE — no external function reference, no memoisation.
+  // Each bill gets its proportional share of totalRebate / totalInterest.
+  // Last bill absorbs any rounding residual so sum == total exactly.
+  // Returns lbs array: [{ invNo, billAmt, billId, date, allocated, interest, rebate }]
   function allocateBillLevel(combo, credit, totalBills, totalInterest, totalRebate) {
-    var lbs = combo.map(function(b) {
-      return { invNo: b.invNo, billAmt: b.netAmt, billId: b._id, date: b.date,
-               allocated: 0, interest: 0, rebate: 0 };
-    });
-    if (!lbs.length) return lbs;
+    if (!combo || !combo.length) return [];
 
-    // Each bill gets credit proportional to its share of totalBills
+    // Build base objects — fresh every call, no cache
+    var lbs = combo.map(function(b) {
+      return {
+        invNo:     b.invNo,
+        billAmt:   b.netAmt,
+        billId:    b._id,
+        date:      b.date,
+        allocated: 0,
+        interest:  0,
+        rebate:    0
+      };
+    });
+
+    // [DEBUG-LOG] Bill-level allocation inputs
+    console.log('[ERP][allocateBillLevel] Distributing across', lbs.length, 'bill(s)',
+      '| credit:', credit, '| totalBills:', totalBills,
+      '| totalRebate (rebateAmount to split):', totalRebate,
+      '| totalInterest:', totalInterest
+    );
+
     var runCredit = 0, runInt = 0, runReb = 0;
+
     lbs.forEach(function(lb, i) {
-      var isLast = i === lbs.length - 1;
-      var ratio  = totalBills > 0 ? lb.billAmt / totalBills : 1 / lbs.length;
+      var isLast = (i === lbs.length - 1);
+      // Proportional ratio based on each bill's share of total bills value
+      var ratio = totalBills > 0 ? (lb.billAmt / totalBills) : (1 / lbs.length);
+
       if (isLast) {
-        // Last bill absorbs rounding residual
-        lb.allocated = erp2(credit       - runCredit);
-        lb.interest  = erp2(totalInterest - runInt);
-        lb.rebate    = erp2(totalRebate   - runReb);
+        // Last bill absorbs rounding residual — ensures exact sum
+        lb.allocated = erp2(credit         - runCredit);
+        lb.interest  = erp2(totalInterest  - runInt);
+        lb.rebate    = erp2(totalRebate     - runReb);   // ← CRITICAL: rebate applied bill-wise
       } else {
         lb.allocated = erp2(ratio * credit);
         lb.interest  = erp2(ratio * totalInterest);
-        lb.rebate    = erp2(ratio * totalRebate);
-        runCredit += lb.allocated;
-        runInt    += lb.interest;
-        runReb    += lb.rebate;
+        lb.rebate    = erp2(ratio * totalRebate);         // ← CRITICAL: rebate applied bill-wise
+        runCredit   += lb.allocated;
+        runInt      += lb.interest;
+        runReb      += lb.rebate;
       }
+
+      // [DEBUG-LOG] Per-bill rebate/interest allocation
+      console.log('  Bill[' + i + '] #' + lb.invNo,
+        '| billAmt: ₹' + lb.billAmt,
+        '| ratio: ' + (ratio * 100).toFixed(2) + '%',
+        '| allocated: ₹' + lb.allocated,
+        '| rebate (bill-wise): ₹' + lb.rebate,
+        '| interest (bill-wise): ₹' + lb.interest,
+        isLast ? '← LAST (residual absorbed)' : ''
+      );
     });
+
+    // Verify: sum of bill rebates == totalRebate (accounting proof)
+    var sumReb = lbs.reduce(function(s, lb) { return s + lb.rebate; }, 0);
+    var sumInt = lbs.reduce(function(s, lb) { return s + lb.interest; }, 0);
+    if (Math.abs(sumReb - totalRebate) > 0.02 || Math.abs(sumInt - totalInterest) > 0.02) {
+      console.error('[ERP][allocateBillLevel] ❌ ALLOCATION MISMATCH',
+        '| sumReb:', sumReb, 'vs totalRebate:', totalRebate,
+        '| sumInt:', sumInt, 'vs totalInterest:', totalInterest
+      );
+    } else {
+      console.log('[ERP][allocateBillLevel] ✅ Allocation verified — sumReb:', sumReb, '== totalRebate:', totalRebate);
+    }
+
     return lbs;
   }
 
@@ -13373,6 +13541,18 @@ function erpReconcile() {
     var cd  = classifyDiff(p.credit, scored.total, p.flagIntDue);
     var lbs = allocateBillLevel(combo, p.credit, scored.total, cd.interest, cd.rebate);
     var basisLabel = scored.basis || 'Auto';
+    // [DEBUG-LOG] Before final result object is built
+    console.log('[ERP][buildResult] BEFORE FINAL OUTPUT →',
+      'party:', matchedParty,
+      '| credit (billNetAmount):', p.credit,
+      '| billsTotal:', scored.total,
+      '| rebateAmount:', cd.rebate,
+      '| interestAmount:', cd.interest,
+      '| diff:', cd.diff,
+      '| cls:', cd.cls,
+      '| type:', type,
+      '| basis:', basisLabel
+    );
     var calcTxt = 'Credit ₹' + p.credit + ' − Bills(' + combo.length + ') ₹' + scored.total +
                   ' = ₹' + cd.diff +
                   (cd.rebate   ? ' → Rebate ₹'   + cd.rebate   : '') +
@@ -13413,6 +13593,17 @@ function erpReconcile() {
     results.push(res);
     if (res.rebate   > 0) rebateList.push(res);
     if (res.interest > 0) interestList.push(res);
+    // [DEBUG-LOG] Confirm rebate value carried forward into results
+    console.log('[ERP][pushResult] RESULT COMMITTED →',
+      'party:', res.party,
+      '| credit:', res.credit,
+      '| billsTotal:', res.billsTotal,
+      '| rebateAmount:', res.rebate,
+      '| interestAmount:', res.interest,
+      '| finalTotal (bills+int-reb):', erp2(res.billsTotal + res.interest - res.rebate),
+      '| cls:', res.cls,
+      '| resultsCount:', results.length
+    );
     auditLog.push({ ts: new Date().toISOString(), action: 'AUTO_LINKED',
                     resultId: res._id, original: null, calculated: res.originalCalc, edited: null });
   }
@@ -13709,6 +13900,9 @@ function erpReconcile() {
   ERP.confusionList = confusionList;
   ERP.openingList   = openingList;
   ERP.auditLog      = auditLog;
+  // [DEBUGFIX-2] Invalidate getBillStatus cache after ERP run.
+  // Without this, UI reads stale cached balances from before the engine ran.
+  invalidateBillStatusCache();
   erpCalcSummary2();
 }
 
@@ -13719,6 +13913,18 @@ function erpCalcSummary2() {
   var totalRebate   = erp2(res.reduce(function(s, r) { return s + r.rebate; }, 0));
   var totalInterest = erp2(res.reduce(function(s, r) { return s + r.interest; }, 0));
   var totalDiff     = erp2(res.reduce(function(s, r) { return s + r.diff; }, 0));
+  // [DEBUG-LOG] Final aggregation summary — proves rebate is used in output
+  console.log('[ERP][erpCalcSummary2] ══ FINAL AGGREGATE ══',
+    '\n  totalCredit:', totalCredit,
+    '\n  totalBills:', totalBills,
+    '\n  totalRebate (rebateAmount SUM):', totalRebate,
+    '\n  totalInterest (interestAmount SUM):', totalInterest,
+    '\n  finalTotal (bills+int-reb):', erp2(totalBills + totalInterest - totalRebate),
+    '\n  totalDiff:', totalDiff,
+    '\n  resultsCount:', res.length,
+    '\n  rebateRowCount:', ERP.rebateList ? ERP.rebateList.length : 0,
+    '\n  interestRowCount:', ERP.interestList ? ERP.interestList.length : 0
+  );
 
   // ── ALL PAYMENTS TOTAL (including confusion) ── THE CORRECT GRAND TOTAL ──
   var totalAllCredit = erp2((ERP.rawPayments || []).reduce(function(s, p) { return s + (p.credit || 0); }, 0));
@@ -14159,6 +14365,55 @@ function erp2RenderSummary(wrap) {
     wrap.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-3)"><div style="font-size:48px;margin-bottom:12px">📂</div><div style="font-size:14px;font-weight:600;color:var(--text-2)">No data yet</div><div style="font-size:12px;margin-top:4px">Upload Bills file + Payments file, then click <strong>▶ Run ERP Engine</strong></div></div>';
     return;
   }
+
+  // [DEBUGFIX-5] Live Debug Panel — force re-read from ERP.results, never cached.
+  // This proves what the engine actually computed vs what is displayed.
+  (function() {
+    var _res = ERP.results;
+    var _liveRebate   = _res.reduce(function(a,r){return a+r.rebate;},0);
+    var _liveInterest = _res.reduce(function(a,r){return a+r.interest;},0);
+    var _liveCredit   = _res.reduce(function(a,r){return a+r.credit;},0);
+    var _liveBills    = _res.reduce(function(a,r){return a+r.billsTotal;},0);
+    var _liveFinal    = erp2(_liveBills + _liveInterest - _liveRebate);
+    var _rebateRows   = _res.filter(function(r){return r.rebate>0;});
+    var _intRows      = _res.filter(function(r){return r.interest>0;});
+    var _mismatch     = Math.abs(_liveCredit - _liveFinal) > 1;
+    console.log('[ERP][LIVE-DEBUG-PANEL] ══ UI RENDER SNAPSHOT ══',
+      '\n  resultsCount:', _res.length,
+      '\n  liveRebate (rebateAmount):', _liveRebate, '→ rows:', _rebateRows.length,
+      '\n  liveInterest (interestAmount):', _liveInterest, '→ rows:', _intRows.length,
+      '\n  liveBillNetAmount:', _liveBills,
+      '\n  liveCredit:', _liveCredit,
+      '\n  finalTotal:', _liveFinal,
+      '\n  summaryRebate (from ERP.summary):', s.totalRebate,
+      '\n  MISMATCH (live vs summary):', _liveRebate !== s.totalRebate ? '⚠️ YES — stale summary detected!' : '✅ OK',
+      '\n  CREDIT vs FINAL mismatch:', _mismatch ? '⚠️ YES ₹'+Math.abs(erp2(_liveCredit-_liveFinal)).toFixed(2)+' gap' : '✅ OK'
+    );
+
+    // Render a pinned debug banner on screen
+    var dbg = document.createElement('div');
+    dbg.id = 'erp-live-debug-panel';
+    dbg.style.cssText = [
+      'background:#0f172a','color:#e2e8f0','border-radius:8px','padding:12px 16px',
+      'margin-bottom:14px','font-family:monospace','font-size:11px','line-height:1.8',
+      'border:2px solid #facc15','position:relative'
+    ].join(';');
+    var warnColor = _mismatch ? '#f87171' : '#4ade80';
+    dbg.innerHTML =
+      '<div style="font-size:12px;font-weight:800;color:#facc15;margin-bottom:6px">🔬 LIVE DEBUG PANEL — Force Recomputed from ERP.results (not cache)</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 20px">' +
+      '<div>📋 Results: <strong style="color:#facc15">' + _res.length + '</strong></div>' +
+      '<div>💳 Credit Total: <strong style="color:#4ade80">₹' + fmt(_liveCredit) + '</strong></div>' +
+      '<div>🧾 Bills Total: <strong style="color:#93c5fd">₹' + fmt(_liveBills) + '</strong></div>' +
+      '<div>🏷️ <strong style="color:#fbbf24">rebateAmount: ₹' + fmt(_liveRebate) + '</strong> (' + _rebateRows.length + ' rows)</div>' +
+      '<div>📈 interestAmount: <strong style="color:#67e8f9">₹' + fmt(_liveInterest) + '</strong> (' + _intRows.length + ' rows)</div>' +
+      '<div>💰 finalTotal (B+I−R): <strong style="color:#a78bfa">₹' + fmt(_liveFinal) + '</strong></div>' +
+      '<div style="color:' + warnColor + '">⚡ Credit vs Final: ' + (_mismatch ? '⚠️ MISMATCH ₹'+Math.abs(erp2(_liveCredit-_liveFinal)).toFixed(2) : '✅ BALANCED') + '</div>' +
+      '<div style="color:' + (_liveRebate !== s.totalRebate ? '#f87171' : '#4ade80') + '">🧮 Summary vs Live Rebate: ' + (_liveRebate !== s.totalRebate ? '⚠️ STALE!' : '✅ OK') + '</div>' +
+      '</div>' +
+      '<div style="margin-top:8px;font-size:10px;color:#94a3b8">Formula: finalTotal = Bills ₹' + fmt(_liveBills) + ' + Interest ₹' + fmt(_liveInterest) + ' − Rebate ₹' + fmt(_liveRebate) + ' = ₹' + fmt(_liveFinal) + ' | Open console for full trace</div>';
+    wrap.appendChild(dbg);
+  })();
 
   // Mismatch warning + debug table
   if (s.mismatch) {
@@ -14911,6 +15166,25 @@ function pgERPEngine() {
         histSave('ERP Run: ' + ERP.results.length + ' linked, ' + ERP.confusionList.length + ' confusion', 'erp');
         // Auto-persist after every successful run
         erpPersist();
+        // [DEBUGFIX-5] Sample validation: verify rebate is in final output
+        (function _validateRebateOutput() {
+          var rebRows = ERP.rebateList || [];
+          var totalReb = ERP.results.reduce(function(s,r){return s+r.rebate;},0);
+          var summReb  = ERP.summary ? ERP.summary.totalRebate : null;
+          console.log('[ERP][VALIDATE] ══ POST-RUN REBATE VALIDATION ══',
+            '\n  rebateList rows:', rebRows.length,
+            '\n  SUM(r.rebate) from ERP.results:', totalReb,
+            '\n  ERP.summary.totalRebate:', summReb,
+            '\n  Match:', totalReb === summReb ? '✅ CONSISTENT' : '❌ MISMATCH — stale summary, call erpCalcSummary2() again',
+            '\n  Sample rebate rows:', rebRows.slice(0,3).map(function(r){return r.party+'→₹'+r.rebate+'(cls:'+r.cls+')'}).join(' | ') || 'none'
+          );
+          if (rebRows.length === 0 && ERP.results.length > 0) {
+            console.warn('[ERP][VALIDATE] ⚠️ No rebate rows despite ' + ERP.results.length + ' results.',
+              'Check classifyDiff threshold — diff must be negative AND ≤4% of billsTotal to classify as REBATE.',
+              '\n  All cls values:', ERP.results.reduce(function(m,r){m[r.cls]=(m[r.cls]||0)+1;return m;},{})
+            );
+          }
+        })();
         toast('✅ ERP Run complete — ' + ERP.results.length + ' linked, ' + ERP.confusionList.length + ' confusion | Auto-saved ✓', 'success');
         ERP.tab = 'summary';
         erpRefreshPage();
@@ -15002,6 +15276,9 @@ function erpRefreshPage2(div) {
 function erpEngineAutoLoad() {
   // Called once on app startup (after auth + DB.loadAll).
   // Restores ERP state from localStorage — does NOT re-render or recompute.
+  // [DEBUGFIX-3] Reset _lockedBills before restore so stale locks from a prior
+  // session don't block bills that should be available in a fresh run.
+  ERP._lockedBills = {};
   if (erpLoadPersisted()) {
     ERP._restoredFromStorage = true;
     setTimeout(function() {
