@@ -13261,6 +13261,7 @@ function erpReconcile() {
 
   // ── Global paid-bill guard (invNo key per party) ─────────────────────────
   var paidSet = {};  // partyKey → { invNo: true }
+  var _iCred  = {};  // installment cumulative credit: pk→{invNo:totalPaid}
   // FIXED: Always reset _lockedBills at start of each run.
   // Previously used `if (!ERP._lockedBills)` → re-runs stacked old locks,
   // blocking bills that should have been available → double-counted allocation.
