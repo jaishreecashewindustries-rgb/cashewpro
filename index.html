@@ -836,25 +836,6 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 </style>
 </head>
 <body>
-<script>
-// Auto-clear old ERP cache on version update
-(function(){
-  try {
-    var ver = localStorage.getItem('_cpver');
-    if(ver !== 'v19-Mar-2026') {
-      var keys = [];
-      for(var i=0;i<localStorage.length;i++) {
-        var k = localStorage.key(i);
-        if(k && (k.indexOf('erp_')===0 || k.indexOf('cp_erp')===0)) keys.push(k);
-      }
-      keys.forEach(function(k){ localStorage.removeItem(k); });
-      localStorage.setItem('_cpver', 'v19-Mar-2026');
-      console.log('[CashewPro] Cache cleared for new version v19-Mar-2026');
-    }
-  } catch(e) {}
-})();
-</script>
-
 <!-- LOGIN SCREEN -->
 <div id="login-screen">
   <div class="lc">
@@ -913,6 +894,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
       <div class="tb-actions">
         <button id="hist-undo-topbar" onclick="histUndo();refresh()" title="Undo last action" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='var(--brand-light)';this.style.color='var(--brand)'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↩ Undo</button>
         <div id="sync-badge" class="saved"><span class="sdot"></span><span id="sync-lbl">Saved</span></div>
+        <span id="ver-badge" style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #e5e7eb" title="Version">v19-Mar-2026-r3</span>
         <!-- Mobile floating sync dot -->
         <div id="mob-sync-dot" class="saved">✓</div>
         <button id="usr-btn" onclick="doLogout()" title="Logout">👤 <span id="usr-email">...</span></button>
@@ -14911,24 +14893,6 @@ function pgERPEngine() {
   // Run button
   var runRow = document.createElement('div');
   runRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-  // Clear Cache button
-  var clearBtn = document.createElement('button');
-  clearBtn.innerHTML = '🔄 Clear & Reset';
-  clearBtn.title = 'Clear old ERP data and start fresh';
-  clearBtn.style.cssText = 'padding:10px 18px;background:#dc2626;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font)';
-  clearBtn.addEventListener('click', function() {
-    if(!confirm('Purana ERP data clear karein? Phir se Run karna hoga.')) return;
-    try {
-      for(var i=localStorage.length-1;i>=0;i--) {
-        var k=localStorage.key(i);
-        if(k && (k.indexOf('erp_')===0 || k.indexOf('cp_erp')===0)) localStorage.removeItem(k);
-      }
-    } catch(e) {}
-    toast('✅ ERP cache cleared! Ab Run ERP Engine dabao.', 'success');
-    location.reload();
-  });
-  runRow.appendChild(clearBtn);
-
   var runBtn = document.createElement('button');
   runBtn.innerHTML = '▶ Run ERP Engine';
   runBtn.style.cssText = 'padding:10px 24px;background:#1f3864;color:#fff;border:none;border-radius:var(--radius-sm);font-size:13px;font-weight:800;cursor:pointer;font-family:var(--font);letter-spacing:.3px;flex-shrink:0';
@@ -15172,26 +15136,28 @@ function histRestore(entryId, skipConfirm) {
   DB.set('suspense', suspense);
 
   // Restore ERP state if present
+  // NOTE: Only restore raw files (bills/payments), NOT computed results.
+  // Results must be re-run with current engine to get correct output.
   if (snap.erp && typeof ERP !== 'undefined') {
-    ERP.results       = snap.erp.results       || [];
-    ERP.rebateList    = snap.erp.rebateList     || [];
-    ERP.interestList  = snap.erp.interestList   || [];
-    ERP.confusionList = snap.erp.confusionList  || [];
     ERP.rawBills      = snap.erp.rawBills       || [];
     ERP.rawPayments   = snap.erp.rawPayments    || [];
-    ERP.summary       = snap.erp.summary        || null;
-    ERP._lockedBills  = snap.erp._lockedBills   || {};
-    ERP.overrides     = snap.erp.overrides      || {};
-    // Re-apply locks to rawBills
+    // Clear all computed results - must re-run ERP engine
+    ERP.results       = [];
+    ERP.rebateList    = [];
+    ERP.interestList  = [];
+    ERP.confusionList = [];
+    ERP.openingList   = [];
+    ERP.auditLog      = [];
+    ERP.summary       = null;
+    ERP._lockedBills  = {};
+    ERP.overrides     = {};
+    ERP._restoredFromStorage = false;
     if (ERP.rawBills.length) {
-      ERP.rawBills.forEach(function(b) {
-        if (ERP._lockedBills[b.party] && ERP._lockedBills[b.party][String(b.invNo)]) {
-          b.paid = true; b.locked = true;
-        }
-      });
       if (typeof erpBuildPartyMap === 'function') ERP.partyMap = erpBuildPartyMap(ERP.rawBills);
     }
-    erpPersist();
+    // Clear localStorage ERP cache too
+    try { localStorage.removeItem('erp_v2_data'); } catch(e) {}
+    try { localStorage.removeItem('erp_reconcile_data'); } catch(e) {}
   }
 
   invalidateBillStatusCache();
@@ -15422,3 +15388,4 @@ function pgHistory() {
 </script>
 </body>
 </html>
+
