@@ -2,9 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CashewPro — Jai Shree Cashew Industries</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -897,7 +894,6 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
       <div class="tb-actions">
         <button id="hist-undo-topbar" onclick="histUndo();refresh()" title="Undo last action" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='var(--brand-light)';this.style.color='var(--brand)'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↩ Undo</button>
         <div id="sync-badge" class="saved"><span class="sdot"></span><span id="sync-lbl">Saved</span></div>
-        <span id="ver-badge" style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;font-weight:700;cursor:pointer;border:1px solid #e5e7eb" title="Click to force reload fresh version" onclick="window.location.href=window.location.href.split('?')[0]+'?v='+Date.now()">v19-Mar-2026</span>
         <!-- Mobile floating sync dot -->
         <div id="mob-sync-dot" class="saved">✓</div>
         <button id="usr-btn" onclick="doLogout()" title="Logout">👤 <span id="usr-email">...</span></button>
@@ -12636,6 +12632,12 @@ function erpAutoLoad() {
     if (!raw) return;
     var data = JSON.parse(raw);
     if (!data || typeof data !== 'object') return;
+    // Version check - don't restore old version data
+    if (data._appVersion && data._appVersion !== 'v19-Mar-2026') {
+      localStorage.removeItem('erp_reconcile_data');
+      console.log('Old ERP cache cleared - version mismatch');
+      return;
+    }
     // Restore into erpS (only data fields, not UI state)
     var fields = ['allPay','grossPay','billAdj','rebate','interest','opening','confMap','confPartial','summary'];
     fields.forEach(function(k) {
@@ -12683,7 +12685,7 @@ function erpSaveData() {
       summary:     erpS.summary,
       savedAt:     new Date().toISOString(),
     };
-    localStorage.setItem('erp_reconcile_data', JSON.stringify(payload));
+    localStorage.setItem('erp_reconcile_data', JSON.stringify(Object.assign({_appVersion:'v19-Mar-2026'}, payload)));
     var _ts = new Date().toISOString();
     localStorage.setItem('erp_last_saved', _ts);
     erpUpdateSaveBadge();
@@ -14900,6 +14902,12 @@ function pgERPEngine() {
   runBtn.innerHTML = '▶ Run ERP Engine';
   runBtn.style.cssText = 'padding:10px 24px;background:#1f3864;color:#fff;border:none;border-radius:var(--radius-sm);font-size:13px;font-weight:800;cursor:pointer;font-family:var(--font);letter-spacing:.3px;flex-shrink:0';
   runBtn.addEventListener('click', function() {
+      // Clear old cached ERP results so fresh run happens
+      try { localStorage.removeItem('erp_reconcile_data'); } catch(e) {}
+      // Reset erpS state
+      erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; 
+      erpS.rebate=[]; erpS.interest=[]; erpS.confMap={}; 
+      erpS.confPartial=[]; erpS.summary={};
     if (!ERP.rawBills.length)    { toast('❌ Bills file upload karo pehle!', 'error'); return; }
     if (!ERP.rawPayments.length) { toast('❌ Payments file upload karo pehle!', 'error'); return; }
     runBtn.disabled = true; runBtn.textContent = '⏳ Processing...';
