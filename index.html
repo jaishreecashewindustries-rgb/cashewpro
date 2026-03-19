@@ -1468,15 +1468,20 @@ function getBillStatus(bill) {
   var billPayments = _paymentIndex[bill.id] || [];
   var billAdvances = _advanceIndex[bill.id] || [];
 
-  var paid = billPayments.reduce(function(s, p) { return s + (p.amount || 0) + (p.rebate || 0); }, 0);
+  var paid = billPayments.reduce(function(s, p) {
+    return s + (p.amount || 0) + (p.rebate || 0) + (p.interest || 0);
+  }, 0);
+  var totalRebate  = billPayments.reduce(function(s, p) { return s + (p.rebate   || 0); }, 0);
+  var totalInterest= billPayments.reduce(function(s, p) { return s + (p.interest || 0); }, 0);
+  var totalGross   = billPayments.reduce(function(s, p) { return s + (p.grossAmt || p.amount || 0); }, 0);
   var adv  = billAdvances.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
   var total = paid + adv;
   var bal = (bill.netAmt || 0) - total;
   var excess = Math.max(0, total - (bill.netAmt || 0));
   var result;
-  if (bal <= 0.5) result = { status: 'paid', recv: bill.netAmt, bal: 0, excess: excess };
-  else if (total > 0) result = { status: 'partial', recv: total, bal: bal, excess: 0 };
-  else result = { status: 'due', recv: 0, bal: bill.netAmt || 0, excess: 0 };
+  if (bal <= 0.5) result = { status: 'paid',    recv: bill.netAmt, bal: 0,   excess: excess, rebate: totalRebate, interest: totalInterest, gross: totalGross };
+  else if (total > 0) result = { status: 'partial', recv: total,       bal: bal, excess: 0,      rebate: totalRebate, interest: totalInterest, gross: totalGross };
+  else                result = { status: 'due',     recv: 0,           bal: bill.netAmt||0, excess:0, rebate:0, interest:0, gross:0 };
 
   _billStatusCache[bill.id] = result;
   return result;
@@ -2791,6 +2796,8 @@ function pgDashboard() {
   var totalAmt = bills.reduce(function(s,b){return s+b.netAmt;},0);
   var dueAmt   = bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var recvAmt  = bills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+  var rebateAmt= bills.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0);
+  var interestAmt=bills.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0);
   var dueBills = bills.filter(function(b){return getBillStatus(b).status!=='paid';});
 
   var stats = el('div', { cls: 'stats' }, [
@@ -3464,7 +3471,7 @@ function exportBillsExcel() {
       'Payment Date':fmtDate(p.date),
       'Amount Received':p.amount||0,
       'Rebate':p.rebate||0,
-      'Net Settled':(p.amount||0)+(p.rebate||0),
+      'Net Settled':(p.amount||0)+(p.rebate||0)+(p.interest||0),'Gross Pmt':p.grossAmt||0,
       'Mode':p.mode||'',
       'Cheque No':p.chequeNo||'',
       'Receipt No':p.receiptNo||'',
@@ -4954,10 +4961,28 @@ function pgLedger() {
     };
   });
 
-  return genericListPage('📒 Party Ledger', data, [
+  var data2 = filtered.map(function(party) {
+    var pb = bills.filter(function(b){return b.party===party;});
+    var totRebate   = pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0);
+    var totInterest = pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0);
+    var totRecv     = pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0);
+    return {
+      party: party,
+      bills: pb.length,
+      total: pb.reduce(function(s,b){return s+b.netAmt;},0),
+      received: totRecv,
+      rebate: totRebate,
+      interest: totInterest,
+      due: pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)
+    };
+  });
+  return genericListPage('📒 Party Ledger', data2, [
     { label: 'Party', key: 'party', render: function(v) { return '<strong>' + v + '</strong>'; } },
     { label: 'Bills', key: 'bills', num: true },
-    { label: 'Total', key: 'total', num: true, render: function(v) { return '₹' + fmt(v); } },
+    { label: 'Total Sales', key: 'total', num: true, render: function(v) { return '₹' + fmt(v); } },
+    { label: 'Received', key: 'received', num: true, render: function(v) { return '<span style="color:#166534;font-weight:700">₹'+fmt(v)+'</span>'; } },
+    { label: 'Rebate', key: 'rebate', num: true, render: function(v) { return v>0?'<span style="color:#d97706;font-weight:600">₹'+fmt(v)+'</span>':'-'; } },
+    { label: 'Interest', key: 'interest', num: true, render: function(v) { return v>0?'<span style="color:#7c3aed;font-weight:600">₹'+fmt(v)+'</span>':'-'; } },
     { label: 'Outstanding', key: 'due', num: true, render: function(v) {
       return el('span', { text: '₹'+fmt(v), style: 'color:'+(v>0?'#dc2626':'#166534')+';font-weight:700' });
     }},
@@ -5170,10 +5195,13 @@ function pgPartyLedger(party) {
       bpays.forEach(function(p,pi){
         ph+='<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:5px 8px;color:#6b7280">'+(pi+1)+'</td>'+
           '<td style="padding:5px 8px">'+p.date+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;font-weight:600">₹'+fmt(p.amount||0)+(p.grossAmt&&p.grossAmt>0?'<br><span style="font-size:9px;color:#6b7280;font-weight:400">GROSS:₹'+fmt(p.grossAmt)+'</span>':'')+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
+          '<td style="padding:5px 8px;text-align:right;font-weight:600">' +
+            (p.grossAmt && p.grossAmt > 0
+              ? '<span style="background:#dcfce7;color:#166534;font-weight:800;padding:1px 5px;border-radius:3px;font-size:11px">GROSS ₹'+fmt(p.grossAmt)+'</span><br><span style="font-size:10px;color:#374151">Bill Share: ₹'+fmt(p.amount||0)+'</span>'
+              : '₹'+fmt(p.amount||0)) + '</td>'+
+          '<td style="padding:5px 8px;text-align:right;color:#d97706;font-weight:600">'+(p.rebate>0?'-₹'+fmt(p.rebate):'-')+'</td>'+
+          '<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'+₹'+fmt(p.interest):'-')+'</td>'+
+          '<td style="padding:5px 8px;text-align:right;font-weight:800;color:#166534;font-size:12px">₹'+fmt((p.amount||0)+(p.rebate||0)+(p.interest||0))+'</td>'+
           '<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span></td>'+
           '<td style="padding:5px 8px;font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
           '<td style="padding:5px 8px;font-family:monospace">'+(p.receiptNo||'-')+'</td>'+
@@ -5215,9 +5243,17 @@ function pgPartyLedger(party) {
   // Sticky sum bar at bottom
   var plSumBar=document.createElement('div');
   plSumBar.style.cssText='padding:9px 16px;background:#f0fdf4;border-top:2px solid var(--brand-light);font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3';
+  var plTotRecv    = pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0);
+  var plTotRebate  = pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0);
+  var plTotInterest= pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0);
+  var plTotDue     = pb.reduce(function(s,b){return s+(getBillStatus(b).bal||0);},0);
   plSumBar.innerHTML=
     '<span>Bills: <strong>'+pb.length+'</strong></span>'+
     '<span>Total Sales: <strong style="color:#1d4ed8">&#8377;'+fmt(totalAmt)+'</strong></span>'+
+    '<span>Received: <strong style="color:#166534">&#8377;'+fmt(plTotRecv)+'</strong></span>'+
+    '<span>Rebate: <strong style="color:#d97706">&#8377;'+fmt(plTotRebate)+'</strong></span>'+
+    '<span>Interest: <strong style="color:#7c3aed">&#8377;'+fmt(plTotInterest)+'</strong></span>'+
+    '<span>Outstanding: <strong style="color:#dc2626">&#8377;'+fmt(plTotDue)+'</strong></span>'+
     '<span>Received: <strong style="color:#166534">&#8377;'+fmt(totalRecv)+'</strong></span>'+
     '<span>Outstanding: <strong style="color:'+(totalDue>0?'#dc2626':'#166534')+'">&#8377;'+fmt(totalDue)+'</strong></span>';
   wrap.appendChild(plSumBar);
@@ -6567,9 +6603,9 @@ function togglePayDetails(billId) {
     bpays.forEach(function(p,i){
       h+='<tr style="border-bottom:1px solid #e5e7eb">'+
         '<td style="padding:5px 8px">'+(i+1)+'</td><td style="padding:5px 8px">'+(p.date||'-')+'</td>'+
-        '<td style="padding:5px 8px;text-align:right">₹'+fmt(p.amount||0)+'</td>'+
-        '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
-        '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
+        '<td style="padding:5px 8px;text-align:right">'+(p.grossAmt>0?'<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px">G:₹'+fmt(p.grossAmt)+'</span><br>':'')+'₹'+fmt(p.amount||0)+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;color:#d97706;font-weight:600">'+(p.rebate>0?'-₹'+fmt(p.rebate):'-')+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0)+(p.interest||0))+'</td>'+
         '<td style="padding:5px 8px">'+(p.mode||'-')+'</td><td style="padding:5px 8px">'+(p.chequeNo||'-')+'</td>'+
         '<td style="padding:5px 8px">'+(p.receiptNo||'-')+'</td><td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td></tr>';
     });
