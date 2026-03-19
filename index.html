@@ -12170,6 +12170,11 @@ var ERP_CLS={
   'EXCESS_PAYMENT':['#fce4d6','#c55a11','⚠️ Excess Pay'],
   'OPENING_ADJ':   ['#e2efda','#276221','📂 Opening'],
   '↑ SAME GROUP':  ['#f3f4f6','#6b7280','↑ Group'],
+  // [FIX-2] classifyDiff() returns plain cls — map to badges so UI shows correct label
+  'EXACT':         ['#c6efce','#276221','✅ Exact'],
+  'REBATE':        ['#ffeb9c','#7d6608','🟡 Rebate'],
+  'INTEREST':      ['#bdd7ee','#1f497d','🔵 Interest'],
+  'INTEREST_DUE':  ['#bdd7ee','#1f497d','🔵 Int Due'],
 };
 function erpBadge(cls) {
   var b=ERP_CLS[cls]||['#f3f4f6','#6b7280',cls||'—'];
@@ -13558,6 +13563,10 @@ function erpReconcile() {
                   (cd.rebate   ? ' → Rebate ₹'   + cd.rebate   : '') +
                   (cd.interest ? ' → Interest ₹' + cd.interest : '') +
                   ' | Basis: ' + basisLabel + ' | Match: ' + scored.matchType + ' (score ' + scored.score + ')';
+    // [FIX-3] cls priority: REBATE > INTEREST_DUE > INTEREST > EXACT > PARTIAL > EXCESS
+    // classifyDiff already applies the correct priority based on diff threshold.
+    // We preserve cd.cls directly — ERP_CLS badge map now handles plain keys (FIX-2).
+    var finalCls = cd.cls;
     var res = {
       _id:          erpUID(),
       payId:        p._id,
@@ -13573,7 +13582,7 @@ function erpReconcile() {
       diff:         cd.diff,
       rebate:       cd.rebate,
       interest:     cd.interest,
-      cls:          cd.cls,
+      cls:          finalCls,
       matchType:    scored.matchType,
       matchScore:   scored.score,
       matchBasis:   basisLabel,
@@ -13890,9 +13899,11 @@ function erpReconcile() {
     console.error('[ERP] OVER-ALLOCATION: ' + overAllocViolations.length + ' row(s) moved to Confusion:', overAllocViolations.map(function(r){ return r.party + ' credit:' + r.credit + ' bills:' + r.billsTotal; }));
   }
   results = safeResults;
-  // Rebuild rebate/interest lists from safe results only
-  rebateList   = safeResults.filter(function(r){ return r.rebate   > 0; });
-  interestList = safeResults.filter(function(r){ return r.interest > 0; });
+  // [FIX-4] Rebuild lists using cls (financial classification), not just rebate > 0.
+  // cls priority: REBATE > INTEREST/INTEREST_DUE > EXACT > PARTIAL/EXCESS
+  // This ensures ERP.rebateList contains exactly the rows classified as REBATE by classifyDiff().
+  rebateList   = safeResults.filter(function(r){ return r.cls === 'REBATE'; });
+  interestList = safeResults.filter(function(r){ return r.cls === 'INTEREST' || r.cls === 'INTEREST_DUE'; });
 
   ERP.results       = results;
   ERP.rebateList    = rebateList;
@@ -13904,6 +13915,16 @@ function erpReconcile() {
   // Without this, UI reads stale cached balances from before the engine ran.
   invalidateBillStatusCache();
   erpCalcSummary2();
+  // [FIX-6] Debug log — confirms rebateList is correctly populated after reconcile
+  console.log('[ERP][erpReconcile] ══ FINAL STATE ══', {
+    rebateListLength:  ERP.rebateList.length,
+    interestListLength:ERP.interestList.length,
+    totalRebate:       ERP.summary ? ERP.summary.totalRebate : 'summary not ready',
+    totalInterest:     ERP.summary ? ERP.summary.totalInterest : 'summary not ready',
+    finalTotal:        ERP.summary ? erp2(ERP.summary.totalBills + ERP.summary.totalInterest - ERP.summary.totalRebate) : 'summary not ready',
+    clsCounts:         ERP.summary ? ERP.summary.clsCounts : {},
+    sampleRebateRows:  ERP.rebateList.slice(0,3).map(function(r){ return { party:r.party, credit:r.credit, billsTotal:r.billsTotal, rebate:r.rebate, cls:r.cls }; })
+  });
 }
 
 function erpCalcSummary2() {
@@ -14002,9 +14023,9 @@ function erpApplyOverride(resultId, overrideObj) {
     ts: new Date().toISOString(), action: 'MANUAL_OVERRIDE', resultId: resultId,
     original: res.originalCalc, calculated: prev, edited: overrideObj,
   });
-  // Rebuild lists
-  ERP.rebateList   = ERP.results.filter(function(r) { return r.rebate > 0; });
-  ERP.interestList = ERP.results.filter(function(r) { return r.interest > 0; });
+  // [FIX-4] Rebuild lists using cls (financial classification)
+  ERP.rebateList   = ERP.results.filter(function(r) { return r.cls === 'REBATE'; });
+  ERP.interestList = ERP.results.filter(function(r) { return r.cls === 'INTEREST' || r.cls === 'INTEREST_DUE'; });
   erpCalcSummary2();
 }
 
