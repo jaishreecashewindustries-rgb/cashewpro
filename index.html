@@ -13758,30 +13758,37 @@ function erpReconcile() {
       if (p.billNoArr && p.billNoArr.length > 0) {
         var bnFound=[],bnMissing=[],bnOver=[];
         var _rU=String(p.remarks||'').toUpperCase();
+        /* Installment = INSTALLMENT keyword OR GROSS keyword in remarks */
         var _isInst=/INSTALLMENT|GROSS/.test(_rU);
+        var _isSingle = p.billNoArr.length === 1;  // single bill: allow rebate/interest
 
         p.billNoArr.forEach(function(ref){
           var rs=String(ref).trim();
           var hit=(partyMap[matchedKey]||[]).find(function(b2){return String(b2.invNo).trim()===rs;});
           if(!hit||hit.netAmt<=0){bnMissing.push(rs+'(not found)');return;}
           if(!isDue(matchedKey,hit.invNo)||hit.paid){
-            if(_isInst){bnFound.push(hit);return;}  // installment: accept even if locked
-            bnOver.push(hit);  // already paid: treat as overpayment
+            if(_isInst){bnFound.push(hit);return;}   // installment: accept locked bills
+            bnOver.push(hit);                         // already paid: track as overpayment
             return;
           }
+          /* For multi-bill NON-installment: FIFO — only add if fits within credit */
+          if(!_isInst && !_isSingle){
+            var _running=erp2(bnFound.reduce(function(s,b){return s+b.netAmt;},0));
+            if(erp2(_running+hit.netAmt) > erp2(credit+1)){
+              bnMissing.push(rs+'(exceeds payment)'); return;
+            }
+          }
+          /* Single bill or installment: always add (rebate/interest computed later) */
           bnFound.push(hit);
         });
 
-        // If only overpayment hits, treat as EXCESS for those bills
+        /* Overpayment: bill already paid, new credit = EXCESS advance */
         if(!bnFound.length && bnOver.length){
-          var _ovTotal=erp2(bnOver.reduce(function(s,b){return s+b.netAmt;},0));
-          var _scOv={total:_ovTotal,diff:erp2(credit),pct:1,
-            matchType:'EXCESS',score:50,basis:'Bill No (Overpayment)'};
+          var _ovTot=erp2(bnOver.reduce(function(s,b){return s+b.netAmt;},0));
+          var _scOv={total:_ovTot,diff:erp2(credit),pct:1,matchType:'EXCESS',score:50,basis:'Bill No (Overpayment)'};
           var _resOv=buildResult(p,'BILL',matchedKey,bnOver,_scOv);
-          _resOv.manualBillMapping=true; _resOv.billNoList=p.billNoArr;
-          _resOv.isOverpayment=true;
-          pushResult(_resOv);
-          return;
+          _resOv.manualBillMapping=true; _resOv.billNoList=p.billNoArr; _resOv.isOverpayment=true;
+          pushResult(_resOv); return;
         }
 
         if(!bnFound.length){
@@ -13794,26 +13801,30 @@ function erpReconcile() {
 
         var bnTotal=erp2(bnFound.reduce(function(s,b){return s+b.netAmt;},0));
 
-        var _diff=erp2(credit-bnTotal);
-        var _pct=bnTotal>0?Math.abs(_diff)/bnTotal:0;
-        var _mt=Math.abs(_diff)<=1?'EXACT':(_pct<=0.04?'APPROX':'PARTIAL');
+        /* Compute diff & classification */
+        var _diff, _pct, _mt;
         if(_isInst){
-          var _cumC=credit; bnFound.forEach(function(b){_cumC+=_getIC(matchedKey,b.invNo);});
-          var _cd=erp2(_cumC-bnTotal); var _cp=bnTotal>0?Math.abs(_cd)/bnTotal:0;
-          _mt=Math.abs(_cd)<=1?'EXACT':(_cp<=0.04?'APPROX':'PARTIAL');
-          _diff=_cd; _pct=_cp;
-        } else if(bnTotal>erp2(credit+1)){
-          addConfusion(p,matchedKey,'OVER-ALLOCATION: Bills ₹'+bnTotal+' > Credit ₹'+credit,
-            'Fix Bill No column','error',[]); return;
+          /* Installment: cumulative credit vs bill total */
+          var _cumC=credit;
+          bnFound.forEach(function(b){_cumC+=_getIC(matchedKey,b.invNo);});
+          _diff=erp2(_cumC-bnTotal); _pct=bnTotal>0?Math.abs(_diff)/bnTotal:0;
+          _mt=Math.abs(_diff)<=1?'EXACT':(_pct<=0.04?'APPROX':'PARTIAL');
+        } else {
+          /* Normal: credit vs this payment's bill total (rebate/interest) */
+          _diff=erp2(credit-bnTotal); _pct=bnTotal>0?Math.abs(_diff)/bnTotal:0;
+          if(Math.abs(_diff)<=1)                    _mt='EXACT';
+          else if(_diff<0 && _pct<=0.04)            _mt='REBATE';
+          else if(_diff>0 && _pct<=0.04)            _mt='INTEREST';
+          else if(_diff<0)                           _mt='PARTIAL';
+          else                                       _mt='EXCESS';
         }
 
         var scBN={total:bnTotal,diff:_diff,pct:_pct,
-          matchType:_mt,score:_mt==='EXACT'?100:(_mt==='APPROX'?90:70),
+          matchType:_mt,score:_mt==='EXACT'?100:(_mt==='REBATE'||_mt==='INTEREST'?90:70),
           basis:_isInst?'Bill No (Installment)':'Bill No'};
         var bnType=_isInst?'INSTALLMENT':(bnFound.length>1?'GROSS':'BILL');
         var resBN=buildResult(p,bnType,matchedKey,bnFound,scBN);
-        resBN.manualBillMapping=true; resBN.billNoList=p.billNoArr;
-        resBN.isInstallment=_isInst;
+        resBN.manualBillMapping=true; resBN.billNoList=p.billNoArr; resBN.isInstallment=_isInst;
         pushResult(resBN);
 
         if(_isInst){
