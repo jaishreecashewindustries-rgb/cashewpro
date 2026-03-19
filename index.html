@@ -14946,7 +14946,7 @@ function buildResultGlobal(p, type, matchedParty, combo, scored) {
   var pct  = scored.total > 0 ? Math.abs(diff)/scored.total : 1;
   var rebate = 0, interest = 0, cls;
   if (Math.abs(diff) <= 1)           { cls = 'EXACT'; }
-  else if (diff < 0 && pct <= 0.02)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
+  else if (diff < 0 && pct <= 0.04)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
   else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = p.flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
   else if (diff < 0)                  { cls = 'PARTIAL'; }
   else                                { cls = 'EXCESS'; }
