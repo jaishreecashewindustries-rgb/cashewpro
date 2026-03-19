@@ -1468,15 +1468,23 @@ function getBillStatus(bill) {
   var billPayments = _paymentIndex[bill.id] || [];
   var billAdvances = _advanceIndex[bill.id] || [];
 
-  var paid = billPayments.reduce(function(s, p) { return s + (p.amount || 0) + (p.rebate || 0); }, 0);
+  var paid=billPayments.reduce(function(s,p){return s+(p.amount||0)+(p.rebate||0)+(p.interest||0);},0);
+  var _tReb=billPayments.reduce(function(s,p){return s+(p.rebate||0);},0);
+  var _tInt=billPayments.reduce(function(s,p){return s+(p.interest||0);},0);
   var adv  = billAdvances.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
   var total = paid + adv;
   var bal = (bill.netAmt || 0) - total;
   var excess = Math.max(0, total - (bill.netAmt || 0));
   var result;
-  if (bal <= 0.5) result = { status: 'paid', recv: bill.netAmt, bal: 0, excess: excess };
-  else if (total > 0) result = { status: 'partial', recv: total, bal: bal, excess: 0 };
-  else result = { status: 'due', recv: 0, bal: bill.netAmt || 0, excess: 0 };
+  // Rejected rebates add back to outstanding
+  var _rejReb=billPayments.reduce(function(s,p){return s+(p.rebateStatus==='rejected'?(p.rebate||0):0);},0);
+  var _acpReb=billPayments.reduce(function(s,p){return s+(p.rebateStatus!=='rejected'?(p.rebate||0):0);},0);
+  var _effPaid=billPayments.reduce(function(s,p){return s+(p.amount||0)+(_acpReb>0&&p.rebateStatus!=='rejected'?(p.rebate||0):0)+(p.interest||0);},0);
+  var _effBal=erp2((bill.netAmt||0)+_rejReb-_effPaid);
+  var _effBal2=Math.max(0,_effBal);
+  if(_effBal2<=0.5)result={status:'paid',recv:bill.netAmt,bal:0,excess:excess,rebate:_acpReb,interest:_tInt,rejectedRebate:_rejReb};
+  else if(total>0)result={status:'partial',recv:total,bal:bal,excess:0,rebate:_tReb,interest:_tInt};
+  else result={status:'due',recv:0,bal:bill.netAmt||0,excess:0,rebate:0,interest:0};
 
   _billStatusCache[bill.id] = result;
   return result;
@@ -2511,6 +2519,7 @@ function render(page) {
     'expenses':   pgExpenses,
     'purchases':  pgPurchases,
     'interest':   pgInterest,
+    'rebatemgr':  pgRebateManager,
     'ageing':     pgAgeing,
     'reminder':   pgReminder,
     'partial':    pgPartialTracking,
@@ -4929,6 +4938,224 @@ function pgCheques() {
 }
 
 // ── LEDGER ──
+// ═════════════════════════════════════════════════
+//  REBATE MANAGER PAGE
+// ═════════════════════════════════════════════════
+function pgRebateManager() {
+  var state = pageState.rebateMgr = pageState.rebateMgr || {
+    q:'', minPct:0, maxPct:100, status:'all', dateFrom:'', dateTo:'',
+    sortKey:'pct', sortDir:-1
+  };
+
+  // Collect rebate entries from all payments
+  var rebData = [];
+  bills.forEach(function(bill) {
+    payments.filter(function(p){ return p.billId===bill.id && (p.rebate||0)>0; })
+    .forEach(function(p) {
+      var pct = bill.netAmt>0 ? p.rebate/bill.netAmt*100 : 0;
+      rebData.push({ payId:p.id, billId:bill.id, billNo:bill.billNo||bill.id,
+        billAmt:bill.netAmt, party:bill.party, date:p.date, credit:p.amount||0,
+        rebate:p.rebate, pct:pct, mode:p.mode||'',
+        status:p.rebateStatus||'pending', remarks:p.remarks||'' });
+    });
+  });
+
+  var q=state.q.toLowerCase();
+  var filt=rebData.filter(function(r){
+    if(q && !r.party.toLowerCase().includes(q) && !String(r.billNo).includes(q)) return false;
+    if(r.pct<state.minPct||r.pct>state.maxPct) return false;
+    if(state.status!=='all'&&r.status!==state.status) return false;
+    if(state.dateFrom&&r.date<state.dateFrom) return false;
+    if(state.dateTo&&r.date>state.dateTo) return false;
+    return true;
+  });
+  filt.sort(function(a,b){
+    var av=a[state.sortKey]||0,bv=b[state.sortKey]||0;
+    return typeof av==='string'?av.localeCompare(bv)*state.sortDir:(av-bv)*state.sortDir;
+  });
+
+  var tReb=filt.reduce(function(s,r){return s+r.rebate;},0);
+  var tAcc=filt.filter(function(r){return r.status==='accepted';}).reduce(function(s,r){return s+r.rebate;},0);
+  var tRej=filt.filter(function(r){return r.status==='rejected';}).reduce(function(s,r){return s+r.rebate;},0);
+  var tPen=filt.filter(function(r){return r.status==='pending';}).reduce(function(s,r){return s+r.rebate;},0);
+
+  var wrap=el('div',{style:'padding:16px;max-width:1400px'});
+
+  // Header
+  var hdr=el('div',{style:'display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap'});
+  hdr.appendChild(el('h2',{text:'🏷 Rebate Manager',style:'margin:0;font-size:20px;color:#166534;font-weight:800'}));
+  hdr.appendChild(el('span',{text:filt.length+' entries | Total rebate in file: '+rebData.length,style:'background:#e2efda;color:#166534;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600'}));
+  wrap.appendChild(hdr);
+
+  // KPI cards
+  var kRow=el('div',{style:'display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px'});
+  [{l:'Total Rebate',v:tReb,c:'#d97706',bg:'#fffbeb'},{l:'✅ Accepted',v:tAcc,c:'#166534',bg:'#f0fdf4'},
+   {l:'❌ Rejected',v:tRej,c:'#dc2626',bg:'#fef2f2'},{l:'⏳ Pending',v:tPen,c:'#6b7280',bg:'#f9fafb'}]
+  .forEach(function(k){
+    var c=el('div',{style:'background:'+k.bg+';border-radius:8px;padding:12px 16px;border:1px solid '+k.c+'33'});
+    c.innerHTML='<div style="font-size:11px;color:'+k.c+';font-weight:700;margin-bottom:4px">'+k.l+'</div>'+
+      '<div style="font-size:18px;font-weight:800;color:'+k.c+'">₹'+fmt(k.v)+'</div>'+
+      '<div style="font-size:10px;color:'+k.c+'99;margin-top:2px">'+filt.filter(function(r){return r.status===(k.l.includes('Accept')?'accepted':k.l.includes('Reject')?'rejected':k.l.includes('Pending')?'pending':'_');}).length+' entries</div>';
+    kRow.appendChild(c);
+  });
+  wrap.appendChild(kRow);
+
+  // Filter bar
+  var fb=el('div',{style:'background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center'});
+
+  var si=el('input',{type:'text',placeholder:'🔍 Party / Bill No',value:state.q,style:'padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:170px'});
+  si.addEventListener('input',function(){state.q=this.value;refresh();});
+  fb.appendChild(si);
+
+  fb.appendChild(el('span',{text:'Rebate %:',style:'font-size:12px;font-weight:600;color:#374151;white-space:nowrap'}));
+  var pmn=el('input',{type:'number',value:state.minPct,min:0,max:100,style:'width:52px;padding:5px;border:1px solid #d1d5db;border-radius:6px;font-size:12px',placeholder:'Min'});
+  pmn.addEventListener('change',function(){state.minPct=parseFloat(this.value)||0;refresh();});
+  var pmx=el('input',{type:'number',value:state.maxPct,min:0,max:100,style:'width:52px;padding:5px;border:1px solid #d1d5db;border-radius:6px;font-size:12px',placeholder:'Max'});
+  pmx.addEventListener('change',function(){state.maxPct=parseFloat(this.value)||100;refresh();});
+  fb.appendChild(pmn); fb.appendChild(el('span',{text:'–'})); fb.appendChild(pmx);
+
+  var ss=el('select',{style:'padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px'});
+  [['all','All Status'],['pending','⏳ Pending'],['accepted','✅ Accepted'],['rejected','❌ Rejected']]
+  .forEach(function(o){var opt=document.createElement('option');opt.value=o[0];opt.textContent=o[1];if(state.status===o[0])opt.selected=true;ss.appendChild(opt);});
+  ss.addEventListener('change',function(){state.status=this.value;refresh();});
+  fb.appendChild(ss);
+
+  fb.appendChild(el('span',{text:'Date:',style:'font-size:12px;font-weight:600;color:#374151'}));
+  var df=el('input',{type:'date',value:state.dateFrom,style:'padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px'});
+  df.addEventListener('change',function(){state.dateFrom=this.value;refresh();});
+  var dt=el('input',{type:'date',value:state.dateTo,style:'padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px'});
+  dt.addEventListener('change',function(){state.dateTo=this.value;refresh();});
+  fb.appendChild(df); fb.appendChild(el('span',{text:'→'})); fb.appendChild(dt);
+
+  // Quick filters
+  var qfDiv=el('div',{style:'display:flex;gap:6px;flex-wrap:wrap'});
+  [{l:'High >4%',mn:4,mx:100},{l:'Med 2-4%',mn:2,mx:4},{l:'Low <2%',mn:0,mx:2}]
+  .forEach(function(qf){
+    var b=el('button',{style:'padding:4px 10px;background:'+(state.minPct===qf.mn&&state.maxPct===qf.mx?'#1a6b3c':'#f1f5f9')+';color:'+(state.minPct===qf.mn&&state.maxPct===qf.mx?'#fff':'#374151')+';border:1px solid #d1d5db;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600',text:qf.l});
+    (function(_mn,_mx){b.addEventListener('click',function(){state.minPct=_mn;state.maxPct=_mx;pmn.value=_mn;pmx.value=_mx;refresh();});})(qf.mn,qf.mx);
+    qfDiv.appendChild(b);
+  });
+  fb.appendChild(qfDiv);
+
+  // Bulk action buttons
+  var bacc=el('button',{style:'padding:6px 14px;background:#166534;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer',text:'✅ Accept All Filtered'});
+  bacc.addEventListener('click',function(){
+    if(!confirm('Accept '+filt.length+' rebate entries for ₹'+fmt(tReb)+'?'))return;
+    saveUndo('Bulk Accept Rebate');
+    filt.forEach(function(r){var p=payments.find(function(pp){return pp.id===r.payId;});if(p)p.rebateStatus='accepted';});
+    DB.set('payments',payments);invalidateBillStatusCache();refresh();toast('✅ '+filt.length+' rebates accepted');
+  });
+  var brej=el('button',{style:'padding:6px 14px;background:#dc2626;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer',text:'❌ Reject All Filtered'});
+  brej.addEventListener('click',function(){
+    if(!confirm('Reject '+filt.length+' rebate entries? This will add ₹'+fmt(tReb)+' back to outstanding balance.'))return;
+    saveUndo('Bulk Reject Rebate');
+    filt.forEach(function(r){var p=payments.find(function(pp){return pp.id===r.payId;});if(p){p.rebateStatus='rejected';}});
+    DB.set('payments',payments);invalidateBillStatusCache();refresh();toast('❌ '+filt.length+' rebates rejected — added to outstanding','warn');
+  });
+  fb.appendChild(bacc); fb.appendChild(brej);
+  wrap.appendChild(fb);
+
+  if(!rebData.length){
+    wrap.appendChild(el('div',{style:'text-align:center;padding:60px;color:#9ca3af;font-size:14px',text:'No rebate entries yet. Run ERP Engine to generate rebate data.'}));
+    return wrap;
+  }
+  if(!filt.length){
+    wrap.appendChild(el('div',{style:'text-align:center;padding:40px;color:#9ca3af;font-size:13px',text:'No entries match filters.'}));
+    return wrap;
+  }
+
+  // Table
+  var tw=el('div',{style:'overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px'});
+  var tbl=document.createElement('table');
+  tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+  var thead=document.createElement('thead');
+  var htr=document.createElement('tr');
+  htr.style.cssText='background:#1a6b3c;color:#fff';
+  [{k:'billNo',l:'Bill No'},{k:'party',l:'Party'},{k:'date',l:'Date'},{k:'mode',l:'Mode'},
+   {k:'billAmt',l:'Bill Amt'},{k:'credit',l:'Paid'},{k:'rebate',l:'Rebate ₹'},{k:'pct',l:'%'},
+   {k:'status',l:'Status'},{k:'_a',l:'Accept / Reject'}]
+  .forEach(function(h){
+    var th=document.createElement('th');
+    th.style.cssText='padding:9px 10px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap;cursor:'+(h.k==='_a'?'default':'pointer');
+    th.textContent=h.l+(state.sortKey===h.k?(state.sortDir>0?' ▲':' ▼'):'');
+    if(h.k!=='_a'){(function(kk){th.addEventListener('click',function(){if(state.sortKey===kk)state.sortDir*=-1;else{state.sortKey=kk;state.sortDir=-1;}refresh();});})(h.k);}
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr); tbl.appendChild(thead);
+  var tbody=document.createElement('tbody');
+  filt.forEach(function(r,ri){
+    var tr=document.createElement('tr');
+    tr.style.cssText='border-bottom:1px solid #f0f0f0;background:'+(ri%2?'#fafafa':'#fff');
+    if(r.status==='rejected') tr.style.background='#fff5f5';
+    else if(r.status==='accepted') tr.style.background='#f0fff4';
+
+    var pclr=r.pct>=4?'#dc2626':r.pct>=2?'#d97706':'#166534';
+    var pbg =r.pct>=4?'#fee2e2':r.pct>=2?'#fef3c7':'#f0fdf4';
+    var sCfg={pending:{bg:'#fef9c3',c:'#854d0e',t:'⏳ Pending'},accepted:{bg:'#dcfce7',c:'#166534',t:'✅ Accepted'},rejected:{bg:'#fee2e2',c:'#991b1b',t:'❌ Rejected'}};
+    var sc=sCfg[r.status]||sCfg.pending;
+
+    tr.innerHTML=
+      '<td style="padding:8px 10px;font-weight:700;color:#374151">'+r.billNo+'</td>'+
+      '<td style="padding:8px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.party+'">'+r.party+'</td>'+
+      '<td style="padding:8px 10px;color:#6b7280;font-size:11px;white-space:nowrap">'+r.date+'</td>'+
+      '<td style="padding:8px 10px"><span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">'+r.mode+'</span></td>'+
+      '<td style="padding:8px 10px;text-align:right;font-weight:600">₹'+fmt(r.billAmt)+'</td>'+
+      '<td style="padding:8px 10px;text-align:right;color:#166534;font-weight:600">₹'+fmt(r.credit)+'</td>'+
+      '<td style="padding:8px 10px;text-align:right;color:#d97706;font-weight:800">₹'+fmt(r.rebate)+'</td>'+
+      '<td style="padding:8px 10px;text-align:center"><span style="background:'+pbg+';color:'+pclr+';padding:3px 8px;border-radius:10px;font-size:11px;font-weight:800">'+r.pct.toFixed(2)+'%</span></td>'+
+      '<td style="padding:8px 10px;text-align:center"><span style="background:'+sc.bg+';color:'+sc.c+';padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700">'+sc.t+'</span></td>'+
+      '<td style="padding:8px 10px;white-space:nowrap;text-align:center"></td>';
+
+    var actTd=tr.lastChild;
+    (function(pid,pty,reb,st){
+      if(st!=='accepted'){
+        var ab=el('button',{style:'padding:4px 10px;background:#166534;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;margin-right:4px',text:'✅ Accept'});
+        ab.addEventListener('click',function(){
+          saveUndo('Accept Rebate');
+          var p=payments.find(function(x){return x.id===pid;});if(p)p.rebateStatus='accepted';
+          DB.set('payments',payments);invalidateBillStatusCache();refresh();
+          toast('✅ Rebate ₹'+fmt(reb)+' accepted');
+        });
+        actTd.appendChild(ab);
+      }
+      if(st!=='rejected'){
+        var rb=el('button',{style:'padding:4px 10px;background:#dc2626;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;margin-right:4px',text:'❌ Reject'});
+        rb.addEventListener('click',function(){
+          saveUndo('Reject Rebate');
+          var p=payments.find(function(x){return x.id===pid;});
+          if(p){p.rebateStatus='rejected';}
+          DB.set('payments',payments);invalidateBillStatusCache();refresh();
+          toast('❌ Rebate ₹'+fmt(reb)+' rejected — added to outstanding for '+pty,'warn');
+        });
+        actTd.appendChild(rb);
+      }
+      if(st!=='pending'){
+        var ub=el('button',{style:'padding:4px 9px;background:#6b7280;color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer',text:'↩'});
+        ub.title='Reset to Pending';
+        ub.addEventListener('click',function(){
+          var p=payments.find(function(x){return x.id===pid;});
+          if(p)delete p.rebateStatus;
+          DB.set('payments',payments);invalidateBillStatusCache();refresh();
+        });
+        actTd.appendChild(ub);
+      }
+    })(r.payId,r.party,r.rebate,r.status);
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody); tw.appendChild(tbl); wrap.appendChild(tw);
+
+  // Footer
+  var foot=el('div',{style:'padding:10px 14px;background:#f0fdf4;border-top:2px solid #bbf7d0;font-size:12px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500'});
+  foot.innerHTML='<span>Filtered: <strong>'+filt.length+'</strong></span>'+
+    '<span>Total: <strong style="color:#d97706">₹'+fmt(tReb)+'</strong></span>'+
+    '<span>✅ Accepted: <strong style="color:#166534">₹'+fmt(tAcc)+'</strong></span>'+
+    '<span>❌ Rejected: <strong style="color:#dc2626">₹'+fmt(tRej)+'</strong></span>'+
+    '<span>⏳ Pending: <strong style="color:#6b7280">₹'+fmt(tPen)+'</strong></span>'+
+    '<span style="margin-left:auto;color:#9ca3af;font-size:11px">Rejected rebate = added back to party outstanding</span>';
+  wrap.appendChild(foot);
+  return wrap;
+}
+
 function pgLedger() {
   if (pageState.ledgerParty) return pgPartyLedger(pageState.ledgerParty);
   var q = (pageState.ledgerQ || '').toLowerCase();
@@ -4954,20 +5181,25 @@ function pgLedger() {
     };
   });
 
-  return genericListPage('📒 Party Ledger', data, [
-    { label: 'Party', key: 'party', render: function(v) { return '<strong>' + v + '</strong>'; } },
-    { label: 'Bills', key: 'bills', num: true },
-    { label: 'Total', key: 'total', num: true, render: function(v) { return '₹' + fmt(v); } },
-    { label: 'Outstanding', key: 'due', num: true, render: function(v) {
-      return el('span', { text: '₹'+fmt(v), style: 'color:'+(v>0?'#dc2626':'#166534')+';font-weight:700' });
-    }},
-    { label: 'Action', key: 'party', render: function(v) {
-      return actionBtns([{ label: 'View Ledger', cls: 'btn-xs btn-green', fn: function() {
-        pageState.ledgerParty = v;
-        refresh();
-      }}]);
-    }}
-  ], search);
+  var _ld2=filtered.map(function(p){
+    var pb=bills.filter(function(b){return b.party===p;});
+    return{party:p,bills:pb.length,
+      total:pb.reduce(function(s,b){return s+b.netAmt;},0),
+      received:pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0),
+      rebate:pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0),
+      interest:pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0),
+      due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};
+  });
+  return genericListPage('📒 Party Ledger',_ld2,[
+    {label:'Party',key:'party',render:function(v){return'<strong>'+v+'</strong>';}},
+    {label:'Bills',key:'bills',num:true},
+    {label:'Total Sales',key:'total',num:true,render:function(v){return'₹'+fmt(v);}},
+    {label:'Received',key:'received',num:true,render:function(v){return'<span style="color:#166534;font-weight:700">₹'+fmt(v)+'</span>';}},
+    {label:'Rebate',key:'rebate',num:true,render:function(v){return v>0?'<span style="color:#d97706;font-weight:600">₹'+fmt(v)+'</span>':'-';}},
+    {label:'Interest',key:'interest',num:true,render:function(v){return v>0?'<span style="color:#7c3aed;font-weight:600">₹'+fmt(v)+'</span>':'-';}},
+    {label:'Outstanding',key:'due',num:true,render:function(v){return el('span',{text:'₹'+fmt(v),style:'color:'+(v>0?'#dc2626':'#166534')+';font-weight:700'});}},
+    {label:'Action',key:'party',render:function(v){return actionBtns([{label:'View Ledger',cls:'btn-xs btn-green',fn:function(){pageState.ledgerParty=v;refresh();}}]);}}
+  ],search);
 }
 
 function pgPartyLedger(party) {
@@ -5165,7 +5397,7 @@ function pgPartyLedger(party) {
     } else {
       var ph='<div style="padding:10px 16px"><div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:6px">Payment History</div>'+
         '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#dcfce7">'+
-        ['#','Date','Gross Amt','Net Amt','Rebate','Interest','Net Settled','Mode','Cheque/Rcpt No','R No','Remarks','Del'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px">'+h+'</th>';}).join('')+
+        ['#','Date','Amount','Rebate','Interest','Net','Mode','Cheque','Receipt','Remarks','Del'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px">'+h+'</th>';}).join('')+
         '</tr></thead><tbody>';
       bpays.forEach(function(p,pi){
         ph+='<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:5px 8px;color:#6b7280">'+(pi+1)+'</td>'+
@@ -5175,8 +5407,8 @@ function pgPartyLedger(party) {
           '<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>'+
           '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
           '<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span></td>'+
-          '<td style="padding:5px 8px;font-family:monospace;color:'+(p.mode==='CASH'?'#92400e':'#374151')+'">'+(p.chequeNo||'-')+'</td>'+
-          '<td style="padding:5px 8px;font-family:monospace;font-weight:'+(p.receiptNo?'700':'400')+';color:'+(p.receiptNo?'#166534':'#9ca3af')+'">'+(p.receiptNo?'🧾 R#'+p.receiptNo:'-')+'</td>'+
+          '<td style="padding:5px 8px;font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
+          '<td style="padding:5px 8px;font-family:monospace">'+(p.receiptNo||'-')+'</td>'+
           '<td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td>'+
           '<td style="padding:5px 8px;white-space:nowrap"><button class="edit-pay-btn" data-pid="'+p.id+'" style="background:#dbeafe;color:#1d4ed8;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-right:3px">✏️</button><button class="del-pay-btn" data-pid="'+p.id+'" data-prty="'+party+'" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer">Del</button></td>'+
           '</tr>';
@@ -6570,7 +6802,7 @@ function togglePayDetails(billId) {
         '<td style="padding:5px 8px;text-align:right">₹'+fmt(p.amount||0)+'</td>'+
         '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
         '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
-        '<td style="padding:5px 8px">'+(p.mode==='CASH'?'<span style="background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">CASH</span>':'<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span>')+'</td>'+'<td style="padding:5px 8px;font-family:monospace">'+(p.mode==='CASH'?(p.receiptNo?'<span style="background:#dcfce7;color:#166534;font-weight:700;padding:1px 4px;border-radius:3px">R#'+p.receiptNo+'</span>':'-'):(p.chequeNo||'-'))+'</td>'+
+        '<td style="padding:5px 8px">'+(p.mode||'-')+'</td><td style="padding:5px 8px">'+(p.chequeNo||'-')+'</td>'+
         '<td style="padding:5px 8px">'+(p.receiptNo||'-')+'</td><td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td></tr>';
     });
     h+='</tbody></table></div>';td.innerHTML=h;
@@ -12945,7 +13177,10 @@ function erpNum(v) {
   var n = parseFloat(s);
   return isNaN(n) ? 0 : Math.round(n * 100) / 100;
 }
+var _ERP_PFIX={'BK ENTERPRISES':'BK ENTERPIRSES','KALYAN KRIPA HERBAL PVT LTD':'KALYAN KRIPA HARBAL PVT LTD','KALYAN KRIPA HERBAL PVY LTD':'KALYAN KRIPA HARBAL PVT LTD','KALYAN KRIPTA HERBAL PVT LTD':'KALYAN KRIPA HARBAL PVT LTD','KHANDELWAL SWEET CATERS':'KHANDELWAL SWEET CENTER','KHANDELWAL SWEET CETARS':'KHANDELWAL SWEET CENTER','MOTILAL VINOD KUMAR':'MOTILAL VINDO KUMAR','SHIR JI DRYFOOD TRADING COMPANY':'SHRI JEE TRADING COMPANY','SHIR KRISHNA MART':'SHRI KRISHNA MART','SHIR RADHA GOVIDN KIRANA STORE':'SHRI  RADHA GOVIDN KIRANA STORE','ANIL MASALA AND AYURVEDIC STORE':'ANIL MASALA AND KIRANA STORE','CHUNNU MUNNU KIRANA STORE':'CHUNU MUNNU KIRANA STORE'};
 function erpNorm(s) {
+  var _u=String(s||'').toUpperCase().trim();
+  if(_ERP_PFIX[_u])return _ERP_PFIX[_u];
   if (!s) return '';
   return String(s).trim().toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -13135,7 +13370,6 @@ function erpParsePayments(sheets) {
         credit:     erp2(credit),
         billRef:    erpStr(erpGetField(r, ['BILL REF','BILL NO.','Bill No.'])),
         receiptNo:  erpStr(erpGetField(r, ['RECEIPT NO','Receipt No','RECEIPT_NO','R NO','R NO.'])),
-        cashRNo:    erpStr(erpGetField(r, ['RECEIPT NO','Receipt No','R NO'])), // for CASH payments
         billNo:     billNoStr,
         billNoArr:  billNoArr,
         mode:       erpStr(erpGetField(r, ['MODE','Mode'])),
@@ -13251,12 +13485,26 @@ function erpReconcile() {
   var auditLog      = [];
 
   // ── Global paid-bill guard (invNo key per party) ─────────────────────────
-  var paidSet = {};  // partyKey → { invNo: true }
+  var paidSet={};
+  var _iCred={};  // installment cumulative: pk→{invNo:total}
   // FIXED: Always reset _lockedBills at start of each run.
   // Previously used `if (!ERP._lockedBills)` → re-runs stacked old locks,
   // blocking bills that should have been available → double-counted allocation.
   ERP._lockedBills = {};
 
+  function _addIC(pk,iv,cr,bamt){
+    var k=String(iv);
+    if(!_iCred[pk])_iCred[pk]={};
+    _iCred[pk][k]=(_iCred[pk][k]||0)+cr;
+    if(_iCred[pk][k]>=(bamt||0)-1) markPaid(pk,iv);
+  }
+  function _getIC(pk,iv){return(_iCred[pk]||{})[String(iv)]||0;}
+  function _unlock(pk,iv){
+    var k=String(iv);
+    if(paidSet[pk])delete paidSet[pk][k];
+    if(ERP._lockedBills&&ERP._lockedBills[pk])delete ERP._lockedBills[pk][k];
+    (partyMap[pk]||[]).forEach(function(b){if(String(b.invNo)===k){b.paid=false;b.locked=false;}});
+  }
   function markPaid(pk, invNo) {
     var key = String(invNo);
     // Session paid-set (current run)
@@ -13323,7 +13571,7 @@ function erpReconcile() {
     var pct    = billsTotal > 0 ? Math.abs(diff) / billsTotal : 1;
     var rebate = 0, interest = 0, cls;
     if (Math.abs(diff) <= 1)           { cls = 'EXACT'; }
-    else if (diff < 0 && pct <= 0.02)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
+    else if (diff < 0 && pct <= 0.04)  { rebate   = erp2(Math.abs(diff)); cls = 'REBATE'; }
     else if (diff > 0 && pct <= 0.04)  { interest = erp2(diff);           cls = flagIntDue ? 'INTEREST_DUE' : 'INTEREST'; }
     else if (diff < 0)                  { cls = 'PARTIAL'; }
     else                                { cls = 'EXCESS'; }
@@ -13508,65 +13756,78 @@ function erpReconcile() {
       // STEP 1 — BILL NO COLUMN (explicit mapping, highest priority)
       // ══════════════════════════════════════════════════════════════════
       if (p.billNoArr && p.billNoArr.length > 0) {
-        var bnFound = [], bnMissing = [], bnRunning = 0;
+        var bnFound=[],bnMissing=[],bnOver=[];
+        var _rU=String(p.remarks||'').toUpperCase();
+        var _isInst=/INSTALLMENT|GROSS/.test(_rU);
 
-        p.billNoArr.forEach(function(ref) {
-          var refStr = String(ref).trim();
-          var hit = (partyMap[matchedKey] || []).find(function(b2) {
-            return String(b2.invNo).trim() === refStr;
-          });
-          if (!hit || !isDue(matchedKey, hit.invNo) || hit.paid || hit.netAmt <= 0) {
-            bnMissing.push(refStr);
+        p.billNoArr.forEach(function(ref){
+          var rs=String(ref).trim();
+          var hit=(partyMap[matchedKey]||[]).find(function(b2){return String(b2.invNo).trim()===rs;});
+          if(!hit||hit.netAmt<=0){bnMissing.push(rs+'(not found)');return;}
+          if(!isDue(matchedKey,hit.invNo)||hit.paid){
+            if(_isInst){bnFound.push(hit);return;}  // installment: accept even if locked
+            bnOver.push(hit);  // already paid: treat as overpayment
             return;
           }
-          // STEP 1a: Try exact amount match first
-          if (bnFound.length === 0 && Math.abs(hit.netAmt - credit) <= 1) {
-            bnFound = [hit];
-            bnRunning = hit.netAmt;
-            return;
-          }
-          // STEP 1b: FIFO with hard limit
-          var next = erp2(bnRunning + hit.netAmt);
-          if (next <= erp2(credit + 1)) {
-            bnFound.push(hit);
-            bnRunning = next;
-          } else {
-            bnMissing.push(refStr + ' (exceeds payment)');
-          }
+          bnFound.push(hit);
         });
 
-        if (!bnFound.length) {
-          addConfusion(p, matchedKey,
-            'BILL NO NOT FOUND OR ALREADY PAID — [' + p.billNoArr.join(', ') + ']',
-            'Cross-check bill numbers in Bills file', 'error',
-            due.filter(function(b){ return b.netAmt <= credit + 1; }));
+        // If only overpayment hits, treat as EXCESS for those bills
+        if(!bnFound.length && bnOver.length){
+          var _ovTotal=erp2(bnOver.reduce(function(s,b){return s+b.netAmt;},0));
+          var _scOv={total:_ovTotal,diff:erp2(credit),pct:1,
+            matchType:'EXCESS',score:50,basis:'Bill No (Overpayment)'};
+          var _resOv=buildResult(p,'BILL',matchedKey,bnOver,_scOv);
+          _resOv.manualBillMapping=true; _resOv.billNoList=p.billNoArr;
+          _resOv.isOverpayment=true;
+          pushResult(_resOv);
           return;
         }
 
-        var bnTotal = erp2(bnFound.reduce(function(s,b){ return s+b.netAmt; },0));
-        // Final hard-limit guard (paranoia)
-        if (bnTotal > erp2(credit + 1)) {
-          addConfusion(p, matchedKey,
-            'OVER-ALLOCATION (Bill No): Bills ₹' + bnTotal + ' > Credit ₹' + credit,
-            'Fix Bill No column — bills total exceeds payment', 'error', []);
+        if(!bnFound.length){
+          addConfusion(p,matchedKey,
+            'BILL NO NOT FOUND OR ALREADY PAID — ['+p.billNoArr.join(', ')+']',
+            'Cross-check bill numbers in Bills file','error',
+            due.filter(function(b){return b.netAmt<=credit+1;}));
           return;
         }
 
-        var scBN = { total: bnTotal, diff: erp2(credit-bnTotal),
-                     pct: bnTotal>0?Math.abs(erp2(credit-bnTotal))/bnTotal:0,
-                     matchType: Math.abs(erp2(credit-bnTotal))<=1?'EXACT':'APPROX',
-                     score: Math.abs(erp2(credit-bnTotal))<=1?100:90,
-                     basis: 'Bill No' };
-        var resBN = buildResult(p, bnFound.length>1?'GROSS':'BILL', matchedKey, bnFound, scBN);
-        resBN.manualBillMapping = true;
-        resBN.billNoList        = p.billNoArr;
+        var bnTotal=erp2(bnFound.reduce(function(s,b){return s+b.netAmt;},0));
+
+        var _diff=erp2(credit-bnTotal);
+        var _pct=bnTotal>0?Math.abs(_diff)/bnTotal:0;
+        var _mt=Math.abs(_diff)<=1?'EXACT':(_pct<=0.04?'APPROX':'PARTIAL');
+        if(_isInst){
+          var _cumC=credit; bnFound.forEach(function(b){_cumC+=_getIC(matchedKey,b.invNo);});
+          var _cd=erp2(_cumC-bnTotal); var _cp=bnTotal>0?Math.abs(_cd)/bnTotal:0;
+          _mt=Math.abs(_cd)<=1?'EXACT':(_cp<=0.04?'APPROX':'PARTIAL');
+          _diff=_cd; _pct=_cp;
+        } else if(bnTotal>erp2(credit+1)){
+          addConfusion(p,matchedKey,'OVER-ALLOCATION: Bills ₹'+bnTotal+' > Credit ₹'+credit,
+            'Fix Bill No column','error',[]); return;
+        }
+
+        var scBN={total:bnTotal,diff:_diff,pct:_pct,
+          matchType:_mt,score:_mt==='EXACT'?100:(_mt==='APPROX'?90:70),
+          basis:_isInst?'Bill No (Installment)':'Bill No'};
+        var bnType=_isInst?'INSTALLMENT':(bnFound.length>1?'GROSS':'BILL');
+        var resBN=buildResult(p,bnType,matchedKey,bnFound,scBN);
+        resBN.manualBillMapping=true; resBN.billNoList=p.billNoArr;
+        resBN.isInstallment=_isInst;
         pushResult(resBN);
-        bnFound.forEach(function(b){ markPaid(matchedKey, b.invNo); });
 
-        if (bnMissing.length) {
-          addConfusion(p, matchedKey,
-            'PARTIAL BILL NO MATCH — skipped: [' + bnMissing.join(', ') + ']',
-            'Some bill numbers were not found or would exceed payment amount', 'warn', []);
+        if(_isInst){
+          bnFound.forEach(function(b){
+            _addIC(matchedKey,b.invNo,credit/bnFound.length,b.netAmt);
+            if(_getIC(matchedKey,b.invNo)<b.netAmt-1) _unlock(matchedKey,b.invNo);
+          });
+        } else {
+          bnFound.forEach(function(b){markPaid(matchedKey,b.invNo);});
+        }
+        if(bnMissing.length){
+          addConfusion(p,matchedKey,
+            'PARTIAL BILL NO MATCH — skipped: ['+bnMissing.join(', ')+']',
+            'Some bill numbers not found','warn',[]);
         }
         return;
       }
