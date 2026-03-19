@@ -1189,49 +1189,6 @@ function _doFullClearAndReload() {
   try { ERP.rawBills=[]; ERP.rawPayments=[]; ERP.partyMap={}; ERP.results=[];
         ERP.rebateList=[]; ERP.interestList=[]; ERP.confusionList=[]; ERP.openingList=[];
         ERP.auditLog=[]; ERP.summary=null; ERP.overrides={}; ERP.savedAt=null; } catch(e) {}
-/* ═══ CHEQUE & RECEIPT SYSTEM ═══════════════════════════════════════════════
-   - Cheque numbers are always stored as 6-digit (padded with leading zeros)
-   - Receipt numbers mapped from Debtors R NO. column
-   - 339 cheque→receipt mappings pre-loaded
-   ═════════════════════════════════════════════════════════════════════════ */
-var _CHQ_RECEIPT_MAP = {"000987":"10","013224":"15","013238":"21","001776":"26","005725":"45","003168":"71","003088":"87","002515":"48","002057":"29","248318":"62","524857":"5","003023":"73","003024":"74","003025":"75","003026":"76","003027":"77","000178":"385","001236":"58","001235":"59","001233":"60","001234":"61","537579":"16","000263":"49","319087":"65","319086":"66","319080":"67","319088":"68","496645":"23","676216":"46","013325":"31","013328":"32","000902":"57","000185":"24","013336":"38","013340":"41","013708":"43","013505":"44","013728":"50","000188":"30","369291":"64","369305":"63","000863":"79","002555":"105","002554":"157","002470":"204","003099":"104","000190":"53","165956":"91","001446":"54","003235":"158","003145":"179","002651":"217","000194":"69","013586":"94","369355":"96","003166":"100","611844":"70","013802":"108","002654":"222","000834":"72","496707":"109","001939":"114","000922":"121","002655":"232","611845":"80","620135":"101","000195":"81","000914":"84","002656":"239","013842":"123","620138":"107","001460":"82","000930":"111","013857":"126","000183":"95","001200":"85","000197":"92","000198":"97","003098":"159","003257":"214","000938":"360","280606":"128","000199":"98","614454":"102","003144":"180","184766":"110","602624":"99","483284":"131","000945":"112","029043":"201","001858":"129","003456":"119","002685":"255","003454":"120","001019":"115","063239":"124","003146":"178","000365":"125","000039":"170","001966":"134","805434":"194","184810":"152","614460":"130","003147":"181","000937":"174","002707":"273","002742":"313","029346":"211","000968":"142","063242":"144","000204":"133","001034":"200","000367":"155","483291":"175","011704":"177","002004":"146","001489":"143","000947":"145","000988":"161","000084":"243","003276":"282","483300":"199","000956":"162","000206":"163","063249":"176","001196":"198","000960":"164","003297":"312","001013":"195","614467":"182","003344":"371","000209":"184","001497":"183","805422":"233","002276":"185","299657":"280","001131":"250","614469":"188","036988":"187","000677":"202","524902":"191","805454":"233","000556":"196","000661":"190","000210":"208","280623":"229","001241":"329","063260":"216","002069":"209","003226":"267","003393":"260","319132":"258","002993":"210","014095":"234","280624":"230","001056":"226","003227":"268","000970":"252","319134":"256","319133":"257","001061":"227","000213":"219","001074":"235","000690":"220","014267":"244","001251":"221","030744":"224","000692":"236","002129":"361","001089":"241","000078":"251","000099":"264","558811":"247","063275":"240","006309":"360","001103":"242","000217":"237","934991":"253","288242":"261","015870":"11-8-25-","001107":"248","000844":"238","738420":"245","003228":"269","558812":"246","003176":"363","805487":"266","570360":"295","483333":"263","001134":"401","002131":"362","483340":"274","391408":"289","000440":"305","000522":"315","006310":"337","000831":"297","502946":"262","000442":"328","000132":"275","000990":"301","000876":"308","391409":"290","000223":"271","001175":"278","002221":"287","001113":"276","000224":"281","000149":"325","170372":"291","687656":"321","000485":"352","000227":"296","002245":"300","000228":"299","001210":"304","649076":"324","000486":"367","003345":"372","170434":"378","000495":"368","000011":"479","000869":"333","001068":"311","003497":"387","006315":"359","001227":"318","649077":"323","001146":"326","319160":"454","000234":"330","001075":"327","649118":"365","000237":"336","222633":"390","003328":"349","001267":"348","003346":"369","002626":"383","002386":"343","002383":"344","003347":"370","627804":"346","002754":"404","002789":"423","003223":"393","000019":"350","000287":"358","000244":"353","002810":"437","843421":"354","146060":"357","000848":"355","977293":"394","000288":"375","182964":"379","000020":"373","000249":"380","001334":"382","002483":"403","200067":"427","001367":"407","277037":"408","170446":"400","288303":"409","001120":"395","401212":"430","001141":"405","001378":"406","183045":"410","001388":"421","017944":"438","001159":"413","200080":"463","000259":"422","001395":"432","401213":"428","001405":"431","002803":"503","001424":"433","000262":"435","012484":"439","998380":"456","495913":"453","200098":"505","000021":"478","001452":"447","000009":"466","001455":"445","012489":"443","800533":"486","000459":"448","000289":"451","002533":"450","000267":"452","001468":"457","003576":"499","998395":"455","000269":"461","828855":"481","000295":"460","000467":"459","904297":"513","339076":"465","544817":"484","295697":"500","264826":"467","002557":"473","000271":"474","038129":"17-1-26-","288337":"483","001512":"490","339105":"477","828857":"482","991523":"488","012502":"480","000006":"475","003598":"498","001526":"487","001770":"485","002584":"489","003688":"510","001558":"497","000031":"492","001559":"506","712412":"493","004594":"509","000073":"496","001573":"502","003740":"514","001304":"504","003730":"515","188763":"511","001327":"508","012539":"520","000033":"507","001621":"518","001318":"516","001627":"517"};
-
-/* Format any cheque number to 6 digits */
-function fmtCheque6(val) {
-  if (!val && val !== 0) return '';
-  var s = String(val).replace(/[^0-9]/g,'').replace(/^\.?0+/,'') || '0';
-  // parse as number to strip leading zeros, then re-pad
-  var n = parseInt(s, 10);
-  if (isNaN(n)) return String(val);
-  var ns = String(n);
-  return ns.length <= 6 ? ns.padStart(6,'0') : ns;  // >6 digits = receipt/ref, keep as-is
-}
-
-/* Look up receipt number for a cheque */
-function getReceiptNo(chequeNo) {
-  if (!chequeNo) return '';
-  var k = fmtCheque6(chequeNo);
-  return _CHQ_RECEIPT_MAP[k] || '';
-}
-
-/* Auto-fill receipt when cheque entered */
-function chequeAutoFillReceipt(chequeInputId, receiptInputId) {
-  var ci = document.getElementById(chequeInputId);
-  var ri = document.getElementById(receiptInputId);
-  if (!ci || !ri) return;
-  ci.addEventListener('input', function() {
-    var rno = getReceiptNo(ci.value);
-    if (rno && !ri.value) ri.value = rno;
-  });
-  ci.addEventListener('blur', function() {
-    // Format cheque to 6-digit on blur
-    if (ci.value) {
-      var fmt = fmtCheque6(ci.value);
-      if (fmt !== ci.value) ci.value = fmt;
-    }
-  });
-}
-
   try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
   try { invalidateBillStatusCache(); } catch(e) {}
 
@@ -2382,11 +2339,6 @@ function openPayModal(billId) {
   }
   setTimeout(function(){
     var ai=document.getElementById('pay-amt');var ri=document.getElementById('pay-reb');
-    // Auto-fill receipt no when cheque no entered
-    if(typeof chequeAutoFillReceipt==='function') chequeAutoFillReceipt('pay-chq','pay-rcpt');
-    // Format cheque field placeholder
-    var chqFld=document.getElementById('pay-chq');
-    if(chqFld){ chqFld.placeholder='Cheque No (auto 6-digit)'; chqFld.maxLength=10; }
     var ii=document.getElementById('pay-int');
     if(ai)ai.addEventListener('input',updateNet);
     if(ri)ri.addEventListener('input',updateNet);
@@ -2408,11 +2360,8 @@ function openPayModal(billId) {
       var date=gv('pay-date');
       if(!amt&&!reb){toast('Amount required!','err');return;}
       if(!date){toast('Date required!','err');return;}
-      var _rawChq = gv('pay-chq');
-      var _fmtChq = typeof fmtCheque6==='function' ? fmtCheque6(_rawChq) : _rawChq;
-      var _autoRcpt = gv('pay-rcpt') || (typeof getReceiptNo==='function' ? getReceiptNo(_rawChq) : '');
       var newPay={id:uid(),billId:billId,amount:amt,rebate:reb,interest:int_,date:date,
-        mode:gv('pay-mode'),chequeNo:_fmtChq,receiptNo:_autoRcpt,remarks:gv('pay-rmk')};
+        mode:gv('pay-mode'),chequeNo:gv('pay-chq'),receiptNo:gv('pay-rcpt'),remarks:gv('pay-rmk')};
       histSave('Payment: ' + b.party + ' ₹' + fmt(amt), 'payment');
       payments.push(newPay);
       saveUndo('Payment Save');
@@ -5216,7 +5165,7 @@ function pgPartyLedger(party) {
     } else {
       var ph='<div style="padding:10px 16px"><div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:6px">Payment History</div>'+
         '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#dcfce7">'+
-        ['#','Date','Amount','Rebate','Interest','Net Settled','Mode','Cheque No','Receipt No','Remarks','✏️/Del'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px;cursor:pointer;white-space:nowrap" title="Click to sort">'+h+'</th>';}).join('')+
+        ['#','Date','Gross Amt','Net Amt','Rebate','Interest','Net Settled','Mode','Cheque/Rcpt No','R No','Remarks','Del'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px">'+h+'</th>';}).join('')+
         '</tr></thead><tbody>';
       bpays.forEach(function(p,pi){
         ph+='<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:5px 8px;color:#6b7280">'+(pi+1)+'</td>'+
@@ -5226,9 +5175,9 @@ function pgPartyLedger(party) {
           '<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>'+
           '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
           '<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span></td>'+
-          '<td style="padding:5px 8px;font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
-          '<td style="padding:5px 8px">'+(p.receiptNo?'<span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:4px;font-weight:700;font-size:10px;font-family:monospace;border:1px solid #fcd34d">R/'+p.receiptNo+'</span>':'<span style="color:#9ca3af;font-size:10px">—</span>')+'</td>'+
-          '<td style="padding:5px 8px;color:#6b7280;font-size:10px">'+(p.remarks||'-')+'</td>'+
+          '<td style="padding:5px 8px;font-family:monospace;color:'+(p.mode==='CASH'?'#92400e':'#374151')+'">'+(p.chequeNo||'-')+'</td>'+
+          '<td style="padding:5px 8px;font-family:monospace;font-weight:'+(p.receiptNo?'700':'400')+';color:'+(p.receiptNo?'#166534':'#9ca3af')+'">'+(p.receiptNo?'🧾 R#'+p.receiptNo:'-')+'</td>'+
+          '<td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td>'+
           '<td style="padding:5px 8px;white-space:nowrap"><button class="edit-pay-btn" data-pid="'+p.id+'" style="background:#dbeafe;color:#1d4ed8;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-right:3px">✏️</button><button class="del-pay-btn" data-pid="'+p.id+'" data-prty="'+party+'" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer">Del</button></td>'+
           '</tr>';
       });
@@ -5264,86 +5213,6 @@ function pgPartyLedger(party) {
   if(!pb.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',12);etd.style.cssText='text-align:center;padding:50px;color:#9ca3af';etd.innerHTML='<div style="font-size:36px;margin-bottom:8px">No bills found</div>';etr.appendChild(etd);tbody.appendChild(etr);}
   tbl.appendChild(tbody);tblWrap.appendChild(tbl);card.appendChild(tblWrap);wrap.appendChild(card);
   // Sticky sum bar at bottom
-  // ── RECEIPT SUMMARY TAB ───────────────────────────────────────────────────
-  var rcptTab = document.createElement('div');
-  rcptTab.style.cssText='margin:12px 0 4px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;overflow:hidden';
-  var rcptHdr = document.createElement('div');
-  rcptHdr.style.cssText='padding:8px 14px;background:#fef3c7;border-bottom:1px solid #fcd34d;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none';
-  var rcptPayments = payments.filter(function(p){
-    var b=bills.find(function(x){return x.id===p.billId;});
-    return b && b.party===party && p.receiptNo;
-  });
-  rcptHdr.innerHTML='<span style="font-size:13px;font-weight:700;color:#92400e">🧾 Receipt Register</span>'+
-    '<span style="background:#92400e;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700">'+rcptPayments.length+' receipts</span>'+
-    '<span style="margin-left:auto;font-size:11px;color:#92400e">Click to expand ▼</span>';
-  var rcptBody = document.createElement('div');
-  rcptBody.style.display='none';
-  rcptBody.style.padding='10px 14px';
-  rcptHdr.addEventListener('click',function(){
-    rcptBody.style.display=rcptBody.style.display==='none'?'block':'none';
-    rcptHdr.querySelector('span:last-child').textContent=rcptBody.style.display==='none'?'Click to expand ▼':'Click to collapse ▲';
-  });
-  if(rcptPayments.length>0){
-    // Sort + Filter controls
-    var rcptCtrl=document.createElement('div');
-    rcptCtrl.style.cssText='display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center';
-    var rcptSearch=document.createElement('input');
-    rcptSearch.type='text';rcptSearch.placeholder='🔍 Search receipt/cheque...';
-    rcptSearch.style.cssText='flex:1;min-width:160px;padding:5px 9px;border:1px solid #fcd34d;border-radius:5px;font-size:12px;font-family:var(--font);outline:none;background:#fffef0';
-    var rcptSort=document.createElement('select');
-    rcptSort.style.cssText='padding:5px 8px;border:1px solid #fcd34d;border-radius:5px;font-size:11px;font-family:var(--font);background:#fff;outline:none';
-    [['date-desc','Date ↓'],['date-asc','Date ↑'],['receipt-asc','Receipt# ↑'],['amt-desc','Amount ↓']].forEach(function(o){
-      var op=document.createElement('option');op.value=o[0];op.textContent=o[1];rcptSort.appendChild(op);
-    });
-    rcptCtrl.appendChild(rcptSearch);rcptCtrl.appendChild(rcptSort);rcptBody.appendChild(rcptCtrl);
-    var rcptTbl=document.createElement('div');
-    function renderRcptTable(){
-      var q=rcptSearch.value.toLowerCase();
-      var srt=rcptSort.value;
-      var filtered=rcptPayments.filter(function(p){
-        if(!q) return true;
-        return (p.receiptNo||'').toLowerCase().includes(q)||(p.chequeNo||'').toLowerCase().includes(q)||(p.date||'').includes(q);
-      });
-      filtered.sort(function(a,b2){
-        if(srt==='date-asc')  return (a.date||'').localeCompare(b2.date||'');
-        if(srt==='date-desc') return (b2.date||'').localeCompare(a.date||'');
-        if(srt==='receipt-asc') return (a.receiptNo||'').localeCompare(b2.receiptNo||'');
-        if(srt==='amt-desc')  return (b2.amount||0)-(a.amount||0);
-        return 0;
-      });
-      var h='<table style="width:100%;border-collapse:collapse;font-size:11px">';
-      h+='<thead><tr style="background:#fef3c7">';
-      ['Receipt No','Date','Bill No','Amount','Cheque No','Mode','Net Settled'].forEach(function(hd){
-        h+='<th style="padding:5px 8px;text-align:left;font-weight:700;color:#78350f;font-size:10px;white-space:nowrap">'+hd+'</th>';
-      });
-      h+='</tr></thead><tbody>';
-      filtered.forEach(function(p,i){
-        var b=bills.find(function(x){return x.id===p.billId;})||{};
-        h+='<tr style="border-bottom:1px solid #fde68a;background:'+(i%2===0?'#fffef7':'#fffbeb')+'">';
-        h+='<td style="padding:5px 8px"><span style="background:#fef3c7;color:#78350f;padding:2px 7px;border-radius:4px;font-weight:800;font-size:11px;font-family:monospace;border:1px solid #fcd34d">R/'+p.receiptNo+'</span></td>';
-        h+='<td style="padding:5px 8px;white-space:nowrap">'+fmtDate(p.date)+'</td>';
-        h+='<td style="padding:5px 8px;font-weight:600">'+((b.billNo)||'-')+'</td>';
-        h+='<td style="padding:5px 8px;text-align:right;font-weight:600">₹'+fmt(p.amount||0)+'</td>';
-        h+='<td style="padding:5px 8px;font-family:monospace;color:#374151">'+(p.chequeNo||'-')+'</td>';
-        h+='<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span></td>';
-        h+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0)+(p.interest||0))+'</td>';
-        h+='</tr>';
-      });
-      if(!filtered.length) h+='<tr><td colspan="7" style="text-align:center;padding:16px;color:#9ca3af;font-style:italic">No receipts found</td></tr>';
-      h+='</tbody></table>';
-      h+='<div style="padding:6px 0;font-size:11px;color:#92400e;font-weight:600">Total: '+filtered.length+' receipts | ₹'+fmt(filtered.reduce(function(s,p){return s+(p.amount||0)+(p.rebate||0)+(p.interest||0);},0))+' settled</div>';
-      rcptTbl.innerHTML=h;
-    }
-    rcptSearch.addEventListener('input',renderRcptTable);
-    rcptSort.addEventListener('change',renderRcptTable);
-    renderRcptTable();
-    rcptBody.appendChild(rcptTbl);
-  } else {
-    rcptBody.innerHTML='<div style="color:#9ca3af;font-size:12px;font-style:italic;padding:8px">No cheque payments with receipt numbers recorded</div>';
-  }
-  rcptTab.appendChild(rcptHdr);rcptTab.appendChild(rcptBody);
-  card.appendChild(rcptTab);
-
   var plSumBar=document.createElement('div');
   plSumBar.style.cssText='padding:9px 16px;background:#f0fdf4;border-top:2px solid var(--brand-light);font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3';
   plSumBar.innerHTML=
@@ -5390,7 +5259,7 @@ function openBulkPayModal(party) {
     var date=gv('bpm-date');if(!date){toast('Date required!','err');return;}
     var dm=document.querySelector('input[name="bpm"]:checked');var mode=dm?dm.value:'full';
     if(mode==='full'){
-      selBills.forEach(function(b){var s=getBillStatus(b);if(s.bal<=0)return;payments.push({id:uid(),billId:b.id,amount:s.bal,rebate:0,date:date,mode:gv('bpm-mode'),chequeNo:typeof fmtCheque6==='function'?fmtCheque6(gv('bpm-chq')):gv('bpm-chq'),receiptNo:gv('bpm-rcpt')||(typeof getReceiptNo==='function'?getReceiptNo(gv('bpm-chq')):''),remarks:gv('bpm-rmk')||'Bulk Payment'});});
+      selBills.forEach(function(b){var s=getBillStatus(b);if(s.bal<=0)return;payments.push({id:uid(),billId:b.id,amount:s.bal,rebate:0,date:date,mode:gv('bpm-mode'),chequeNo:gv('bpm-chq'),receiptNo:gv('bpm-rcpt'),remarks:gv('bpm-rmk')||'Bulk Payment'});});
       invalidateBillStatusCache();DB.set('payments',payments);toast('✅ '+selBills.length+' bills settled!');
     } else {
       var amt=parseFloat(gv('bpm-total'))||0;if(!amt){toast('Amount enter karo!','err');return;}
@@ -6701,7 +6570,7 @@ function togglePayDetails(billId) {
         '<td style="padding:5px 8px;text-align:right">₹'+fmt(p.amount||0)+'</td>'+
         '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
         '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
-        '<td style="padding:5px 8px">'+(p.mode||'-')+'</td><td style="padding:5px 8px">'+(p.chequeNo||'-')+'</td>'+
+        '<td style="padding:5px 8px">'+(p.mode==='CASH'?'<span style="background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">CASH</span>':'<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span>')+'</td>'+'<td style="padding:5px 8px;font-family:monospace">'+(p.mode==='CASH'?(p.receiptNo?'<span style="background:#dcfce7;color:#166534;font-weight:700;padding:1px 4px;border-radius:3px">R#'+p.receiptNo+'</span>':'-'):(p.chequeNo||'-'))+'</td>'+
         '<td style="padding:5px 8px">'+(p.receiptNo||'-')+'</td><td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td></tr>';
     });
     h+='</tbody></table></div>';td.innerHTML=h;
@@ -8804,8 +8673,6 @@ function openEditPayment(p) {
     p.amount=amt;
     p.rebate=parseFloat(gv('ep-reb'))||0;
     p.date=gv('ep-date');
-    var _ec=gv('ep-chq')||''; p.chequeNo=typeof fmtCheque6==='function'?fmtCheque6(_ec):_ec;
-    if(typeof getReceiptNo==='function'&&!gv('ep-rcpt')) p.receiptNo=getReceiptNo(p.chequeNo)||p.receiptNo||'';
     p.mode=gv('ep-mode');
     p.chequeNo=gv('ep-chq');
     p.receiptNo=gv('ep-rcpt');
@@ -11787,7 +11654,7 @@ function restoreFromExcel(file) {
             date: r.Date||today(),
             mode: r.Mode||'',
             chequeNo: r.ChequeNo||'',
-            receiptNo: r.ReceiptNo||'',
+            receiptNo: r.ReceiptNo||r['Receipt No']||r['RECEIPT NO']||r.receiptNo||'',
             grossAmt: parseFloat(r.GrossAmt||r.grossAmt||0)||0,  // GROSS group original amount
             remarks: r.Remarks||''
           };
@@ -13267,6 +13134,8 @@ function erpParsePayments(sheets) {
         date:       erpStr(erpGetField(r, ['DATE','PAY DATE','Pay Date'])),
         credit:     erp2(credit),
         billRef:    erpStr(erpGetField(r, ['BILL REF','BILL NO.','Bill No.'])),
+        receiptNo:  erpStr(erpGetField(r, ['RECEIPT NO','Receipt No','RECEIPT_NO','R NO','R NO.'])),
+        cashRNo:    erpStr(erpGetField(r, ['RECEIPT NO','Receipt No','R NO'])), // for CASH payments
         billNo:     billNoStr,
         billNoArr:  billNoArr,
         mode:       erpStr(erpGetField(r, ['MODE','Mode'])),
