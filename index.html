@@ -836,6 +836,9 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 </style>
 </head>
 <body>
+<script>
+(function(){try{var k=['erp_v2_data','erp_reconcile_data','erp_last_saved'];k.forEach(function(n){localStorage.removeItem(n);});console.log('[FIXED] ERP cache cleared on load');}catch(e){}})();
+</script>
 <!-- LOGIN SCREEN -->
 <div id="login-screen">
   <div class="lc">
@@ -894,7 +897,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
       <div class="tb-actions">
         <button id="hist-undo-topbar" onclick="histUndo();refresh()" title="Undo last action" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='var(--brand-light)';this.style.color='var(--brand)'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↩ Undo</button>
         <div id="sync-badge" class="saved"><span class="sdot"></span><span id="sync-lbl">Saved</span></div>
-        <span id="ver-badge" style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #e5e7eb" title="Version">v19-Mar-2026-r3</span>
+        <span id="ver-badge" style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #e5e7eb">v19-Mar-FINAL</span>
         <!-- Mobile floating sync dot -->
         <div id="mob-sync-dot" class="saved">✓</div>
         <button id="usr-btn" onclick="doLogout()" title="Logout">👤 <span id="usr-email">...</span></button>
@@ -15136,12 +15139,11 @@ function histRestore(entryId, skipConfirm) {
   DB.set('suspense', suspense);
 
   // Restore ERP state if present
-  // NOTE: Only restore raw files (bills/payments), NOT computed results.
-  // Results must be re-run with current engine to get correct output.
+  // FIXED: Only restore uploaded files, NOT old computed results.
+  // Results must be re-run to get correct output.
   if (snap.erp && typeof ERP !== 'undefined') {
     ERP.rawBills      = snap.erp.rawBills       || [];
     ERP.rawPayments   = snap.erp.rawPayments    || [];
-    // Clear all computed results - must re-run ERP engine
     ERP.results       = [];
     ERP.rebateList    = [];
     ERP.interestList  = [];
@@ -15152,12 +15154,16 @@ function histRestore(entryId, skipConfirm) {
     ERP._lockedBills  = {};
     ERP.overrides     = {};
     ERP._restoredFromStorage = false;
+    // Re-apply locks to rawBills
     if (ERP.rawBills.length) {
+      ERP.rawBills.forEach(function(b) {
+        if (ERP._lockedBills[b.party] && ERP._lockedBills[b.party][String(b.invNo)]) {
+          b.paid = true; b.locked = true;
+        }
+      });
       if (typeof erpBuildPartyMap === 'function') ERP.partyMap = erpBuildPartyMap(ERP.rawBills);
     }
-    // Clear localStorage ERP cache too
-    try { localStorage.removeItem('erp_v2_data'); } catch(e) {}
-    try { localStorage.removeItem('erp_reconcile_data'); } catch(e) {}
+    erpPersist();
   }
 
   invalidateBillStatusCache();
@@ -15388,4 +15394,3 @@ function pgHistory() {
 </script>
 </body>
 </html>
-
