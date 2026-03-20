@@ -7599,51 +7599,63 @@ function pgBankUpload() {
   // ─────────────────────────────────────────────────
   function downloadTemplate() {
     var wb = XLSX.utils.book_new();
-    // Main template sheet
+
+    // ── Sheet 1: Payment Template (with GROSS ID column) ──
     var templateData = [
-      ['ROW_TYPE','DATE','PARTY_NAME','BILL_NO','PAYMENT_MODE','CHEQUE_NO','RECEIPT_NO','GROSS_AMT','NET_AMT','REBATE','INTEREST','REMARKS'],
-      ['HEADER','15/03/2026','RAMESH TRADERS','','NEFT','','REC001','150000','','','','March payment gross'],
-      ['DETAIL','15/03/2026','RAMESH TRADERS','4101','NEFT','','','','75000','500','0','Bill 4101 settlement'],
-      ['DETAIL','15/03/2026','RAMESH TRADERS','4115','NEFT','','','','74500','0','0','Bill 4115 settlement'],
-      ['SINGLE','16/03/2026','SURESH ENTERPRISES','4120','CHEQUE','CHQ-884432','REC002','','45000','0','200','Single bill payment'],
-      ['PARTIAL','17/03/2026','VIKRAM TRADING CO','4125','UPI','','REC003','','20000','0','0','Partial payment'],
-      ['ADVANCE','18/03/2026','MOHAN CASHEWS','','RTGS','','REC004','','30000','0','0','Advance payment'],
+      ['ROW_TYPE','DATE','PARTY_NAME','BILL_NO','PAYMENT_MODE','CHEQUE_NO','RECEIPT_NO','GROSS_AMT','NET_AMT','REBATE','INTEREST','REMARKS','GROSS_ID'],
+      ['HEADER','15/03/2026','RAMESH TRADERS','','NEFT','','REC001','150000','','','','March payment gross — 2 bills','GP-150326-001'],
+      ['DETAIL','15/03/2026','RAMESH TRADERS','4101','NEFT','','','','75000','500','0','Bill 4101 settlement','GP-150326-001'],
+      ['DETAIL','15/03/2026','RAMESH TRADERS','4115','NEFT','','','','74500','0','0','Bill 4115 settlement','GP-150326-001'],
+      ['SINGLE','16/03/2026','SURESH ENTERPRISES','4120','CHEQUE','CHQ-884432','REC002','','45000','0','0','Single bill payment',''],
+      ['SINGLE','17/03/2026','AGARWAL CORP','4121','NEFT','','REC003','','28692','439','0','Short payment — rebate 439 (1.51%)',''],
+      ['SINGLE','18/03/2026','VIKRAM TRADERS','4122','UPI','','REC004','','50200','0','200','Excess — interest 200',''],
+      ['PARTIAL','19/03/2026','MOHAN CASHEWS','4125','UPI','','REC005','','20000','0','0','Installment / part payment',''],
+      ['ADVANCE','20/03/2026','SHARMA TRADERS','','RTGS','','REC006','','30000','0','0','Advance without bill',''],
     ];
     var ws = XLSX.utils.aoa_to_sheet(templateData);
-    // Column widths
-    ws['!cols'] = [{wch:12},{wch:12},{wch:22},{wch:10},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:10},{wch:10},{wch:28}];
+    ws['!cols'] = [{wch:12},{wch:14},{wch:26},{wch:10},{wch:14},{wch:14},{wch:12},{wch:14},{wch:12},{wch:10},{wch:10},{wch:35},{wch:20}];
+    ws['!freeze'] = {xSplit:0, ySplit:1};
     XLSX.utils.book_append_sheet(wb, ws, 'Payment Template');
 
-    // Guide sheet
+    // ── Sheet 2: Guide ──
     var guideData = [
-      ['COLUMN','DESCRIPTION','REQUIRED','EXAMPLE'],
-      ['ROW_TYPE','HEADER=Gross payment | DETAIL=Bill under gross | SINGLE=Direct bill | ADVANCE=Advance | PARTIAL=Part payment','YES','HEADER'],
-      ['DATE','Payment date DD/MM/YYYY or YYYY-MM-DD','YES','15/03/2026'],
-      ['PARTY_NAME','Party name (must match existing parties)','YES','RAMESH TRADERS'],
-      ['BILL_NO','Bill number (leave blank for HEADER/ADVANCE)','DETAIL/SINGLE','4101'],
+      ['COLUMN','DESCRIPTION','REQUIRED','EXAMPLE / NOTES'],
+      ['ROW_TYPE','HEADER=Gross payment (1 cheque/transfer for multiple bills) | DETAIL=Bill under that gross | SINGLE=Direct per-bill payment | PARTIAL=Installment | ADVANCE=Without bill','YES','HEADER'],
+      ['DATE','Payment date','YES','15/03/2026  or  2026-03-15'],
+      ['PARTY_NAME','Party name — fuzzy matched, close spelling works','YES','RAMESH TRADERS'],
+      ['BILL_NO','Bill number. Leave blank for HEADER and ADVANCE rows','DETAIL/SINGLE/PARTIAL','4101'],
       ['PAYMENT_MODE','NEFT / RTGS / CHEQUE / UPI / CASH / IMPS','YES','NEFT'],
-      ['CHEQUE_NO','Cheque number if mode is CHEQUE','If CHEQUE','CHQ-884432'],
-      ['RECEIPT_NO','Your receipt number','Optional','REC001'],
-      ['GROSS_AMT','Total gross payment (only for HEADER rows)','HEADER only','150000'],
-      ['NET_AMT','Net amount for this bill/row','DETAIL/SINGLE','75000'],
-      ['REBATE','Rebate/discount amount','Optional','500'],
-      ['INTEREST','Interest received','Optional','200'],
-      ['REMARKS','Any notes','Optional','March payment'],
+      ['CHEQUE_NO','Cheque number (only if mode is CHEQUE)','If CHEQUE','CHQ-884432'],
+      ['RECEIPT_NO','Your internal receipt number','Optional','REC001'],
+      ['GROSS_AMT','Total gross amount received — only for HEADER rows. Leave blank for all other rows.','HEADER only','150000'],
+      ['NET_AMT','Net amount for this specific bill after rebate/interest','DETAIL/SINGLE/PARTIAL','75000'],
+      ['REBATE','Rebate / discount allowed (short payment written off). Max ~2% of bill.','Optional','500'],
+      ['INTEREST','Interest earned (excess payment over bill amount). Max ~5%.','Optional','200'],
+      ['REMARKS','Any notes — e.g. GROSS:150000 or SHORT PAYMENT or INSTALLMENT','Optional','March payment'],
+      ['GROSS_ID','Auto-generated by app when saved. Format: GP-DDMMYY-SEQ (e.g. GP-150326-001). Links HEADER to its DETAIL rows. You can fill it in the template for reference but app will re-generate.','Auto','GP-150326-001'],
+      ['','','',''],
+      ['COLOR LEGEND','','',''],
+      ['HEADER row','Blue background (D9E1F2) — Gross payment header','',''],
+      ['DETAIL row','Light blue (EBF3FB) — Bills under a gross','',''],
+      ['SINGLE (exact)','White (FFFFFF) — Exact payment, no rebate/interest','',''],
+      ['SINGLE (rebate)','Orange (FCE4D6) — Short payment, rebate written off','',''],
+      ['SINGLE (interest)','Green (E2EFDA) — Excess payment, interest earned','',''],
+      ['PARTIAL row','Yellow (FFF2CC) — Installment / part payment','',''],
+      ['ADVANCE row','Purple (F4E6FA) — Advance without bill','',''],
       ['','','',''],
       ['TIPS','','',''],
-      ['1. For one gross payment covering multiple bills: use HEADER + multiple DETAIL rows','','',''],
-      ['2. For single bill payment: use SINGLE row type','','',''],
-      ['3. For partial payment: use PARTIAL row type','','',''],
-      ['4. Leave GROSS_AMT blank for DETAIL/SINGLE rows','','',''],
-      ['5. Leave BILL_NO blank for HEADER/ADVANCE rows','','',''],
-      ['6. Party names will be fuzzy matched - close spelling also works','','',''],
+      ['1. GROSS PAYMENT: 1 HEADER row + multiple DETAIL rows (one per bill). GROSS_AMT on HEADER = sum of all DETAIL NET_AMT + REBATE.','','',''],
+      ['2. SINGLE payment: one row per bill. Most common type.','','',''],
+      ['3. PARTIAL: bill not fully cleared. After final payment, add a SINGLE row to close it.','','',''],
+      ['4. Party name mismatch? App will try fuzzy match. Check unmatched rows before saving.','','',''],
+      ['5. GROSS_ID is auto-assigned by app as GP-DDMMYY-SEQ. Do not edit in the file.','','',''],
     ];
     var wsGuide = XLSX.utils.aoa_to_sheet(guideData);
-    wsGuide['!cols'] = [{wch:55},{wch:40},{wch:15},{wch:20}];
+    wsGuide['!cols'] = [{wch:65},{wch:18},{wch:20}];
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Guide');
 
     XLSX.writeFile(wb, 'BankUpload_Template_'+today()+'.xlsx');
-    toast('📥 Template downloaded!');
+    toast('📥 Template downloaded — GROSS ID column included!');
   }
 
   // ─────────────────────────────────────────────────
@@ -8876,7 +8888,6 @@ function pgBankUpload() {
   // ─────────────────────────────────────────────────
   function buildTemplateGuide() {
     var w2=document.createElement('div');
-
     var guideCard=document.createElement('div'); guideCard.className='card'; guideCard.style.marginBottom='14px';
     var guideH=document.createElement('div'); guideH.className='card-head';
     guideH.innerHTML='<h4>📋 Excel Template Guide & Column Reference</h4>';
@@ -8884,20 +8895,19 @@ function pgBankUpload() {
     dlBtn2.addEventListener('click',downloadTemplate);
     guideH.appendChild(dlBtn2);
     guideCard.appendChild(guideH);
-
     var guideB=document.createElement('div'); guideB.style.cssText='padding:16px';
 
-    // Row types explanation
+    // Row types
     var rtSection=document.createElement('div'); rtSection.style.marginBottom='18px';
-    rtSection.innerHTML='<h5 style="font-size:13px;font-weight:700;color:var(--text-1);margin:0 0 10px">Row Types — What Each Means</h5>';
+    rtSection.innerHTML='<h5 style="font-size:13px;font-weight:700;color:var(--text-1);margin:0 0 10px">Row Types</h5>';
     var rtGrid=document.createElement('div'); rtGrid.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px';
     [
-      {type:'HEADER',color:'#dbeafe',tc:'#1d4ed8',icon:'🔗',desc:'Gross payment that covers multiple bills. Put gross amount in GROSS_AMT. Follow with DETAIL rows for each bill.'},
-      {type:'DETAIL',color:'#dcfce7',tc:'#166534',icon:'↳',desc:'A bill linked to the HEADER above it. Put bill-specific Net, Rebate, Interest here.'},
-      {type:'SINGLE',color:'#f3f4f6',tc:'#374151',icon:'💳',desc:'One payment for one bill. Simple & direct. Fill Bill No + Net Amt.'},
-      {type:'ADVANCE',color:'#f5f3ff',tc:'#7c3aed',icon:'📦',desc:'Advance payment — no bill linked. Goes to Advances ledger.'},
-      {type:'PARTIAL',color:'#fffbeb',tc:'#d97706',icon:'⚡',desc:'Partial payment against a bill. Bill stays outstanding for remaining balance.'},
-      {type:'BILLTOBILL',color:'#ecfeff',tc:'#0891b2',icon:'🔄',desc:'Bill-to-bill transfer / adjustment. Use for cross-adjustments.'},
+      {type:'HEADER',color:'#dbeafe',tc:'#1d4ed8',icon:'🔗',desc:'Gross payment — 1 cheque/UPI covers multiple bills. Fill GROSS_AMT. App gives GP-DDMMYY-SEQ as Gross ID. Follow with DETAIL rows.'},
+      {type:'DETAIL',color:'#dcfce7',tc:'#166534',icon:'↳',desc:'A bill under the HEADER above. Fill Bill No + Net Amt. App links it via GROSS ID automatically.'},
+      {type:'SINGLE',color:'#f3f4f6',tc:'#374151',icon:'💳',desc:'Direct payment for one bill. Most common. Fill Bill No + Net Amt.'},
+      {type:'ADVANCE',color:'#f5f3ff',tc:'#7c3aed',icon:'📦',desc:'Advance without a bill. Goes to Advances ledger for later adjustment.'},
+      {type:'PARTIAL',color:'#fffbeb',tc:'#d97706',icon:'⚡',desc:'Installment / part payment. Bill stays open for remaining balance.'},
+      {type:'BILLTOBILL',color:'#ecfeff',tc:'#0891b2',icon:'🔄',desc:'Bill-to-bill adjustment / cross-entry.'},
     ].forEach(function(rt){
       var box=document.createElement('div');
       box.style.cssText='background:'+rt.color+';border-radius:8px;padding:12px 14px';
@@ -8907,7 +8917,7 @@ function pgBankUpload() {
     });
     rtSection.appendChild(rtGrid); guideB.appendChild(rtSection);
 
-    // Column reference table
+    // Column reference table — with GROSS ID
     var colSection=document.createElement('div');
     colSection.innerHTML='<h5 style="font-size:13px;font-weight:700;color:var(--text-1);margin:0 0 10px">Column Reference</h5>';
     var colTbl=document.createElement('table'); colTbl.style.cssText='width:100%;font-size:12px;border-collapse:collapse';
@@ -8920,47 +8930,50 @@ function pgBankUpload() {
       [
         ['ROW_TYPE','HEADER / DETAIL / SINGLE / ADVANCE / PARTIAL / BILLTOBILL','Yes','HEADER'],
         ['DATE','Payment date (DD/MM/YYYY or YYYY-MM-DD)','Yes','15/03/2026'],
-        ['PARTY_NAME','Exact or close match to party in system','Yes','RAMESH TRADERS'],
-        ['BILL_NO','Bill number (blank for HEADER/ADVANCE)','DETAIL/SINGLE','4101'],
+        ['PARTY_NAME','Exact or close match — fuzzy matched','Yes','RAMESH TRADERS'],
+        ['BILL_NO','Bill number. Blank for HEADER and ADVANCE.','DETAIL/SINGLE/PARTIAL','4101'],
         ['PAYMENT_MODE','NEFT / RTGS / CHEQUE / UPI / CASH / IMPS','Yes','NEFT'],
         ['CHEQUE_NO','Cheque number if mode is CHEQUE','If CHEQUE','CHQ-884432'],
         ['RECEIPT_NO','Your internal receipt number','Optional','REC-001'],
-        ['GROSS_AMT','Total gross amount (HEADER rows only)','HEADER','150000'],
-        ['NET_AMT','Net settled amount for this bill/row','DETAIL/SINGLE/PARTIAL','75000'],
-        ['REBATE','Rebate / discount given','Optional','500'],
-        ['INTEREST','Interest received on this bill','Optional','200'],
-        ['REMARKS','Notes, narration, any extra info','Optional','March 2026 settlement'],
+        ['GROSS_AMT','Total gross amount — HEADER rows only. Blank for others.','HEADER only','150000'],
+        ['NET_AMT','Net settled amount for this bill','DETAIL/SINGLE/PARTIAL','75000'],
+        ['REBATE','Rebate / discount allowed (short payment). Usually \u2264 2%.','Optional','500'],
+        ['INTEREST','Interest earned (excess over bill). Usually \u2264 5%.','Optional','200'],
+        ['REMARKS','Notes / narration','Optional','March 2026 settlement'],
+        ['GROSS_ID','Auto by app on save. Format: GP-DDMMYY-SEQ. Links HEADER to DETAIL rows. e.g. GP-150326-001 = 15 Mar 2026, first gross that day.','Auto','GP-150326-001'],
       ].map(function(r){
-        return '<tr style="border-bottom:1px solid var(--border-light)">'+r.map(function(c,ci){
-          return '<td style="padding:8px 12px;vertical-align:top'+(ci===0?';font-weight:700;color:var(--brand-mid)':'')+'">'+
-            (ci===0?'<code style="background:var(--brand-light);padding:2px 6px;border-radius:4px;font-size:11px">'+c+'</code>':c)+'</td>';
-        }).join('')+'</tr>';
+        var isGid=r[0]==='GROSS_ID';
+        return '<tr style="border-bottom:1px solid var(--border-light)'+(isGid?';background:#eff6ff':'')+'">'
+          +r.map(function(c,ci){
+            return '<td style="padding:8px 12px;vertical-align:top'+(ci===0?';font-weight:700':'')+(isGid&&ci===0?';color:#1d4ed8':ci===0?';color:var(--brand-mid)':'')+'">'
+              +(ci===0?'<code style="background:'+(isGid?'#dbeafe':'var(--brand-light)')+';padding:2px 6px;border-radius:4px;font-size:11px">'+c+'</code>':c)
+              +'</td>';
+          }).join('')+'</tr>';
       }).join('')+'</tbody>';
     colSection.appendChild(colTbl); guideB.appendChild(colSection);
 
-    // Mismatch handling
+    // Tips
     var mmSection=document.createElement('div'); mmSection.style.marginTop='18px';
-    mmSection.innerHTML='<h5 style="font-size:13px;font-weight:700;color:var(--text-1);margin:0 0 10px">❓ What Happens if Something Does Not Match?</h5>'+
+    mmSection.innerHTML='<h5 style="font-size:13px;font-weight:700;color:var(--text-1);margin:0 0 10px">\u2753 Common Issues & Tips</h5>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
       '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px">'+
-        '<div style="font-weight:700;font-size:12px;color:#b45309;margin-bottom:6px">⚠ Party Name Mismatch</div>'+
-        '<div style="font-size:12px;color:#374151;line-height:1.6">System does fuzzy matching — close names are suggested. In Import tab, click ✏ Edit on the row and select the correct party from dropdown. Row turns green once resolved.</div>'+
+        '<div style="font-weight:700;font-size:12px;color:#b45309;margin-bottom:6px">\u26a0 Party Name Mismatch</div>'+
+        '<div style="font-size:12px;color:#374151;line-height:1.6">Fuzzy match try hota hai. Import tab mein \u270f Edit karo aur correct party select karo. Row green ho jayegi.</div>'+
       '</div>'+
       '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px">'+
-        '<div style="font-weight:700;font-size:12px;color:#dc2626;margin-bottom:6px">⚠ Bill Not Found</div>'+
-        '<div style="font-size:12px;color:#374151;line-height:1.6">Bill number not found in system. Click ✏ Edit → select correct bill from dropdown. Or set row type to ADVANCE if no bill exists yet.</div>'+
+        '<div style="font-weight:700;font-size:12px;color:#dc2626;margin-bottom:6px">\u26a0 Bill Not Found</div>'+
+        '<div style="font-size:12px;color:#374151;line-height:1.6">Bill number system mein nahi mila. \u270f Edit karo \u2192 correct bill select karo. Ya ADVANCE type set karo.</div>'+
       '</div>'+
       '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px">'+
-        '<div style="font-weight:700;font-size:12px;color:#166534;margin-bottom:6px">✅ Gross Amount Mismatch</div>'+
-        '<div style="font-size:12px;color:#374151;line-height:1.6">In Clearance tab, if sum of DETAIL rows ≠ HEADER gross, a diff warning shows. Small diff (rebate, etc.) is normal — system saves each row as filled.</div>'+
+        '<div style="font-weight:700;font-size:12px;color:#166534;margin-bottom:6px">\u2705 GROSS ID — GP-DDMMYY-SEQ</div>'+
+        '<div style="font-size:12px;color:#374151;line-height:1.6">HEADER save hone par app GP-031025-001 jaisa ID deta hai. DETAIL rows link hoti hain. Receipt Ledger + Party Ledger mein track hota hai.</div>'+
       '</div>'+
       '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px">'+
-        '<div style="font-weight:700;font-size:12px;color:#1d4ed8;margin-bottom:6px">💡 Pro Tip — Use AI to Fill Template</div>'+
-        '<div style="font-size:12px;color:#374151;line-height:1.6">Copy party names from your system → paste into prompt for Claude/ChatGPT → ask it to fill template from your bank narrations. Attach the downloaded template as reference.</div>'+
+        '<div style="font-weight:700;font-size:12px;color:#1d4ed8;margin-bottom:6px">\ud83d\udca1 AI se Template Fill Karein</div>'+
+        '<div style="font-size:12px;color:#374151;line-height:1.6">Template download karo \u2192 bank narrations + party names copy karo \u2192 Claude/ChatGPT ko do fill karne ke liye \u2192 Upload karo.</div>'+
       '</div>'+
       '</div>';
     guideB.appendChild(mmSection);
-
     guideCard.appendChild(guideB); w2.appendChild(guideCard);
     return w2;
   }
