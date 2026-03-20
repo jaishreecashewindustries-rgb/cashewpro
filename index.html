@@ -1092,102 +1092,171 @@ var DB = {
 };
 
 // ════════════════════════════════════════════════════════
+// AUTH — Firebase Google Sign-In
+// ════════════════════════════════════════════════════════
 
-// ════════════════════════════════════════════════════════
-// AUTH — login / logout / state
-// ════════════════════════════════════════════════════════
-function doGoogleLogin(){
-  /* Safety: if already signed in, just show the app */
-  if(_auth.currentUser){
-    var ls=document.getElementById('login-screen');
+// ─── Single boot function called once after Firebase auth success ────────────
+function _bootApp(user) {
+  var ls     = document.getElementById('login-screen');
+  var app    = document.querySelector('.app');
+  var nav    = document.getElementById('mobile-nav');
+  var loader = document.getElementById('app-loader');
+
+  if(ls)     ls.classList.add('hidden');
+  if(loader) loader.classList.remove('hidden');
+  if(app)    app.style.display = 'none';
+  if(nav)    nav.style.display = 'none';
+
+  DB.loadAll(user.uid, function() {
+    bills       = DB.get('bills');
+    payments    = DB.get('payments');
+    cheques     = DB.get('cheques');
+    advances    = DB.get('advances');
+    expenses    = DB.get('expenses');
+    returns_    = DB.get('returns');
+    purchases   = DB.get('purchases');
+    suspense    = DB.get('suspense');
+    cfg         = DB.getObj('settings', {});
+    hiddenPages = DB.getObj('hiddenPages', {});
+
+    if(!cfg.grades)  cfg.grades  = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
+    ['purchases','expenses','returns','advances','cheques'].forEach(function(k){ delete hiddenPages[k]; });
+    if(!cfg.company) cfg.company = 'JAI SHREE CASHEW INDUSTRIES';
+    if(!cfg.gstin)   cfg.gstin   = '08ADJPP5115H1ZH';
+    if(!cfg.phone)   cfg.phone   = '7568577968';
+    if(!cfg.address) cfg.address = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
+
+    if(loader) loader.classList.add('hidden');
+    if(app)    app.style.display = 'flex';
+    if(nav)    nav.style.display = '';
+
+    var ue = document.getElementById('usr-email');
+    if(ue) ue.textContent = (user.email || '').split('@')[0];
+
+    buildNav();
+    go('dashboard');
+    try { erpAutoLoad(); }        catch(e) {}
+    try { erpEngineAutoLoad(); }  catch(e) {}
+    try { histLoad(); }           catch(e) {}
+    try { histStartAutoTimer(); } catch(e) {}
+    try { histUpdateTopbarBtn(); }catch(e) {}
+  });
+}
+
+// ─── Google Sign-In (popup) ──────────────────────────────────────────────────
+function doGoogleLogin() {
+  // Already signed in? Just boot directly
+  if(_auth.currentUser) {
+    var ls = document.getElementById('login-screen');
     if(ls) ls.classList.add('hidden');
     return;
   }
 
-  var btn=document.getElementById('li-google');
-  var sp=document.getElementById('li-g-sp');
-  var txt=document.getElementById('li-g-txt');
-  var errEl=document.getElementById('li-err');
+  var btn   = document.getElementById('li-google');
+  var sp    = document.getElementById('li-g-sp');
+  var txt   = document.getElementById('li-g-txt');
+  var errEl = document.getElementById('li-err');
 
-  /* Always reset to clean state first — prevents freeze if called twice */
-  if(btn){ btn.disabled=false; }
-  if(sp){ sp.className='lsp'; }
-  if(txt){ txt.textContent='Continue with Google'; }
-  if(errEl){ errEl.className='le'; errEl.textContent=''; }
+  // Reset UI first (prevents double-click freeze)
+  if(btn)   { btn.disabled = false; }
+  if(sp)    { sp.className = 'lsp'; }
+  if(txt)   { txt.textContent = 'Continue with Google'; }
+  if(errEl) { errEl.className = 'le'; errEl.textContent = ''; }
 
-  if(btn){ btn.disabled=true; }
-  if(sp){ sp.className='lsp show'; }
-  if(txt){ txt.textContent='Redirecting...'; }
+  // Show loading state
+  if(btn) btn.disabled = true;
+  if(sp)  sp.className = 'lsp show';
+  if(txt) txt.textContent = 'Signing in...';
 
-  var provider=new firebase.auth.GoogleAuthProvider();
-  provider.setCustomParameters({prompt:'select_account'});
+  var provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
 
   _auth.signInWithPopup(provider)
-    .catch(function(err){
-      if(btn){ btn.disabled=false; }
-      if(sp){ sp.className='lsp'; }
-      if(txt){ txt.textContent='Continue with Google'; }
-      var m='Google login failed. Try again.';
-      if(err.code==='auth/popup-closed-by-user') m='Popup was closed. Please try again.';
-      else if(err.code==='auth/popup-blocked')   m='⚠ Popup blocked. Please allow popups in browser.';
-      else if(err.code==='auth/network-request-failed') m='⚠ No internet. Check connection.';
-      else if(err.code==='auth/unauthorized-domain') m='⚠ Domain not authorized — add it in Firebase Console.';
-      else m='❌ '+(err.message||'Login failed.');
-      if(errEl){ errEl.textContent=m; errEl.className='le show'; }
+    .catch(function(err) {
+      // Reset button on any error
+      if(btn)   btn.disabled = false;
+      if(sp)    sp.className = 'lsp';
+      if(txt)   txt.textContent = 'Continue with Google';
+
+      var m;
+      switch(err.code) {
+        case 'auth/popup-closed-by-user':   m = 'Popup closed. Please try again.'; break;
+        case 'auth/popup-blocked':          m = '⚠ Popup blocked — allow popups for this site.'; break;
+        case 'auth/network-request-failed': m = '⚠ No internet connection.'; break;
+        case 'auth/unauthorized-domain':    m = '⚠ Domain not authorized in Firebase Console.'; break;
+        default:                            m = '❌ ' + (err.message || 'Login failed. Try again.');
+      }
+      if(errEl) { errEl.textContent = m; errEl.className = 'le show'; }
     });
+  // SUCCESS is handled by onAuthStateChanged below — no .then() needed here
 }
 
-// keep doLogin as no-op for safety
-function doLogin(){ doGoogleLogin(); }
+function doLogin() { doGoogleLogin(); } // alias kept for compatibility
 
-function doLogout(){
-  // Custom logout modal instead of confirm()
+// ─── Logout ──────────────────────────────────────────────────────────────────
+function doLogout() {
   var body = document.createElement('div');
   body.style.cssText = 'text-align:center;padding:8px 0';
   body.innerHTML =
-    '<div style="font-size:40px;margin-bottom:12px">👋</div>'+
-    '<div style="font-size:16px;font-weight:600;color:var(--text-1);margin-bottom:6px">Are you sure you want to logout?</div>'+
+    '<div style="font-size:40px;margin-bottom:12px">👋</div>' +
+    '<div style="font-size:16px;font-weight:600;color:var(--text-1);margin-bottom:6px">Are you sure you want to logout?</div>' +
     '<div style="font-size:13px;color:var(--text-3)">Your data is safely stored in Firebase</div>';
   openModal('Logout', body, [
-    { label: '✅ Yes, Logout', fn: function(){
+    { label: '✅ Yes, Logout', fn: function() {
         closeModal();
         DB._flush();
-        setTimeout(function(){ _auth.signOut(); }, 600);
+        setTimeout(function() { _auth.signOut(); }, 400);
       }
     },
-    { label: 'Cancel', fn: function(){ closeModal(); } }
+    { label: 'Cancel', fn: function() { closeModal(); } }
   ]);
 }
 
-// DOMContentLoaded — wire up login button via addEventListener (works with 'use strict')
-document.addEventListener('DOMContentLoaded',function(){
-  var gb=document.getElementById('li-google');
-  if(gb){
-    gb.addEventListener('click', function(){ doGoogleLogin(); });
-    gb.addEventListener('keydown',function(e){ if(e.key==='Enter') doGoogleLogin(); });
+// ─── Wire button ONCE — no onclick in HTML, no duplicates ───────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  var gb = document.getElementById('li-google');
+  if(gb) {
+    gb.addEventListener('click',   function()  { doGoogleLogin(); });
+    gb.addEventListener('keydown', function(e) { if(e.key === 'Enter') doGoogleLogin(); });
   }
-  // Also wire up any other login buttons
-  var li2=document.getElementById('li-btn');
-  if(li2) li2.addEventListener('click', function(){ doGoogleLogin(); });
 });
 
-// ════════════════════════════════════════════════════════
-// AUTH STATE — single source of truth
-// ════════════════════════════════════════════════════════
-/* ══════════════════════════════════════════════════════════════════
-   FULL CLEAR FUNCTION — clears localStorage + Firestore + reloads
-   ══════════════════════════════════════════════════════════════════ */
+// ─── Auth state listener — single source of truth ───────────────────────────
+// This fires on page load (auto-restores session) AND after signInWithPopup success
+_auth.onAuthStateChanged(function(user) {
+  var ls     = document.getElementById('login-screen');
+  var app    = document.querySelector('.app');
+  var nav    = document.getElementById('mobile-nav');
+  var loader = document.getElementById('app-loader');
+
+  if(user) {
+    // ✅ Signed in — boot the app
+    _user = user;
+    _bootApp(user);
+  } else {
+    // ❌ Signed out — show login screen, reset everything
+    _user = null;
+    if(loader) loader.classList.add('hidden');
+    if(app)    app.style.display = 'none';
+    if(nav)    nav.style.display = 'none';
+    if(ls)     ls.classList.remove('hidden');
+
+    // Reset login button to idle state
+    var btn = document.getElementById('li-google');
+    var sp  = document.getElementById('li-g-sp');
+    var txt = document.getElementById('li-g-txt');
+    if(btn) btn.disabled = false;
+    if(sp)  sp.className = 'lsp';
+    if(txt) txt.textContent = 'Continue with Google';
+  }
+});
+
+// ─── Full data clear + sign out ──────────────────────────────────────────────
 function _doFullClearAndReload() {
   toast('⏳ Clearing all data...', 'info');
-
-  /* Step 1 — wipe localStorage and sessionStorage */
-  try { localStorage.clear(); } catch(e) {}
-  try { sessionStorage.clear(); } catch(e) {}
-
-  /* Step 2 — cancel any pending Firestore writes */
+  try { localStorage.clear(); }    catch(e) {}
+  try { sessionStorage.clear(); }  catch(e) {}
   try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
-
-  /* Step 3 — reset every in-memory variable */
   try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
   try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
@@ -1198,122 +1267,38 @@ function _doFullClearAndReload() {
   try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
   try { invalidateBillStatusCache(); } catch(e) {}
 
-  /* Step 4 — delete Firestore docs, then sign out.
-     signOut() triggers onAuthStateChanged(null) which shows the clean login screen.
-     No location.reload() needed — signOut handles the state reset naturally. */
   function _signOutAndFinish() {
     _auth.signOut()
-      .then(function() {
-        toast('✅ All data cleared. Please sign in again.', 'success');
-      })
-      .catch(function() {
-        toast('✅ All data cleared. Please sign in again.', 'success');
-        setTimeout(function() { location.reload(true); }, 800);
-      });
+      .then(function()  { toast('✅ All data cleared. Please sign in again.', 'success'); })
+      .catch(function() { toast('✅ All data cleared. Please sign in again.', 'success'); setTimeout(function(){ location.reload(true); }, 800); });
   }
 
-  if (_user && _fdb) {
+  if(_user && _fdb) {
     _fdb.collection('users').doc(_user.uid).collection('data').get()
       .then(function(snap) {
-        if (!snap || snap.empty) {
-          _signOutAndFinish();
-          return;
-        }
+        if(!snap || snap.empty) { _signOutAndFinish(); return; }
         var refs = [];
         snap.forEach(function(doc) { refs.push(doc.ref); });
         var batches = [];
-        for (var i = 0; i < refs.length; i += 450) {
+        for(var i=0; i<refs.length; i+=450) {
           var b = _fdb.batch();
-          refs.slice(i, i + 450).forEach(function(ref) { b.delete(ref); });
+          refs.slice(i, i+450).forEach(function(r){ b.delete(r); });
           batches.push(b.commit());
         }
-        Promise.all(batches)
-          .then(function() { _signOutAndFinish(); })
-          .catch(function(err) {
-            console.error('Firestore clear error:', err);
-            _signOutAndFinish();
-          });
+        Promise.all(batches).then(_signOutAndFinish).catch(function(err){ console.error(err); _signOutAndFinish(); });
       })
-      .catch(function(err) {
-        console.error('Firestore read error:', err);
-        _signOutAndFinish();
-      });
+      .catch(function(err){ console.error(err); _signOutAndFinish(); });
   } else {
     _signOutAndFinish();
   }
 }
 
-
-_auth.onAuthStateChanged(function(user){
-  var ls=document.getElementById('login-screen');
-  var app=document.querySelector('.app');
-  var nav=document.getElementById('mobile-nav');
-  var loader=document.getElementById('app-loader');
-
-  if(user){
-    _user=user;
-    if(ls) ls.classList.add('hidden');
-    if(loader) loader.classList.remove('hidden');
-    if(app) app.style.display='none';
-    if(nav) nav.style.display='none';
-
-    DB.loadAll(user.uid, function(){
-      // populate in-memory arrays from cache
-      bills     = DB.get('bills');
-      payments  = DB.get('payments');
-      cheques   = DB.get('cheques');
-      advances  = DB.get('advances');
-      expenses  = DB.get('expenses');
-      returns_  = DB.get('returns');
-      purchases = DB.get('purchases');
-      suspense  = DB.get('suspense');
-      cfg       = DB.getObj('settings',{});
-      hiddenPages = DB.getObj('hiddenPages',{});
-
-      if(!cfg.grades)   cfg.grades   = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
-      ['purchases','expenses','returns','advances','cheques'].forEach(function(k){delete hiddenPages[k];});
-      if(!cfg.company)  cfg.company  = 'JAI SHREE CASHEW INDUSTRIES';
-      if(!cfg.gstin)    cfg.gstin    = '08ADJPP5115H1ZH';
-      if(!cfg.phone)    cfg.phone    = '7568577968';
-      if(!cfg.address)  cfg.address  = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
-
-      if(loader) loader.classList.add('hidden');
-      if(app){ app.style.display='flex'; }
-      if(nav) nav.style.display='';
-
-      var ue=document.getElementById('usr-email');
-      if(ue) ue.textContent=(user.email||'').split('@')[0];
-
-      buildNav();
-      go('dashboard');
-      try { erpAutoLoad(); } catch(e) {}
-      try { erpEngineAutoLoad(); } catch(e) {}
-      try { histLoad(); } catch(e) {}
-      try { histStartAutoTimer(); } catch(e) {}
-      try { histUpdateTopbarBtn(); } catch(e) {}
-    }); // end DB.loadAll
-  } else {
-    _user=null;
-    if(loader) loader.classList.add('hidden');
-    if(ls) ls.classList.remove('hidden');
-    if(app) app.style.display='none';
-    if(nav) nav.style.display='none';
-    // reset login button
-    var btn=document.getElementById('li-google');
-    var sp=document.getElementById('li-g-sp');
-    var txt=document.getElementById('li-g-txt');
-    if(btn){ btn.disabled=false; }
-    if(sp){  sp.className='lsp'; }
-    if(txt){ txt.textContent='Continue with Google'; }
-  }
-});
-
-// hide app on initial load (shown only after auth)
+// ─── Hide app until auth resolves (onAuthStateChanged handles show) ──────────
 (function(){
-  var a=document.querySelector('.app');
-  var n=document.getElementById('mobile-nav');
-  if(a) a.style.display='none';
-  if(n) n.style.display='none';
+  var a = document.querySelector('.app');
+  var n = document.getElementById('mobile-nav');
+  if(a) a.style.display = 'none';
+  if(n) n.style.display = 'none';
 })();
 
 // ════════════════════════════════════════════════════════
