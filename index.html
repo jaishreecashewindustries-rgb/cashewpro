@@ -846,15 +846,13 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
     <div class="lt">CashewPro</div>
     <div class="ls">Jai Shree Cashew Industries</div>
 
-    <!-- Direct Login -->
-    <button class="lg-btn" id="li-google" style="background:var(--brand);color:#fff;border-color:var(--brand);">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-      <span id="li-g-txt">Enter CashewPro</span>
-      <span class="lsp" id="li-g-sp"></span>
+    <!-- Local Login Button -->
+    <button class="lg-btn" id="li-google" onclick="doGoogleLogin()" style="background:var(--brand);color:#fff;border-color:var(--brand);justify-content:center;font-weight:700;font-size:15px;letter-spacing:0.3px;">
+      🏭 Enter CashewPro
     </button>
 
     <div class="le" id="li-err"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-4);">Jai Shree Cashew Industries &middot; Local Mode</div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-4);">Jai Shree Cashew Industries · Local Mode</div>
   </div>
 </div>
 <!-- APP LOADER -->
@@ -1092,25 +1090,25 @@ var DB = {
 };
 
 // ════════════════════════════════════════════════════════
-// AUTH — Local session (no Firebase auth required)
+// AUTH — LOCAL SESSION (no Firebase auth needed)
 // ════════════════════════════════════════════════════════
-var _CP_SESSION_KEY = 'cp_session_active';
+var _CP_SESSION_KEY = 'cp_local_session';
 
 function _bootApp() {
-  var ls   = document.getElementById('login-screen');
-  var app  = document.querySelector('.app');
-  var nav  = document.getElementById('mobile-nav');
+  // Set a fake local user so DB layer works
+  _user = { uid: 'local_user_jsc', email: 'user@jsc.local' };
+
+  var ls = document.getElementById('login-screen');
+  var app = document.querySelector('.app');
+  var nav = document.getElementById('mobile-nav');
   var loader = document.getElementById('app-loader');
 
-  if(ls)     ls.classList.add('hidden');
+  if(ls) ls.classList.add('hidden');
   if(loader) loader.classList.remove('hidden');
-  if(app)    app.style.display = 'none';
-  if(nav)    nav.style.display = 'none';
+  if(app) app.style.display = 'none';
+  if(nav) nav.style.display = 'none';
 
-  /* Use a stable fake UID derived from app name */
-  _user = { uid: 'local_user_jsc', email: 'user@jsc.local', displayName: 'Jai Shree Cashew' };
-
-  DB.loadAll(_user.uid, function(){
+  DB.loadAll(_user.uid, function() {
     bills     = DB.get('bills');
     payments  = DB.get('payments');
     cheques   = DB.get('cheques');
@@ -1119,117 +1117,85 @@ function _bootApp() {
     returns_  = DB.get('returns');
     purchases = DB.get('purchases');
     suspense  = DB.get('suspense');
-    cfg       = DB.getObj('settings',{});
-    hiddenPages = DB.getObj('hiddenPages',{});
+    cfg       = DB.getObj('settings', {});
+    hiddenPages = DB.getObj('hiddenPages', {});
 
     if(!cfg.grades)   cfg.grades   = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
-    ['purchases','expenses','returns','advances','cheques'].forEach(function(k){delete hiddenPages[k];});
+    ['purchases','expenses','returns','advances','cheques'].forEach(function(k){ delete hiddenPages[k]; });
     if(!cfg.company)  cfg.company  = 'JAI SHREE CASHEW INDUSTRIES';
     if(!cfg.gstin)    cfg.gstin    = '08ADJPP5115H1ZH';
-    if(!cfg.logo)     cfg.logo     = '';
     if(!cfg.phone)    cfg.phone    = '7568577968';
     if(!cfg.address)  cfg.address  = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
 
     if(loader) loader.classList.add('hidden');
-    if(app)    app.style.display = 'flex';
-    if(nav)    nav.style.display = '';
+    if(app) { app.style.display = 'flex'; }
+    if(nav) nav.style.display = '';
 
     var ue = document.getElementById('usr-email');
-    if(ue) ue.textContent = 'admin';
+    if(ue) ue.textContent = 'Admin';
 
     buildNav();
     go('dashboard');
-    try { erpAutoLoad(); }       catch(e){}
-    try { erpEngineAutoLoad(); } catch(e){}
-    try { histLoad(); }          catch(e){}
-    try { histStartAutoTimer(); } catch(e){}
-    try { histUpdateTopbarBtn(); } catch(e){}
+    try { erpAutoLoad(); } catch(e) {}
+    try { erpEngineAutoLoad(); } catch(e) {}
+    try { histLoad(); } catch(e) {}
+    try { histStartAutoTimer(); } catch(e) {}
+    try { histUpdateTopbarBtn(); } catch(e) {}
   });
 }
 
-function doGoogleLogin(){
+function doGoogleLogin() {
   var btn = document.getElementById('li-google');
-  var sp  = document.getElementById('li-g-sp');
-  var txt = document.getElementById('li-g-txt');
-
-  if(btn){ btn.disabled = true; }
-  if(sp){  sp.className = 'lsp show'; }
-  if(txt){ txt.textContent = 'Loading…'; }
-
-  try { localStorage.setItem(_CP_SESSION_KEY, '1'); } catch(e){}
-  setTimeout(_bootApp, 300);
+  if(btn) btn.disabled = true;
+  try { localStorage.setItem(_CP_SESSION_KEY, '1'); } catch(e) {}
+  setTimeout(function() { _bootApp(); }, 200);
 }
 
-function doLogin(){ doGoogleLogin(); }
+// keep doLogin as alias
+function doLogin() { doGoogleLogin(); }
 
-function doLogout(){
+function doLogout() {
   var body = document.createElement('div');
   body.style.cssText = 'text-align:center;padding:8px 0';
   body.innerHTML =
     '<div style="font-size:40px;margin-bottom:12px">👋</div>'+
     '<div style="font-size:16px;font-weight:600;color:var(--text-1);margin-bottom:6px">Are you sure you want to logout?</div>'+
-    '<div style="font-size:13px;color:var(--text-3)">Your local data will remain saved.</div>';
+    '<div style="font-size:13px;color:var(--text-3)">Your data is safely stored locally</div>';
   openModal('Logout', body, [
     { label: '✅ Yes, Logout', fn: function(){
         closeModal();
-        DB._flush();
-        try { localStorage.removeItem(_CP_SESSION_KEY); } catch(e){}
-        setTimeout(function(){
-          var ls  = document.getElementById('login-screen');
-          var app = document.querySelector('.app');
-          var nav = document.getElementById('mobile-nav');
-          _user = null;
-          if(ls)  ls.classList.remove('hidden');
-          if(app) app.style.display = 'none';
-          if(nav) nav.style.display = 'none';
-          var btn = document.getElementById('li-google');
-          var sp  = document.getElementById('li-g-sp');
-          var txt = document.getElementById('li-g-txt');
-          if(btn){ btn.disabled = false; }
-          if(sp){  sp.className = 'lsp'; }
-          if(txt){ txt.textContent = 'Enter CashewPro'; }
-        }, 200);
+        try { localStorage.removeItem(_CP_SESSION_KEY); } catch(e) {}
+        setTimeout(function(){ location.reload(); }, 400);
       }
     },
     { label: 'Cancel', fn: function(){ closeModal(); } }
   ]);
 }
 
-// Wire up button + auto-login if session exists
-document.addEventListener('DOMContentLoaded', function(){
+// Wire up button and auto-login on page load
+document.addEventListener('DOMContentLoaded', function() {
   var gb = document.getElementById('li-google');
-  if(gb){
-    gb.addEventListener('click', function(){ doGoogleLogin(); });
-    gb.addEventListener('keydown', function(e){ if(e.key==='Enter') doGoogleLogin(); });
+  if(gb) {
+    gb.addEventListener('click', function() { doGoogleLogin(); });
+    gb.addEventListener('keydown', function(e) { if(e.key === 'Enter') doGoogleLogin(); });
   }
-  var li2 = document.getElementById('li-btn');
-  if(li2) li2.addEventListener('click', function(){ doGoogleLogin(); });
-
-  /* Auto-login: if session flag set, skip the login screen */
-  try {
-    if(localStorage.getItem(_CP_SESSION_KEY) === '1'){
-      doGoogleLogin();
-    }
-  } catch(e){}
+  // Auto-login if session exists
+  var hasSession = false;
+  try { hasSession = localStorage.getItem(_CP_SESSION_KEY) === '1'; } catch(e) {}
+  if(hasSession) {
+    setTimeout(function() { _bootApp(); }, 100);
+  }
 });
 
 // ════════════════════════════════════════════════════════
 // AUTH STATE — single source of truth
 // ════════════════════════════════════════════════════════
-/* ══════════════════════════════════════════════════════════════════
-   FULL CLEAR FUNCTION — clears localStorage + Firestore + reloads
-   ══════════════════════════════════════════════════════════════════ */
+/* FULL CLEAR FUNCTION */
 function _doFullClearAndReload() {
   toast('⏳ Clearing all data...', 'info');
-
-  /* Step 1 — wipe localStorage and sessionStorage */
   try { localStorage.clear(); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
-
-  /* Step 2 — cancel any pending Firestore writes */
   try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
-
-  /* Step 3 — reset every in-memory variable */
   try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
   try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
@@ -1239,52 +1205,11 @@ function _doFullClearAndReload() {
         ERP.auditLog=[]; ERP.summary=null; ERP.overrides={}; ERP.savedAt=null; } catch(e) {}
   try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
   try { invalidateBillStatusCache(); } catch(e) {}
-
-  /* Step 4 — delete Firestore docs, then sign out.
-     signOut() triggers onAuthStateChanged(null) which shows the clean login screen.
-     No location.reload() needed — signOut handles the state reset naturally. */
-  function _signOutAndFinish() {
-    try { localStorage.removeItem(_CP_SESSION_KEY); } catch(e) {}
-    toast('✅ All data cleared. Reloading...', 'success');
-    setTimeout(function() { location.reload(true); }, 800);
-  }
-
-  if (_user && _fdb) {
-    _fdb.collection('users').doc(_user.uid).collection('data').get()
-      .then(function(snap) {
-        if (!snap || snap.empty) {
-          _signOutAndFinish();
-          return;
-        }
-        var refs = [];
-        snap.forEach(function(doc) { refs.push(doc.ref); });
-        var batches = [];
-        for (var i = 0; i < refs.length; i += 450) {
-          var b = _fdb.batch();
-          refs.slice(i, i + 450).forEach(function(ref) { b.delete(ref); });
-          batches.push(b.commit());
-        }
-        Promise.all(batches)
-          .then(function() { _signOutAndFinish(); })
-          .catch(function(err) {
-            console.error('Firestore clear error:', err);
-            _signOutAndFinish();
-          });
-      })
-      .catch(function(err) {
-        console.error('Firestore read error:', err);
-        _signOutAndFinish();
-      });
-  } else {
-    _signOutAndFinish();
-  }
+  toast('✅ All data cleared. Reloading...', 'success');
+  setTimeout(function() { location.reload(); }, 800);
 }
 
-
-// onAuthStateChanged removed — local session auth used instead
-// (see doGoogleLogin / _bootApp above)
-
-// hide app on initial load (shown only after auth)
+// hide app on initial load (shown after _bootApp)
 (function(){
   var a=document.querySelector('.app');
   var n=document.getElementById('mobile-nav');
