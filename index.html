@@ -1423,16 +1423,17 @@ function badge(status) {
     due: ['b-due', '🔴 DUE'],
     partial: ['b-partial', '⚡ PARTIAL'],
     paid: ['b-paid', '✅ PAID'],
-    Received: ['b-pending', 'RECEIVED'],
-    Deposited: ['b-blue', 'DEPOSITED'],
-    Cleared: ['b-cleared', 'CLEARED'],
-    Bounced: ['b-bounced', 'BOUNCED'],
+    Received: ['b-pending', '📥 RECEIVED'],
+    Deposited: ['b-blue', '🏦 DEPOSITED'],
+    Cleared: ['b-cleared', '✅ CLEARED'],
+    Bounced: ['b-bounced', '❌ BOUNCED'],
+    Pending: ['b-pending', '⏳ PENDING'],
+    pending: ['b-pending', '⏳ PENDING'],
     Unpaid: ['b-due', 'UNPAID'],
     Paid: ['b-paid', 'PAID'],
     linked: ['b-paid', 'LINKED'],
-    pending: ['b-pending', 'PENDING'],
   };
-  var info = map[status] || ['b-pending', status];
+  var info = map[status] || ['b-pending', status||'—'];
   return el('span', { cls: 'badge ' + info[0], text: info[1] });
 }
 
@@ -1480,7 +1481,9 @@ function getBillStatus(bill) {
   var adv  = billAdvances.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
   var total = paid + adv;
   var bal = (bill.netAmt || 0) - total;
-  var excess = Math.max(0, total - (bill.netAmt || 0));
+  // excess = only from amount+rebate, NOT interest (interest is extra earned, not overpayment)
+  var paidNoInt=billPayments.reduce(function(s,p){return s+(p.amount||0)+(p.rebate||0);},0);
+  var excess = Math.max(0, (paidNoInt + adv) - (bill.netAmt || 0));
   var result;
   if(bal<=0.5)result={status:'paid',recv:bill.netAmt,bal:0,excess:excess,rebate:_tReb,interest:_tInt};
   else if(total>0)result={status:'partial',recv:total,bal:bal,excess:0,rebate:_tReb,interest:_tInt};
@@ -3342,16 +3345,7 @@ function pgAllBills() {
       if(state.showPay){
         addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'₹'+fmt(lpy.amount||0):'-',true,true);
         addTd(lpy?'₹'+fmt(lpy.rebate||0):'-',true,true);addTd(lpy?lpy.mode||'-':'-',false,true);
-        // FIX: Cheque col — count + last cheque no (not just last chequeNo)
-        var chqPays=lp.filter(function(p){return (p.mode||'').toUpperCase()==='CHEQUE'&&p.chequeNo;});
-        var chqEl=document.createElement('span');
-        if(chqPays.length>0){
-          var lastChqNo=chqPays[chqPays.length-1].chequeNo;
-          chqEl.innerHTML=(chqPays.length>1?'<span style="background:#fef3c7;color:#92400e;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-right:4px">'+chqPays.length+'</span>':'')+
-            '<span style="font-family:monospace;font-size:11px">'+lastChqNo+'</span>';
-        } else { chqEl.textContent='-'; }
-        addTd(chqEl,false,true);
-        addTd(lpy?lpy.receiptNo||'-':'-',false,true);
+        addTd(lpy?lpy.chequeNo||'-':'-',false,true);addTd(lpy?lpy.receiptNo||'-':'-',false,true);
       }
       var actTd=document.createElement('td');
       // Compact action menu — "..." dropdown
@@ -5123,10 +5117,10 @@ function pgPartyLedger(party) {
     var creditLeft=document.createElement('div');
     creditLeft.innerHTML='<div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:3px">Credit Balance / Advance</div>'+
       '<div style="font-size:11px;color:#3b82f6">'+party+' ke paas '+
-      (totalExcess>0.5?'₹'+fmt(totalExcess)+' credit available (bills se zyada payment aayi hai) ':'')+ 
+      (totalExcess>0.5?'₹'+fmt(totalExcess)+' overpayment (bills se zyada received) ':'')+ 
       (totalAdvBal>0.5&&totalExcess>0.5?' + ':'') +
       (totalAdvBal>0.5?'₹'+fmt(totalAdvBal)+' unlinked advance(s)':'')+
-      ' hai — agle bills mein adjust kar sakte hain</div>';
+      ' hai</div>';
     var creditRight=document.createElement('div');
     creditRight.innerHTML='<div style="font-size:11px;color:#6b7280;margin-bottom:3px">Total Credit Available</div>'+
       '<div style="font-size:24px;font-weight:700;color:#2563eb">₹'+fmt(totalCredit)+'</div>';
@@ -5152,6 +5146,45 @@ function pgPartyLedger(party) {
     }
     creditCard.appendChild(creditLeft);creditCard.appendChild(creditRight);creditCard.appendChild(creditActions);
     wrap.appendChild(creditCard);
+  }
+
+
+  // Gross payments card for this party — show linked bills
+  var partyGrossAll=(grossPayments||[]).filter(function(g){return g.party===party;});
+  if(partyGrossAll.length>0){
+    var gpCard=document.createElement('div');gpCard.className='card';gpCard.style.marginBottom='12px';
+    var gpHead=document.createElement('div');gpHead.className='card-head';
+    gpHead.innerHTML='<h4 style="color:#1d4ed8">\uD83D\uDD17 Gross Payments ('+partyGrossAll.length+') — \u20B9'+fmt(partyGrossTotal)+'</h4>';
+    gpCard.appendChild(gpHead);
+    var gpBody=document.createElement('div');gpBody.style.cssText='overflow:auto';
+    var gpTbl=document.createElement('table');gpTbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+    var gpThead=document.createElement('thead');
+    gpThead.innerHTML='<tr style="background:#eff6ff">'+
+      '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#1d4ed8">Gross ID</th>'+
+      '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#1d4ed8">Date</th>'+
+      '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;color:#1d4ed8">Gross Amt</th>'+
+      '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#1d4ed8">Mode</th>'+
+      '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#1d4ed8">Cheque/Rcpt</th>'+
+      '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#1d4ed8">Count</th>'+
+      '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#1d4ed8">Bill Nos Covered</th></tr>';
+    var gpTbody=document.createElement('tbody');
+    partyGrossAll.forEach(function(g,gi){
+      var dRows=payments.filter(function(p){return p.grossId===g.id&&p.rowType==='DETAIL';});
+      var billNosLinked=dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return '#'+(b.billNo||'?');}).join(', ');
+      var gpTr=document.createElement('tr');
+      gpTr.style.cssText='border-bottom:1px solid #dbeafe;background:'+(gi%2===0?'#fff':'#f8fbff');
+      gpTr.innerHTML='<td style="padding:7px 10px;font-weight:700;color:#1d4ed8">'+g.id+'</td>'+
+        '<td style="padding:7px 10px">'+fmtDate(g.date)+'</td>'+
+        '<td style="padding:7px 10px;text-align:right;font-weight:700;color:#1d4ed8">\u20B9'+fmt(g.grossAmt||0)+'</td>'+
+        '<td style="padding:7px 10px"><span style="background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">'+(g.mode||'-')+'</span></td>'+
+        '<td style="padding:7px 10px;font-family:monospace;font-size:11px">'+(g.chequeNo||'-')+(g.receiptNo&&g.receiptNo!==g.chequeNo?' / '+g.receiptNo:'')+'</td>'+
+        '<td style="padding:7px 10px;font-size:11px">'+dRows.length+' bill'+(dRows.length!==1?'s':'')+'</td>'+
+        '<td style="padding:7px 10px;font-size:11px;color:#1d4ed8;font-weight:600">'+(billNosLinked||'<span style=\"color:#9ca3af\">No DETAIL rows</span>')+'</td>';
+      gpTbody.appendChild(gpTr);
+    });
+    gpTbl.appendChild(gpThead);gpTbl.appendChild(gpTbody);
+    gpBody.appendChild(gpTbl);gpCard.appendChild(gpBody);
+    wrap.appendChild(gpCard);
   }
 
   var card=document.createElement('div');card.className='card';
@@ -5245,7 +5278,7 @@ function pgPartyLedger(party) {
       var totalPaid=bpays.reduce(function(s,p){return s+(p.amount||0);},0);
       var totalReb=bpays.reduce(function(s,p){return s+(p.rebate||0);},0);
       var totalInt=bpays.reduce(function(s,p){return s+(p.interest||0);},0);
-      var grossPays=bpays.filter(function(p){return p.grossId;});
+      var grossPays=bpays.filter(function(p){return p.grossAmt&&p.grossAmt>0;});
       var ph='<div style="padding:10px 16px">';
       // Summary bar
       ph+='<div style="display:flex;gap:16px;flex-wrap:wrap;padding:7px 12px;background:#dcfce7;border-radius:7px;margin-bottom:8px;font-size:11px;font-weight:600">';
@@ -5254,10 +5287,7 @@ function pgPartyLedger(party) {
       if(totalReb>0) ph+='<span style="color:#d97706">Rebate: <strong>₹'+fmt(totalReb)+'</strong></span>';
       if(totalInt>0) ph+='<span style="color:#7c3aed">Interest: <strong>₹'+fmt(totalInt)+'</strong></span>';
       ph+='<span style="color:'+(s.bal>0?'#dc2626':'#166534')+'">Balance: <strong>₹'+fmt(s.bal)+'</strong></span>';
-      if(grossPays.length>0){
-        var gpIdsList=grossPays.map(function(p){return p.grossId;}).filter(function(v,i,a){return a.indexOf(v)===i;});
-        ph+='<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px">'+gpIdsList.length+' Gross: <strong>'+gpIdsList.join(', ')+'</strong></span>';
-      }
+      if(grossPays.length>0) ph+='<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px">'+grossPays.length+' GROSS payment(s) — bill linked to header</span>';
       ph+='</div>';
       ph+='<div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:5px">Payment History ('+bpays.length+' payment'+(bpays.length>1?'s':'')+')</div>';
       ph+='<table style="width:100%;border-collapse:collapse;font-size:11px">';
@@ -5400,13 +5430,20 @@ function exportPartyLedgerExcel(party) {
   var partyGross=(grossPayments||[]).filter(function(g){return g.party===party;});
   if(partyGross.length){
     var gRows=partyGross.map(function(g){
-      var dRows=payments.filter(function(p){return p.grossId===g.id;});
-      var dBills=dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return 'Bill#'+b.billNo;}).join(', ');
+      var dRows=payments.filter(function(p){
+        if(p.grossId===g.id) return true;
+        if(p.rowType==='DETAIL'&&!p.grossId&&(p.grossAmt||0)===g.grossAmt&&p.date===g.date){
+          var b=bills.find(function(x){return x.id===p.billId;})||{};
+          if(b.party===g.party) return true;
+        }
+        return false;
+      });
+      var dBills=dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return 'Bill#'+(b.billNo||'?');}).join(', ');
       return{
         'Gross ID':g.id,'Date':fmtDate(g.date),'Party':g.party||'',
         'Gross Amount':g.grossAmt||0,'Mode':g.mode||'',
         'Cheque No':g.chequeNo||'','Receipt No':g.receiptNo||'',
-        'Bills Covered':dBills,'Bill Count':dRows.length,'Remarks':g.remarks||''
+        'Bills Covered':dBills||'—','Bill Count':dRows.length,'Remarks':g.remarks||''
       };
     });
     var wsG=XLSX.utils.json_to_sheet(gRows);
@@ -6935,21 +6972,32 @@ function togglePayDetails(billId) {
   var bpays=payments.filter(function(p){return p.billId===billId;});
   if(!bpays.length){td.innerHTML='<div style="padding:10px 16px;color:#9ca3af;font-size:12px;font-style:italic">No payment records yet</div>';}
   else{
+    var typeColors={SINGLE:'#f3f4f6|#374151',PARTIAL:'#fef9c3|#92400e',DETAIL:'#dbeafe|#1d4ed8',BILLTOBILL:'#ecfeff|#0891b2'};
     var h='<div style="padding:8px 16px"><table style="width:100%;border-collapse:collapse;font-size:11px">'+
       '<thead><tr style="background:#dcfce7">'+
-      ['#','Date','Amount','Rebate','Net','Mode','Cheque','Receipt','Remarks'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px">'+h+'</th>';}).join('')+
+      ['#','Date','Type','Amount','Rebate','Net','Mode','Cheque','Receipt','Gross ID','Remarks'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px">'+h+'</th>';}).join('')+
       '</tr></thead><tbody>';
     bpays.forEach(function(p,i){
-      h+='<tr style="border-bottom:1px solid #e5e7eb">'+
-        '<td style="padding:5px 8px">'+(i+1)+'</td><td style="padding:5px 8px">'+(p.date||'-')+'</td>'+
-        '<td style="padding:5px 8px;text-align:right">₹'+fmt(p.amount||0)+'</td>'+
-        '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
-        '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
-        '<td style="padding:5px 8px">'+(p.mode||'-')+'</td><td style="padding:5px 8px">'+(p.chequeNo||'-')+'</td>'+
-        '<td style="padding:5px 8px">'+(p.receiptNo||'-')+'</td><td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td></tr>';
+      var rowT=p.rowType||'SINGLE';
+      var tc=(typeColors[rowT]||typeColors.SINGLE).split('|');
+      var typeBadge='<span style="background:'+tc[0]+';color:'+tc[1]+';padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">'+rowT+'</span>';
+      h+='<tr style="border-bottom:1px solid #e5e7eb'+(rowT==='DETAIL'?';background:#eff6ff':'')+'">' +
+        '<td style="padding:5px 8px">'+(i+1)+'</td>'+
+        '<td style="padding:5px 8px;white-space:nowrap">'+fmtDate(p.date||'-')+'</td>'+
+        '<td style="padding:5px 8px">'+typeBadge+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;font-weight:700">\u20B9'+fmt(p.amount||0)+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;color:#d97706">'+(p.rebate>0?'\u20B9'+fmt(p.rebate):'-')+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">\u20B9'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
+        '<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:4px;font-size:10px">'+(p.mode||'-')+'</span></td>'+
+        '<td style="padding:5px 8px;font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
+        '<td style="padding:5px 8px;font-family:monospace">'+(p.receiptNo||'-')+'</td>'+
+        '<td style="padding:5px 8px">'+(p.grossId?'<span style="color:#1d4ed8;font-weight:700;font-size:10px">'+p.grossId+'</span>':'-')+'</td>'+
+        '<td style="padding:5px 8px;color:#6b7280;max-width:150px;word-break:break-word">'+(p.remarks||'-')+'</td></tr>';
     });
     h+='</tbody></table></div>';td.innerHTML=h;
   }
+  er.style.display='table-row';
+}
   er.style.display='table-row';
 }
 
@@ -9922,15 +9970,11 @@ function pgInterest() {
     var bPays=payments.filter(function(p){return p.billId===b.id;})
       .map(function(p){
         var adjStr=state.payDateAdj[p.id]||'';
-        // FIX 5: grossId wale payments ke liye GP label + Gross amount show karo
-        var grossRef=p.grossId?p.grossId:'';
-        var dispMode=grossRef?grossRef:(p.mode||'');
         return {
           id:p.id, amount:p.amount+(p.rebate||0),
           origDate:p.date, adjDate:adjStr,
           date:new Date(toISO(adjStr||p.date||today())),
-          mode:dispMode, receipt:p.receiptNo||p.chequeNo||'',
-          grossId:grossRef
+          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||''
         };
       }).sort(function(a,b2){return a.date-b2.date;});
 
@@ -9999,7 +10043,7 @@ function pgInterest() {
     var tOuter=document.createElement('div');tOuter.style.overflow='auto';
     var tbl=document.createElement('table');tbl.style.width='100%';
     var thead=document.createElement('thead');var htr=document.createElement('tr');htr.style.background='#f9fafb';
-    ['','Bill#','Date','Net Amt','Balance','Payment Dates (editable)','Period','Int Days','Interest (₹)','Action'].forEach(function(h){
+    ['','Bill#','Date','Net Amt','Received','Balance','Payment Dates (editable)','Period','Int Days','Interest (₹)','Action'].forEach(function(h){
       var th=document.createElement('th');th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap';
       th.textContent=h;htr.appendChild(th);
     });
@@ -10038,6 +10082,9 @@ function pgInterest() {
       var td1=document.createElement('td');td1.style.cssText='padding:7px 10px;font-size:12px;white-space:nowrap';td1.textContent=fmtDate(b.date);tr2.appendChild(td1);
       // Net Amt
       var td2=document.createElement('td');td2.style.cssText='padding:7px 10px;text-align:right;font-size:12px';td2.textContent='₹'+fmt(b.netAmt);tr2.appendChild(td2);
+      // Received
+      var tdRecv=document.createElement('td');tdRecv.style.cssText='padding:7px 10px;text-align:right;font-size:12px;color:#166534;font-weight:600';
+      tdRecv.textContent=s.recv>0?'₹'+fmt(s.recv):'-';tr2.appendChild(tdRecv);
       // Balance
       var td3=document.createElement('td');td3.style.cssText='padding:7px 10px;text-align:right;font-size:12px;color:'+(s.bal>0.5?'var(--red)':'var(--brand)')+';font-weight:700';
       td3.textContent=s.bal>0.5?'₹'+fmt(s.bal):'CLEAR';tr2.appendChild(td3);
@@ -10062,9 +10109,7 @@ function pgInterest() {
             refresh();
           });
           var pAmt=document.createElement('span');pAmt.style.cssText='font-size:11px;color:#374151;white-space:nowrap';
-          pAmt.innerHTML='₹'+fmt(p.amount)+(p.grossId?
-            ' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:700">'+p.grossId+'</span>':
-            (p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':''));
+          pAmt.innerHTML='₹'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'');
           if(p.adjDate){
             var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date';
             revert.addEventListener('click',function(){delete state.payDateAdj[p.id];refresh();});
@@ -10107,11 +10152,15 @@ function pgInterest() {
     // Party totals footer
     var tfoot=document.createElement('tfoot');
     var tftr=document.createElement('tr');tftr.style.cssText='background:#fffbeb;font-weight:700;border-top:2px solid var(--amber)';
-    [('Total ('+pBills.length+' bills)'),'','','₹'+fmt(partyTotBal),'','','','',
-     partyTotInt>0?'₹'+fmt(partyTotInt):'—',''].forEach(function(v,vi){
+    var partyTotRecv=pBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+    [('Total ('+pBills.length+' bills)'),'','','',
+     partyTotRecv>0?'\u20B9'+fmt(partyTotRecv):'—',
+     '\u20B9'+fmt(partyTotBal),'','','',
+     partyTotInt>0?'\u20B9'+fmt(partyTotInt):'—',''].forEach(function(v,vi){
       var td=document.createElement('td');td.style.cssText='padding:8px 10px;font-size:12px;'+(vi>=3?'text-align:right':'');
-      if(vi===3)td.style.color='var(--red)';
-      if(vi===8&&partyTotInt>0)td.innerHTML='<strong style="color:var(--amber)">₹'+fmt(partyTotInt)+'</strong>';
+      if(vi===5)td.style.color='var(--red)';
+      if(vi===4&&partyTotRecv>0)td.innerHTML='<strong style="color:#166534">'+v+'</strong>';
+      else if(vi===9&&partyTotInt>0)td.innerHTML='<strong style="color:var(--amber)">\u20B9'+fmt(partyTotInt)+'</strong>';
       else td.textContent=v;
       tftr.appendChild(td);
     });
@@ -10946,17 +10995,12 @@ function printPartyStatement(party, plState, format) {
       var bpays=payments.filter(function(p){return p.billId===b.id;});
       var totalReb2=bpays.reduce(function(s2,p){return s2+(p.rebate||0);},0);
       var modes=bpays.map(function(p){return p.grossId||p.mode||'-';}).filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ');
-      // FIX: Separate GP IDs from regular modes for clear linkage display
-      var gpIds=bpays.filter(function(p){return p.grossId;}).map(function(p){return p.grossId;}).filter(function(v,i,a){return a.indexOf(v)===i;});
-      var singleModes=bpays.filter(function(p){return !p.grossId;}).map(function(p){return p.mode||'';}).filter(function(v,i,a){return v&&a.indexOf(v)===i;});
-      var modesDisplay=gpIds.map(function(g){return '<span style="color:#1d4ed8;font-weight:700">'+g+'</span>';}).join(', ')+
-        (gpIds.length&&singleModes.length?' + ':'')+singleModes.join(', ')||(modes||'-');
       h+='<tr><td><strong>'+b.billNo+'</strong></td><td>'+fmtDate(b.date)+'</td><td style="font-size:10px">'+grade+'</td>'+
         '<td class="num">₹'+fmt(b.netAmt)+'</td>'+
         '<td class="num" style="color:#166534">₹'+fmt(s.recv)+'</td>'+
         '<td class="num" style="color:#d97706">'+(totalReb2>0?'₹'+fmt(totalReb2):'-')+'</td>'+
         '<td class="num" style="color:'+(s.bal>0?'#dc2626':'#166534')+';font-weight:700">₹'+fmt(s.bal)+'</td>'+
-        '<td style="font-size:10px;color:#374151">'+modesDisplay+'</td>'+
+        '<td style="font-size:10px;color:#374151">'+modes+'</td>'+
         '<td><span class="'+s.status+'">'+s.status.toUpperCase()+'</span></td></tr>';
     });
     h+='<tr style="background:#f0fdf4;font-weight:700"><td colspan="3"><strong>TOTAL</strong></td>'+
@@ -10972,8 +11016,19 @@ function printPartyStatement(party, plState, format) {
       h+='<h3 style="color:#1d4ed8">Gross Payments ('+partyGross3.length+')</h3>';
       h+='<table><thead><tr><th>Gross ID</th><th>Date</th><th class="num">Amount</th><th>Mode</th><th>Cheque No</th><th>Receipt No</th><th>Bills Covered</th></tr></thead><tbody>';
       partyGross3.forEach(function(g){
-        var dRows=payments.filter(function(p){return p.grossId===g.id;});
-        var dBills=dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return 'Bill#'+(b.billNo||'?');}).join(', ');
+        // Match DETAIL payments by grossId (primary) or by date+party+grossAmt (fallback for old data)
+        var dRows=payments.filter(function(p){
+          if(p.grossId===g.id) return true;
+          // Fallback: same party, same date, rowType DETAIL, grossAmt matches
+          if(p.rowType==='DETAIL'&&(p.grossAmt||0)===g.grossAmt){
+            var b=bills.find(function(x){return x.id===p.billId;})||{};
+            if(b.party===g.party&&p.date===g.date) return true;
+          }
+          return false;
+        });
+        var dBills=dRows.length>0
+          ? dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return 'Bill#'+(b.billNo||'?');}).join(', ')
+          : '<span style="color:#9ca3af;font-style:italic">Link data nayi upload ke baad dikhega</span>';
         h+='<tr class="gross-row"><td style="font-weight:700;color:#1d4ed8">'+g.id+'</td>'+
           '<td>'+fmtDate(g.date)+'</td>'+
           '<td class="num" style="font-weight:700;color:#1d4ed8">₹'+fmt(g.grossAmt||0)+'</td>'+
@@ -17045,13 +17100,21 @@ function exportReceiptLedgerExcel(){
 
   // Sheet 1: Gross Payments (HEADER rows)
   var grossRows=(grossPayments||[]).map(function(g){
-    var dRows=payments.filter(function(p){return p.grossId===g.id;});
-    var dBills=dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return b.billNo||'';}).join(', ');
+    // Primary: by grossId; Fallback: date+party+grossAmt for old data without grossId
+    var dRows=payments.filter(function(p){
+      if(p.grossId===g.id) return true;
+      if(p.rowType==='DETAIL'&&!p.grossId&&(p.grossAmt||0)===g.grossAmt&&p.date===g.date){
+        var b=bills.find(function(x){return x.id===p.billId;})||{};
+        if(b.party===g.party) return true;
+      }
+      return false;
+    });
+    var dBills=dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return b.billNo||''}).join(', ');
     return{
       'Gross ID':g.id,'Date':fmtDate(g.date),'Party':g.party||'',
       'Gross Amount':g.grossAmt||0,'Mode':g.mode||'',
       'Cheque No':g.chequeNo||'','Receipt No':g.receiptNo||'',
-      'Bills Covered':dBills,'Bill Count':dRows.length,'Remarks':g.remarks||''
+      'Bills Covered':dBills||'—','Bill Count':dRows.length,'Remarks':g.remarks||''
     };
   }).sort(function(a,b){return a['Date']>b['Date']?-1:1;});
   if(grossRows.length){
@@ -17481,13 +17544,19 @@ function pgReceiptLedger() {
       var ptyEl2=document.createElement('a');ptyEl2.style.cssText='color:#1d4ed8;font-weight:700;cursor:pointer;text-decoration:none';ptyEl2.textContent=g.party||'?';
       ptyEl2.addEventListener('click',function(){pageState.ledgerParty=g.party;go('ledger');});
       tdg(ptyEl2);
-      // FIX 3: Show actual linked bill numbers
-      var gDetailRows=data.filter(function(p){return p.grossId===g.id&&p.rowType==='DETAIL';});
-      var gBillNums=gDetailRows.map(function(p){var b2=bills.find(function(x){return x.id===p.billId;})||{};return b2.billNo||'?';}).filter(Boolean);
-      var billsCell=gBillNums.length>0?
-        '<span style="font-size:10px;color:#1d4ed8;font-weight:600">Bills: '+gBillNums.join(', ')+'</span>':
-        '<span style="color:#9ca3af;font-size:10px">Multiple Bills</span>';
-      tdg(billsCell);
+      // Show linked bill numbers — primary by grossId, fallback by grossAmt+date+party
+      var linkedDets=data.filter(function(p){
+        if(p.grossId===g.id&&p.rowType==='DETAIL') return true;
+        // Fallback for old data: same grossAmt, same date, same party, DETAIL type
+        if(p.rowType==='DETAIL'&&!p.grossId&&(p.grossAmt||0)===g.grossAmt&&p.date===g.date){
+          var b=bills.find(function(x){return x.id===p.billId;})||{};
+          if(b.party===g.party) return true;
+        }
+        return false;
+      });
+      var billNos=linkedDets.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return b.billNo||'?';}).filter(Boolean);
+      var billNoStr=billNos.length>0?'Bill# '+billNos.join(', '):'<span style="color:#9ca3af;font-size:10px">—</span>';
+      tdg('<span style="color:#1d4ed8;font-size:10px;font-weight:600">'+billNoStr+'</span>');
       tdg('-',{right:true});
       var gpBadge=document.createElement('span');gpBadge.style.cssText='font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:#1d4ed8;color:#fff';
       gpBadge.textContent='GROSS';tdg(gpBadge);
@@ -17640,9 +17709,22 @@ function printReceiptLedger(){
   // First: GROSS header rows with their detail rows
   grossData.forEach(function(g){
     rowNum++;
+    // Find linked DETAIL rows — by grossId first, fallback by grossAmt+date+party
+    var dRows=payments.filter(function(p){
+      if(p.grossId===g.id&&p.rowType==='DETAIL') return true;
+      if(p.rowType==='DETAIL'&&!p.grossId&&(p.grossAmt||0)===g.grossAmt&&p.date===g.date){
+        var b=bills.find(function(x){return x.id===p.billId;})||{};
+        if(b.party===g.party) return true;
+      }
+      return false;
+    });
+    var billsCovered=dRows.length>0
+      ? dRows.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return 'Bill#'+(b.billNo||'?');}).join(', ')
+      : '—';
     html+='<tr class="gross-row"><td>'+rowNum+'</td><td>'+fmtDate(g.date)+'</td>'+
       '<td><strong>'+g.party+'</strong></td>'+
-      '<td><span style="background:#1d4ed8;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">GROSS HEADER</span></td>'+
+      '<td><span style="background:#1d4ed8;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">GROSS</span> '+
+        '<span style="color:#1d4ed8;font-size:10px;font-weight:600">'+billsCovered+'</span></td>'+
       '<td style="text-align:right;color:#1d4ed8;font-weight:700">₹'+fmt(g.grossAmt||0)+'</td>'+
       '<td>-</td><td>-</td>'+
       '<td style="text-align:right;color:#1d4ed8;font-weight:700">₹'+fmt(g.grossAmt||0)+'</td>'+
@@ -17651,8 +17733,6 @@ function printReceiptLedger(){
       '<td style="font-family:monospace">'+(g.receiptNo||'-')+'</td>'+
       '<td style="color:#1d4ed8;font-weight:700">'+g.id+'</td>'+
       '<td>'+(g.remarks||'-')+'</td></tr>';
-    // Detail rows under this gross
-    var dRows=payments.filter(function(p){return p.grossId===g.id&&p.rowType==='DETAIL';});
     dRows.forEach(function(p){
       var b=bills.find(function(x){return x.id===p.billId;})||{};
       html+='<tr class="detail-row"><td style="padding-left:16px">↳</td><td>'+fmtDate(p.date)+'</td>'+
