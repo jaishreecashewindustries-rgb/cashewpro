@@ -846,13 +846,15 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
     <div class="lt">CashewPro</div>
     <div class="ls">Jai Shree Cashew Industries</div>
 
-    <!-- Local Login Button -->
-    <button class="lg-btn" id="li-google" onclick="doGoogleLogin()" style="background:var(--brand);color:#fff;border-color:var(--brand);justify-content:center;font-weight:700;font-size:15px;letter-spacing:0.3px;">
-      🏭 Enter CashewPro
+    <!-- Google Sign In Button -->
+    <button class="lg-btn" id="li-google">
+      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      <span id="li-g-txt">Continue with Google</span>
+      <span class="lsp" id="li-g-sp"></span>
     </button>
 
     <div class="le" id="li-err"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-4);">Jai Shree Cashew Industries · Local Mode</div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-4);">🔒 Secured by Firebase · Google Sign-In</div>
   </div>
 </div>
 <!-- APP LOADER -->
@@ -1090,112 +1092,102 @@ var DB = {
 };
 
 // ════════════════════════════════════════════════════════
-// AUTH — LOCAL SESSION (no Firebase auth needed)
+
 // ════════════════════════════════════════════════════════
-var _CP_SESSION_KEY = 'cp_local_session';
+// AUTH — login / logout / state
+// ════════════════════════════════════════════════════════
+function doGoogleLogin(){
+  /* Safety: if already signed in, just show the app */
+  if(_auth.currentUser){
+    var ls=document.getElementById('login-screen');
+    if(ls) ls.classList.add('hidden');
+    return;
+  }
 
-function _bootApp() {
-  // Set a fake local user so DB layer works
-  _user = { uid: 'local_user_jsc', email: 'user@jsc.local' };
+  var btn=document.getElementById('li-google');
+  var sp=document.getElementById('li-g-sp');
+  var txt=document.getElementById('li-g-txt');
+  var errEl=document.getElementById('li-err');
 
-  var ls = document.getElementById('login-screen');
-  var app = document.querySelector('.app');
-  var nav = document.getElementById('mobile-nav');
-  var loader = document.getElementById('app-loader');
+  /* Always reset to clean state first — prevents freeze if called twice */
+  if(btn){ btn.disabled=false; }
+  if(sp){ sp.className='lsp'; }
+  if(txt){ txt.textContent='Continue with Google'; }
+  if(errEl){ errEl.className='le'; errEl.textContent=''; }
 
-  if(ls) ls.classList.add('hidden');
-  if(loader) loader.classList.remove('hidden');
-  if(app) app.style.display = 'none';
-  if(nav) nav.style.display = 'none';
+  if(btn){ btn.disabled=true; }
+  if(sp){ sp.className='lsp show'; }
+  if(txt){ txt.textContent='Redirecting...'; }
 
-  DB.loadAll(_user.uid, function() {
-    bills     = DB.get('bills');
-    payments  = DB.get('payments');
-    cheques   = DB.get('cheques');
-    advances  = DB.get('advances');
-    expenses  = DB.get('expenses');
-    returns_  = DB.get('returns');
-    purchases = DB.get('purchases');
-    suspense  = DB.get('suspense');
-    cfg       = DB.getObj('settings', {});
-    hiddenPages = DB.getObj('hiddenPages', {});
+  var provider=new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({prompt:'select_account'});
 
-    if(!cfg.grades)   cfg.grades   = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
-    ['purchases','expenses','returns','advances','cheques'].forEach(function(k){ delete hiddenPages[k]; });
-    if(!cfg.company)  cfg.company  = 'JAI SHREE CASHEW INDUSTRIES';
-    if(!cfg.gstin)    cfg.gstin    = '08ADJPP5115H1ZH';
-    if(!cfg.phone)    cfg.phone    = '7568577968';
-    if(!cfg.address)  cfg.address  = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
-
-    if(loader) loader.classList.add('hidden');
-    if(app) { app.style.display = 'flex'; }
-    if(nav) nav.style.display = '';
-
-    var ue = document.getElementById('usr-email');
-    if(ue) ue.textContent = 'Admin';
-
-    buildNav();
-    go('dashboard');
-    try { erpAutoLoad(); } catch(e) {}
-    try { erpEngineAutoLoad(); } catch(e) {}
-    try { histLoad(); } catch(e) {}
-    try { histStartAutoTimer(); } catch(e) {}
-    try { histUpdateTopbarBtn(); } catch(e) {}
-  });
+  _auth.signInWithPopup(provider)
+    .catch(function(err){
+      if(btn){ btn.disabled=false; }
+      if(sp){ sp.className='lsp'; }
+      if(txt){ txt.textContent='Continue with Google'; }
+      var m='Google login failed. Try again.';
+      if(err.code==='auth/popup-closed-by-user') m='Popup was closed. Please try again.';
+      else if(err.code==='auth/popup-blocked')   m='⚠ Popup blocked. Please allow popups in browser.';
+      else if(err.code==='auth/network-request-failed') m='⚠ No internet. Check connection.';
+      else if(err.code==='auth/unauthorized-domain') m='⚠ Domain not authorized — add it in Firebase Console.';
+      else m='❌ '+(err.message||'Login failed.');
+      if(errEl){ errEl.textContent=m; errEl.className='le show'; }
+    });
 }
 
-function doGoogleLogin() {
-  var btn = document.getElementById('li-google');
-  if(btn) btn.disabled = true;
-  try { localStorage.setItem(_CP_SESSION_KEY, '1'); } catch(e) {}
-  setTimeout(function() { _bootApp(); }, 200);
-}
+// keep doLogin as no-op for safety
+function doLogin(){ doGoogleLogin(); }
 
-// keep doLogin as alias
-function doLogin() { doGoogleLogin(); }
-
-function doLogout() {
+function doLogout(){
+  // Custom logout modal instead of confirm()
   var body = document.createElement('div');
   body.style.cssText = 'text-align:center;padding:8px 0';
   body.innerHTML =
     '<div style="font-size:40px;margin-bottom:12px">👋</div>'+
     '<div style="font-size:16px;font-weight:600;color:var(--text-1);margin-bottom:6px">Are you sure you want to logout?</div>'+
-    '<div style="font-size:13px;color:var(--text-3)">Your data is safely stored locally</div>';
+    '<div style="font-size:13px;color:var(--text-3)">Your data is safely stored in Firebase</div>';
   openModal('Logout', body, [
     { label: '✅ Yes, Logout', fn: function(){
         closeModal();
-        try { localStorage.removeItem(_CP_SESSION_KEY); } catch(e) {}
-        setTimeout(function(){ location.reload(); }, 400);
+        DB._flush();
+        setTimeout(function(){ _auth.signOut(); }, 600);
       }
     },
     { label: 'Cancel', fn: function(){ closeModal(); } }
   ]);
 }
 
-// Wire up button and auto-login on page load
-document.addEventListener('DOMContentLoaded', function() {
-  var gb = document.getElementById('li-google');
-  if(gb) {
-    gb.addEventListener('click', function() { doGoogleLogin(); });
-    gb.addEventListener('keydown', function(e) { if(e.key === 'Enter') doGoogleLogin(); });
+// DOMContentLoaded — wire up login button via addEventListener (works with 'use strict')
+document.addEventListener('DOMContentLoaded',function(){
+  var gb=document.getElementById('li-google');
+  if(gb){
+    gb.addEventListener('click', function(){ doGoogleLogin(); });
+    gb.addEventListener('keydown',function(e){ if(e.key==='Enter') doGoogleLogin(); });
   }
-  // Auto-login if session exists
-  var hasSession = false;
-  try { hasSession = localStorage.getItem(_CP_SESSION_KEY) === '1'; } catch(e) {}
-  if(hasSession) {
-    setTimeout(function() { _bootApp(); }, 100);
-  }
+  // Also wire up any other login buttons
+  var li2=document.getElementById('li-btn');
+  if(li2) li2.addEventListener('click', function(){ doGoogleLogin(); });
 });
 
 // ════════════════════════════════════════════════════════
 // AUTH STATE — single source of truth
 // ════════════════════════════════════════════════════════
-/* FULL CLEAR FUNCTION */
+/* ══════════════════════════════════════════════════════════════════
+   FULL CLEAR FUNCTION — clears localStorage + Firestore + reloads
+   ══════════════════════════════════════════════════════════════════ */
 function _doFullClearAndReload() {
   toast('⏳ Clearing all data...', 'info');
+
+  /* Step 1 — wipe localStorage and sessionStorage */
   try { localStorage.clear(); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
+
+  /* Step 2 — cancel any pending Firestore writes */
   try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
+
+  /* Step 3 — reset every in-memory variable */
   try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
   try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
@@ -1205,11 +1197,118 @@ function _doFullClearAndReload() {
         ERP.auditLog=[]; ERP.summary=null; ERP.overrides={}; ERP.savedAt=null; } catch(e) {}
   try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
   try { invalidateBillStatusCache(); } catch(e) {}
-  toast('✅ All data cleared. Reloading...', 'success');
-  setTimeout(function() { location.reload(); }, 800);
+
+  /* Step 4 — delete Firestore docs, then sign out.
+     signOut() triggers onAuthStateChanged(null) which shows the clean login screen.
+     No location.reload() needed — signOut handles the state reset naturally. */
+  function _signOutAndFinish() {
+    _auth.signOut()
+      .then(function() {
+        toast('✅ All data cleared. Please sign in again.', 'success');
+      })
+      .catch(function() {
+        toast('✅ All data cleared. Please sign in again.', 'success');
+        setTimeout(function() { location.reload(true); }, 800);
+      });
+  }
+
+  if (_user && _fdb) {
+    _fdb.collection('users').doc(_user.uid).collection('data').get()
+      .then(function(snap) {
+        if (!snap || snap.empty) {
+          _signOutAndFinish();
+          return;
+        }
+        var refs = [];
+        snap.forEach(function(doc) { refs.push(doc.ref); });
+        var batches = [];
+        for (var i = 0; i < refs.length; i += 450) {
+          var b = _fdb.batch();
+          refs.slice(i, i + 450).forEach(function(ref) { b.delete(ref); });
+          batches.push(b.commit());
+        }
+        Promise.all(batches)
+          .then(function() { _signOutAndFinish(); })
+          .catch(function(err) {
+            console.error('Firestore clear error:', err);
+            _signOutAndFinish();
+          });
+      })
+      .catch(function(err) {
+        console.error('Firestore read error:', err);
+        _signOutAndFinish();
+      });
+  } else {
+    _signOutAndFinish();
+  }
 }
 
-// hide app on initial load (shown after _bootApp)
+
+_auth.onAuthStateChanged(function(user){
+  var ls=document.getElementById('login-screen');
+  var app=document.querySelector('.app');
+  var nav=document.getElementById('mobile-nav');
+  var loader=document.getElementById('app-loader');
+
+  if(user){
+    _user=user;
+    if(ls) ls.classList.add('hidden');
+    if(loader) loader.classList.remove('hidden');
+    if(app) app.style.display='none';
+    if(nav) nav.style.display='none';
+
+    DB.loadAll(user.uid, function(){
+      // populate in-memory arrays from cache
+      bills     = DB.get('bills');
+      payments  = DB.get('payments');
+      cheques   = DB.get('cheques');
+      advances  = DB.get('advances');
+      expenses  = DB.get('expenses');
+      returns_  = DB.get('returns');
+      purchases = DB.get('purchases');
+      suspense  = DB.get('suspense');
+      cfg       = DB.getObj('settings',{});
+      hiddenPages = DB.getObj('hiddenPages',{});
+
+      if(!cfg.grades)   cfg.grades   = ['W180','W210','W240','W320','W450','SW','LWP','Scorched','PLWP','KK','JK','JH'];
+      ['purchases','expenses','returns','advances','cheques'].forEach(function(k){delete hiddenPages[k];});
+      if(!cfg.company)  cfg.company  = 'JAI SHREE CASHEW INDUSTRIES';
+      if(!cfg.gstin)    cfg.gstin    = '08ADJPP5115H1ZH';
+      if(!cfg.phone)    cfg.phone    = '7568577968';
+      if(!cfg.address)  cfg.address  = '41, Barah Ji Ki Gali, Gangori Bazar, Jaipur';
+
+      if(loader) loader.classList.add('hidden');
+      if(app){ app.style.display='flex'; }
+      if(nav) nav.style.display='';
+
+      var ue=document.getElementById('usr-email');
+      if(ue) ue.textContent=(user.email||'').split('@')[0];
+
+      buildNav();
+      go('dashboard');
+      try { erpAutoLoad(); } catch(e) {}
+      try { erpEngineAutoLoad(); } catch(e) {}
+      try { histLoad(); } catch(e) {}
+      try { histStartAutoTimer(); } catch(e) {}
+      try { histUpdateTopbarBtn(); } catch(e) {}
+    }); // end DB.loadAll
+  } else {
+    _user=null;
+    if(loader) loader.classList.add('hidden');
+    if(ls) ls.classList.remove('hidden');
+    if(app) app.style.display='none';
+    if(nav) nav.style.display='none';
+    // reset login button
+    var btn=document.getElementById('li-google');
+    var sp=document.getElementById('li-g-sp');
+    var txt=document.getElementById('li-g-txt');
+    if(btn){ btn.disabled=false; }
+    if(sp){  sp.className='lsp'; }
+    if(txt){ txt.textContent='Continue with Google'; }
+  }
+});
+
+// hide app on initial load (shown only after auth)
 (function(){
   var a=document.querySelector('.app');
   var n=document.getElementById('mobile-nav');
