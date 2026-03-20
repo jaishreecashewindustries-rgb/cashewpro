@@ -1525,6 +1525,7 @@ var NAV = [
   { id: 'cheques',     icon: 'credit',    label: 'Cheques' },
   { section: 'Accounts' },
   { id: 'ledger',      icon: 'book',      label: 'Party Ledger' },
+  { id: 'receipt-ledger', icon: 'list',   label: 'Receipt Ledger' },
   { id: 'returns',     icon: 'undo',      label: 'Returns' },
   { id: 'expenses',    icon: 'tag',       label: 'Expenses' },
   { id: 'purchases',   icon: 'cart',      label: 'Purchases' },
@@ -1539,7 +1540,8 @@ var NAV = [
   { id: 'duplicates',  icon: 'warning',   label: 'Issues & Duplicates' },
   { id: 'reports',     icon: 'bar',       label: 'Reports' },
   { id: 'brokerage',   icon: 'percent',   label: 'Brokerage Statement' },
-  { section: 'ERP' },
+  { id: 'ai-rules',    icon: 'cpu',       label: 'AI Import Rules' },
+  { section: 'ERP (Advanced)' },
   { id: 'erp-engine',  icon: 'cpu',       label: 'ERP Engine v2' },
   { id: 'reconcile',   icon: 'sync',      label: 'ERP Reconcile (old)' },
   { id: 'settings',    icon: 'gear',      label: 'Settings' },
@@ -2511,6 +2513,7 @@ function render(page) {
     'cheques':    pgCheques,
     'suspense':   pgSuspense,
     'ledger':     pgLedger,
+    'receipt-ledger': pgReceiptLedger,
     'bank-upload': pgBankUpload,
     'bill-import': pgBillImport,
     'returns':    pgReturns,
@@ -2526,6 +2529,7 @@ function render(page) {
     'history':    pgHistory,
     'erp-engine': pgERPEngine,
     'reconcile':  pgERPReconcile,
+    'ai-rules':   pgAIRules,
     'settings':   pgSettings,
   };
 
@@ -3199,7 +3203,8 @@ function pgAllBills() {
     {l:'Balance',k:'bal',fk:'bal',num:true},
     {l:'Status',k:'status',fk:'status',num:false},
     {l:'Last Mode',k:'lastMode',fk:null,num:false,noSort:true},
-    {l:'Receipt#',k:'lastRcpt',fk:null,num:false,noSort:true},
+    {l:'Cheque No',k:'lastChq',fk:null,num:false,noSort:true},
+    {l:'Receipt No',k:'lastRcpt',fk:null,num:false,noSort:true},
     {l:'Remarks',k:'remarks',fk:'remarks',num:false}
   ];
   var payCols=[
@@ -3310,7 +3315,8 @@ function pgAllBills() {
       var rowPays=payments.filter(function(p){return p.billId===row.id;}).sort(function(a,b2){return (b2.date||'').localeCompare(a.date||'');});
       var lastPay2=rowPays[0]||null;
       var lastMode=lastPay2?(lastPay2.mode||'-'):'-';
-      var lastRcpt=lastPay2?(lastPay2.receiptNo||lastPay2.chequeNo||''):'-';
+      var lastChq=lastPay2?(lastPay2.chequeNo||''):'-';
+      var lastRcpt=lastPay2?(lastPay2.receiptNo||''):'-';
       addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd('<strong>'+row.party+'</strong>');addTd(row.broker||'-');addTd(grade);addTd(row.billType||'credit');
       addTd('₹'+fmt(row.netAmt),true);
       addTd(el('span',{text:'₹'+fmt(s.recv),style:'color:#166534;font-weight:600'}),true);
@@ -3319,7 +3325,9 @@ function pgAllBills() {
       // Last Mode cell
       var modCell=document.createElement('td');modCell.style.padding='7px 10px';
       if(lastMode&&lastMode!=='-'){var ms=document.createElement('span');ms.style.cssText='font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e0f2fe;color:#0369a1';ms.textContent=lastMode;modCell.appendChild(ms);}else{modCell.textContent='-';}tr.appendChild(modCell);
-      // Receipt# cell
+      // Cheque No cell (separate)
+      var chqCell=document.createElement('td');chqCell.style.cssText='padding:7px 10px;font-size:11px;color:#374151;font-family:monospace';chqCell.textContent=lastChq||'-';tr.appendChild(chqCell);
+      // Receipt No cell (separate)
       var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);addTd(row.remarks||'-');
       if(state.showPay){
         addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'₹'+fmt(lpy.amount||0):'-',true,true);
@@ -3855,6 +3863,7 @@ function pgDueList() {
       else if(state.sortKey==='recv'){av=getBillStatus(a).recv;bv=getBillStatus(b2).recv;}
       else if(state.sortKey==='days'){av=Math.floor((new Date()-new Date(a.date))/86400000);bv=Math.floor((new Date()-new Date(b2.date))/86400000);}
       else if(state.sortKey==='status'){av=getBillStatus(a).status;bv=getBillStatus(b2).status;}
+      else if(state.sortKey==='billNo'){av=parseInt(a.billNo)||0;bv=parseInt(b2.billNo)||0;}
       else{av=a[state.sortKey]||'';bv=b2[state.sortKey]||'';}
       if(typeof av==='number'&&typeof bv==='number')return(av-bv)*state.sortDir;
       return String(av).localeCompare(String(bv))*state.sortDir;
@@ -5164,25 +5173,49 @@ function pgPartyLedger(party) {
     var eRow=document.createElement('tr');eRow.id='pexp-'+b.id;eRow.style.display='none';eRow.style.background='#f0fdf4';
     var eTd=document.createElement('td');eTd.setAttribute('colspan',12);eTd.style.padding='0';
     if(!bpays.length){
-      eTd.innerHTML='<div style="padding:10px 20px;color:#9ca3af;font-size:12px;font-style:italic">No payments yet</div>';
+      eTd.innerHTML='<div style="padding:10px 20px;color:#9ca3af;font-size:12px;font-style:italic">No payments yet for this bill</div>';
     } else {
-      var ph='<div style="padding:10px 16px"><div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:6px">Payment History</div>'+
-        '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#dcfce7">'+
-        ['#','Date','Amount','Rebate','Interest','Net','Mode','Cheque','Receipt','Remarks','Del'].map(function(h){return'<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px">'+h+'</th>';}).join('')+
-        '</tr></thead><tbody>';
+      // Build rich payment expand with GROSS header-detail callout
+      var totalPaid=bpays.reduce(function(s,p){return s+(p.amount||0);},0);
+      var totalReb=bpays.reduce(function(s,p){return s+(p.rebate||0);},0);
+      var totalInt=bpays.reduce(function(s,p){return s+(p.interest||0);},0);
+      var grossPays=bpays.filter(function(p){return p.grossAmt&&p.grossAmt>0;});
+      var ph='<div style="padding:10px 16px">';
+      // Summary bar
+      ph+='<div style="display:flex;gap:16px;flex-wrap:wrap;padding:7px 12px;background:#dcfce7;border-radius:7px;margin-bottom:8px;font-size:11px;font-weight:600">';
+      ph+='<span style="color:#166534">Bill: <strong>₹'+fmt(b.netAmt)+'</strong></span>';
+      ph+='<span style="color:#166534">Total Paid: <strong>₹'+fmt(totalPaid)+'</strong></span>';
+      if(totalReb>0) ph+='<span style="color:#d97706">Rebate: <strong>₹'+fmt(totalReb)+'</strong></span>';
+      if(totalInt>0) ph+='<span style="color:#7c3aed">Interest: <strong>₹'+fmt(totalInt)+'</strong></span>';
+      ph+='<span style="color:'+(s.bal>0?'#dc2626':'#166534')+'">Balance: <strong>₹'+fmt(s.bal)+'</strong></span>';
+      if(grossPays.length>0) ph+='<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px">'+grossPays.length+' GROSS payment(s) — bill linked to header</span>';
+      ph+='</div>';
+      ph+='<div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:5px">Payment History ('+bpays.length+' payment'+(bpays.length>1?'s':'')+')</div>';
+      ph+='<table style="width:100%;border-collapse:collapse;font-size:11px">';
+      ph+='<thead><tr style="background:#dcfce7">';
+      ['#','Date','Pay Type','Amount Paid','Rebate','Interest','Bill Total','Mode','Cheque No','Receipt No','Gross Ref','Remarks','Actions'].forEach(function(h){
+        ph+='<th style="padding:5px 8px;color:#166534;font-weight:700;text-align:left;font-size:10px;white-space:nowrap">'+h+'</th>';
+      });
+      ph+='</tr></thead><tbody>';
       bpays.forEach(function(p,pi){
-        ph+='<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:5px 8px;color:#6b7280">'+(pi+1)+'</td>'+
-          '<td style="padding:5px 8px">'+p.date+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;font-weight:600">₹'+fmt(p.amount||0)+(p.grossAmt&&p.grossAmt>0?'<br><span style="font-size:9px;color:#6b7280;font-weight:400">GROSS:₹'+fmt(p.grossAmt)+'</span>':'')+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;color:#d97706">₹'+fmt(p.rebate||0)+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>'+
-          '<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
-          '<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span></td>'+
-          '<td style="padding:5px 8px;font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
-          '<td style="padding:5px 8px;font-family:monospace">'+(p.receiptNo||'-')+'</td>'+
-          '<td style="padding:5px 8px;color:#6b7280">'+(p.remarks||'-')+'</td>'+
-          '<td style="padding:5px 8px;white-space:nowrap"><button class="edit-pay-btn" data-pid="'+p.id+'" style="background:#dbeafe;color:#1d4ed8;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-right:3px">✏️</button><button class="del-pay-btn" data-pid="'+p.id+'" data-prty="'+party+'" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer">Del</button></td>'+
-          '</tr>';
+        var isGross=p.grossAmt&&p.grossAmt>0;
+        var rowBg=isGross?'#eff6ff':(pi%2===0?'#fff':'#f9fafb');
+        var payType=isGross?'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">GROSS DETAIL</span>':'<span style="background:#f3f4f6;color:#374151;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SINGLE</span>';
+        ph+='<tr style="border-bottom:1px solid #e5e7eb;background:'+rowBg+'">';
+        ph+='<td style="padding:5px 8px;color:#9ca3af">'+(pi+1)+'</td>';
+        ph+='<td style="padding:5px 8px;white-space:nowrap">'+fmtDate(p.date)+'</td>';
+        ph+='<td style="padding:5px 8px">'+payType+'</td>';
+        ph+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:#111827">₹'+fmt(p.amount||0)+'</td>';
+        ph+='<td style="padding:5px 8px;text-align:right;color:#d97706;font-weight:600">'+(p.rebate>0?'₹'+fmt(p.rebate):'-')+'</td>';
+        ph+='<td style="padding:5px 8px;text-align:right;color:#7c3aed;font-weight:600">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>';
+        ph+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:#166534">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>';
+        ph+='<td style="padding:5px 8px"><span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700">'+(p.mode||'-')+'</span></td>';
+        ph+='<td style="padding:5px 8px;font-family:monospace;color:#374151">'+(p.chequeNo||'-')+'</td>';
+        ph+='<td style="padding:5px 8px;font-family:monospace;color:#6b7280">'+(p.receiptNo||'-')+'</td>';
+        ph+='<td style="padding:5px 8px">'+(isGross?'<span style="color:#1d4ed8;font-size:10px">Header GROSS ₹'+fmt(p.grossAmt)+'</span>':'-')+'</td>';
+        ph+='<td style="padding:5px 8px;color:#6b7280;max-width:160px">'+(p.remarks||'-')+'</td>';
+        ph+='<td style="padding:5px 8px;white-space:nowrap"><button class="edit-pay-btn" data-pid="'+p.id+'" style="background:#dbeafe;color:#1d4ed8;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-right:3px">✏️ Edit</button><button class="del-pay-btn" data-pid="'+p.id+'" data-prty="'+party+'" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer">Del</button></td>';
+        ph+='</tr>';
       });
       ph+='</tbody></table></div>';
       eTd.innerHTML=ph;
@@ -5292,7 +5325,17 @@ function exportPartyLedgerExcel(party) {
   });
   if(bRows.length){var ws1=XLSX.utils.json_to_sheet(bRows);XLSX.utils.book_append_sheet(wb,ws1,'Bills');}
   var allPays=[];
-  pb.forEach(function(b){payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){allPays.push({'Bill No':b.billNo,'Date':p.date,'Amount':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,'Net':(p.amount||0)+(p.rebate||0),'Mode':p.mode||'','Cheque':p.chequeNo||'','Receipt':p.receiptNo||''});});});
+  pb.forEach(function(b){payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
+    var isGross=p.grossAmt&&p.grossAmt>0;
+    allPays.push({
+      'Bill No':b.billNo,'Pay Date':fmtDate(p.date),
+      'Pay Type':isGross?'GROSS':'SINGLE',
+      'Amount Paid':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+      'Bill Total':(p.amount||0)+(p.rebate||0),
+      'Mode':p.mode||'','Cheque No':p.chequeNo||'','Receipt No':p.receiptNo||'',
+      'Gross Ref':isGross?p.grossAmt:'','Remarks':p.remarks||''
+    });
+  });});
   if(allPays.length){var ws2=XLSX.utils.json_to_sheet(allPays);XLSX.utils.book_append_sheet(wb,ws2,'Payments');}
   XLSX.writeFile(wb,party.replace(/[^a-zA-Z0-9]/g,'_')+'_Ledger_'+today()+'.xlsx');
   toast('Ledger exported!');
@@ -5775,12 +5818,14 @@ function pgPurchases() {
 function pgReports() {
   var state = pageState.rep = pageState.rep || {tab:'party'};
   var tabs2 = [
-    {id:'party',  lbl:'Party Outstanding'},
-    {id:'broker', lbl:'Broker Wise'},
-    {id:'grade',  lbl:'Grade Wise'},
-    {id:'monthly',lbl:'Monthly Sales'},
-    {id:'gst',    lbl:'GST Summary'},
+    {id:'party',      lbl:'Party Outstanding'},
+    {id:'broker',     lbl:'Broker Wise'},
+    {id:'grade',      lbl:'Grade Wise'},
+    {id:'monthly',    lbl:'Monthly Sales'},
+    {id:'gst',        lbl:'GST Summary'},
     {id:'interest_rpt', lbl:'Interest Received'},
+    {id:'collection', lbl:'Collection Report'},
+    {id:'rebate_int', lbl:'Rebate & Interest'},
   ];
 
   var wrap = document.createElement('div');
@@ -6136,6 +6181,238 @@ function pgReports() {
         {l:'Ref/Cheque',k:'chequeNo',render:function(r){return r.chequeNo||'-';}}
       ],allEntries));
     }
+  }
+
+  // ── COLLECTION REPORT TAB ──
+  else if (state.tab==='collection') {
+    var colState = pageState.rep.colRpt = pageState.rep.colRpt || {subTab:'mode'};
+    var colExpBtn = el('button',{cls:'btn btn-outline btn-sm',text:'📥 Excel'});
+    var colPrintBtn = el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
+    cHead.innerHTML = '<h4 style="color:#0369a1">📊 Collection Report</h4>';
+    cHead.appendChild(colPrintBtn); cHead.appendChild(colExpBtn);
+
+    // Sub-tab switcher
+    var subTabBar = document.createElement('div');
+    subTabBar.style.cssText = 'display:flex;gap:0;border-bottom:2px solid #e0f2fe;margin-bottom:12px;padding:0 4px';
+    [{id:'mode',lbl:'Mode-wise (NEFT/UPI/CASH/CHEQUE)'},{id:'daily',lbl:'Date-wise Daily'},{id:'monthly2',lbl:'Month-wise'}].forEach(function(st){
+      var btn = document.createElement('div');
+      btn.style.cssText = 'padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;border-bottom:2px solid '+(colState.subTab===st.id?'#0369a1':'transparent')+';margin-bottom:-2px;color:'+(colState.subTab===st.id?'#0369a1':'#6b7280');
+      btn.textContent = st.lbl;
+      btn.addEventListener('click',function(){colState.subTab=st.id;refresh();});
+      subTabBar.appendChild(btn);
+    });
+    cBody.appendChild(subTabBar);
+
+    if(colState.subTab==='mode'){
+      var modeMap = {};
+      payments.forEach(function(p){
+        var m = (p.mode||'OTHER').toUpperCase();
+        if(!modeMap[m]) modeMap[m]={mode:m,count:0,total:0,rebate:0,interest:0};
+        modeMap[m].count++;
+        modeMap[m].total  += p.amount||0;
+        modeMap[m].rebate += p.rebate||0;
+        modeMap[m].interest += p.interest||0;
+      });
+      var modeData = Object.values(modeMap).sort(function(a,b){return b.total-a.total;});
+      var grandTotal = modeData.reduce(function(s,m){return s+m.total;},0);
+      var sumB2 = document.createElement('div');
+      sumB2.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px';
+      [{l:'Total Collected',v:'₹'+fmt(grandTotal),c:'#166534'},
+       {l:'Total Payments',v:payments.length,c:'#374151'},
+       {l:'Modes Used',v:modeData.length,c:'#0369a1'}].forEach(function(s){
+        var d=document.createElement('div');d.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px';
+        d.innerHTML='<div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:4px">'+s.l+'</div><div style="font-size:18px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';
+        sumB2.appendChild(d);
+      });
+      cBody.appendChild(sumB2);
+      cBody.appendChild(mkTbl2([
+        {l:'Mode',k:'mode',render:function(r){
+          var colors={NEFT:'#0369a1',UPI:'#7c3aed',CASH:'#166534',CHEQUE:'#b45309',RTGS:'#0e7490',IMPS:'#0369a1'};
+          var c=colors[r.mode]||'#374151';
+          return '<span style="background:'+c+'1a;color:'+c+';padding:3px 9px;border-radius:4px;font-weight:700;font-size:11px">'+r.mode+'</span>';
+        }},
+        {l:'No. of Payments',k:'count',num:true},
+        {l:'Total Collected',k:'total',num:true,render:function(r){return '<strong style="color:#166534">₹'+fmt(r.total)+'</strong>';}},
+        {l:'Rebate Given',k:'rebate',num:true,render:function(r){return r.rebate>0?'<span style="color:#d97706">₹'+fmt(r.rebate)+'</span>':'-';}},
+        {l:'Interest Earned',k:'interest',num:true,render:function(r){return r.interest>0?'<span style="color:#7c3aed">₹'+fmt(r.interest)+'</span>':'-';}},
+        {l:'% of Total',k:'total',num:true,noSort:true,render:function(r){return grandTotal>0?(r.total/grandTotal*100).toFixed(1)+'%':'-';}}
+      ],modeData));
+
+      colExpBtn.addEventListener('click',function(){
+        var wb2=XLSX.utils.book_new();
+        var ws=XLSX.utils.json_to_sheet(modeData.map(function(r){return{'Mode':r.mode,'Payments':r.count,'Total Collected':r.total,'Rebate Given':r.rebate,'Interest Earned':r.interest,'% of Total':grandTotal>0?(r.total/grandTotal*100).toFixed(1)+'%':'-'};}));
+        XLSX.utils.book_append_sheet(wb2,ws,'Mode-wise Collection');
+        XLSX.writeFile(wb2,'CollectionReport_Mode_'+today()+'.xlsx');
+        toast('✅ Mode-wise collection exported!');
+      });
+      colPrintBtn.addEventListener('click',function(){
+        var pw=window.open('','_blank');
+        pw.document.write('<!DOCTYPE html><html><head><title>Collection Report</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}h3{color:#0369a1}table{width:100%;border-collapse:collapse}th{background:#0369a1;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
+        pw.document.write('<h3>'+cfg.company+' — Collection Report (Mode-wise) — '+today()+'</h3>');
+        pw.document.write('<p>Total Collected: <strong>₹'+fmt(grandTotal)+'</strong> | Payments: '+payments.length+'</p>');
+        pw.document.write(cBody.innerHTML);
+        pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+        pw.document.close();
+      });
+
+    } else if(colState.subTab==='daily'){
+      var dayMap={};
+      payments.forEach(function(p){
+        var d=p.date||today();
+        if(!dayMap[d])dayMap[d]={date:d,count:0,total:0,rebate:0,interest:0};
+        dayMap[d].count++;dayMap[d].total+=p.amount||0;
+        dayMap[d].rebate+=p.rebate||0;dayMap[d].interest+=p.interest||0;
+      });
+      var dayData=Object.values(dayMap).sort(function(a,b){return b.date.localeCompare(a.date);});
+      cBody.appendChild(mkTbl2([
+        {l:'Date',k:'date',render:function(r){return fmtDate(r.date);}},
+        {l:'Payments',k:'count',num:true},
+        {l:'Total Collected',k:'total',num:true,render:function(r){return '<strong>₹'+fmt(r.total)+'</strong>';}},
+        {l:'Rebate',k:'rebate',num:true,render:function(r){return r.rebate>0?'₹'+fmt(r.rebate):'-';}},
+        {l:'Interest',k:'interest',num:true,render:function(r){return r.interest>0?'₹'+fmt(r.interest):'-';}},
+      ],dayData));
+      colExpBtn.addEventListener('click',function(){
+        var wb2=XLSX.utils.book_new();
+        var ws=XLSX.utils.json_to_sheet(dayData.map(function(r){return{'Date':fmtDate(r.date),'Payments':r.count,'Collected':r.total,'Rebate':r.rebate,'Interest':r.interest};}));
+        XLSX.utils.book_append_sheet(wb2,ws,'Daily Collection');
+        XLSX.writeFile(wb2,'CollectionReport_Daily_'+today()+'.xlsx');toast('✅ Daily collection exported!');
+      });
+      colPrintBtn.addEventListener('click',function(){
+        var pw=window.open('','_blank');
+        pw.document.write('<!DOCTYPE html><html><head><title>Daily Collection</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}h3{color:#0369a1}table{width:100%;border-collapse:collapse}th{background:#0369a1;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
+        pw.document.write('<h3>'+cfg.company+' — Daily Collection — '+today()+'</h3>');
+        pw.document.write(cBody.innerHTML);
+        pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+        pw.document.close();
+      });
+
+    } else { // monthly2
+      var mon2Map={};
+      payments.forEach(function(p){
+        var m=p.date?p.date.substring(0,7):'';if(!m)return;
+        if(!mon2Map[m])mon2Map[m]={month:m,count:0,total:0,rebate:0,interest:0};
+        mon2Map[m].count++;mon2Map[m].total+=p.amount||0;
+        mon2Map[m].rebate+=p.rebate||0;mon2Map[m].interest+=p.interest||0;
+      });
+      var mon2Data=Object.values(mon2Map).sort(function(a,b){return b.month.localeCompare(a.month);});
+      cBody.appendChild(mkTbl2([
+        {l:'Month',k:'month',render:function(r){var parts=r.month.split('-');return parts[1]+'/'+parts[0];}},
+        {l:'Payments',k:'count',num:true},
+        {l:'Total Collected',k:'total',num:true,render:function(r){return '<strong>₹'+fmt(r.total)+'</strong>';}},
+        {l:'Rebate',k:'rebate',num:true,render:function(r){return r.rebate>0?'₹'+fmt(r.rebate):'-';}},
+        {l:'Interest',k:'interest',num:true,render:function(r){return r.interest>0?'₹'+fmt(r.interest):'-';}},
+      ],mon2Data));
+      colExpBtn.addEventListener('click',function(){
+        var wb2=XLSX.utils.book_new();
+        var ws=XLSX.utils.json_to_sheet(mon2Data.map(function(r){return{'Month':r.month,'Payments':r.count,'Collected':r.total,'Rebate':r.rebate,'Interest':r.interest};}));
+        XLSX.utils.book_append_sheet(wb2,ws,'Monthly Collection');
+        XLSX.writeFile(wb2,'CollectionReport_Monthly_'+today()+'.xlsx');toast('✅ Monthly collection exported!');
+      });
+      colPrintBtn.addEventListener('click',function(){
+        var pw=window.open('','_blank');
+        pw.document.write('<!DOCTYPE html><html><head><title>Monthly Collection</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}h3{color:#0369a1}table{width:100%;border-collapse:collapse}th{background:#0369a1;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
+        pw.document.write('<h3>'+cfg.company+' — Monthly Collection — '+today()+'</h3>');
+        pw.document.write(cBody.innerHTML);
+        pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+        pw.document.close();
+      });
+    }
+  }
+
+  // ── REBATE & INTEREST SUMMARY TAB ──
+  else if (state.tab==='rebate_int') {
+    var riExpBtn = el('button',{cls:'btn btn-outline btn-sm',text:'📥 Excel'});
+    var riPrintBtn = el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
+    cHead.innerHTML = '<h4 style="color:#d97706">📋 Rebate & Interest Summary (Bill-wise)</h4>';
+    cHead.appendChild(riPrintBtn); cHead.appendChild(riExpBtn);
+
+    // Build bill-wise rebate/interest list
+    var riData = [];
+    payments.forEach(function(p){
+      if(!(p.rebate>0) && !(p.interest>0)) return;
+      var b = bills.find(function(x){return x.id===p.billId;})||{};
+      riData.push({
+        party: b.party||'?',
+        billNo: b.billNo||'?',
+        billDate: b.date||'',
+        billAmt: b.netAmt||0,
+        payDate: p.date||'',
+        amtPaid: p.amount||0,
+        rebate: p.rebate||0,
+        interest: p.interest||0,
+        mode: p.mode||'-',
+        chequeNo: p.chequeNo||'-',
+        receiptNo: p.receiptNo||'-',
+        remarks: p.remarks||'-',
+        type: (p.rebate>0&&p.interest>0)?'BOTH':(p.rebate>0?'REBATE':'INTEREST')
+      });
+    });
+    riData.sort(function(a,b){return b.payDate.localeCompare(a.payDate);});
+
+    var totalRebate = riData.reduce(function(s,r){return s+r.rebate;},0);
+    var totalInterest = riData.reduce(function(s,r){return s+r.interest;},0);
+    var totalRebateCnt = riData.filter(function(r){return r.rebate>0;}).length;
+    var totalIntCnt = riData.filter(function(r){return r.interest>0;}).length;
+
+    var riSumBar = document.createElement('div');
+    riSumBar.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px';
+    [{l:'Rebate Entries',v:totalRebateCnt,c:'#d97706'},{l:'Total Rebate Given',v:'₹'+fmt(totalRebate),c:'#d97706'},
+     {l:'Interest Entries',v:totalIntCnt,c:'#7c3aed'},{l:'Total Interest Earned',v:'₹'+fmt(totalInterest),c:'#7c3aed'}
+    ].forEach(function(s){
+      var d=document.createElement('div');d.style.cssText='background:#fff;border:2px solid '+s.c+'44;border-radius:8px;padding:10px 14px';
+      d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;margin-bottom:4px">'+s.l+'</div><div style="font-size:18px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';
+      riSumBar.appendChild(d);
+    });
+    cBody.appendChild(riSumBar);
+
+    if(!riData.length){
+      var emptyRI=document.createElement('div');emptyRI.style.cssText='text-align:center;padding:48px;color:#9ca3af';
+      emptyRI.innerHTML='No rebate or interest entries found.';cBody.appendChild(emptyRI);
+    } else {
+      cBody.appendChild(mkTbl2([
+        {l:'Type',k:'type',render:function(r){
+          var c=r.type==='REBATE'?'#d97706':r.type==='INTEREST'?'#7c3aed':'#166534';
+          return '<span style="background:'+c+'1a;color:'+c+';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">'+r.type+'</span>';
+        }},
+        {l:'Party',k:'party',render:function(r){
+          var lb=document.createElement('a');lb.style.cssText='color:#166534;font-weight:600;cursor:pointer;text-decoration:none';lb.textContent=r.party;
+          lb.addEventListener('click',function(){pageState.ledgerParty=r.party;go('ledger');});return lb;
+        }},
+        {l:'Bill No',k:'billNo',render:function(r){return '<strong>'+r.billNo+'</strong>';}},
+        {l:'Bill Date',k:'billDate',render:function(r){return fmtDate(r.billDate);}},
+        {l:'Bill Amt',k:'billAmt',num:true,render:function(r){return '₹'+fmt(r.billAmt);}},
+        {l:'Pay Date',k:'payDate',render:function(r){return fmtDate(r.payDate);}},
+        {l:'Paid',k:'amtPaid',num:true,render:function(r){return '₹'+fmt(r.amtPaid);}},
+        {l:'Rebate',k:'rebate',num:true,render:function(r){return r.rebate>0?'<strong style="color:#d97706">₹'+fmt(r.rebate)+'</strong>':'-';}},
+        {l:'Interest',k:'interest',num:true,render:function(r){return r.interest>0?'<strong style="color:#7c3aed">₹'+fmt(r.interest)+'</strong>':'-';}},
+        {l:'Mode',k:'mode',render:function(r){return r.mode;}},
+        {l:'Cheque No',k:'chequeNo',render:function(r){return '<span style="font-family:monospace">'+r.chequeNo+'</span>';}},
+        {l:'Receipt No',k:'receiptNo',render:function(r){return '<span style="font-family:monospace">'+r.receiptNo+'</span>';}},
+        {l:'Remarks',k:'remarks',render:function(r){return '<span style="color:#6b7280;font-size:11px">'+r.remarks+'</span>';}}
+      ],riData,pageState.rep.riRptState=pageState.rep.riRptState||{}));
+    }
+
+    riExpBtn.addEventListener('click',function(){
+      var wb2=XLSX.utils.book_new();
+      var ws=XLSX.utils.json_to_sheet(riData.map(function(r){return{
+        'Type':r.type,'Party':r.party,'Bill No':r.billNo,'Bill Date':fmtDate(r.billDate),
+        'Bill Amount':r.billAmt,'Pay Date':fmtDate(r.payDate),'Amount Paid':r.amtPaid,
+        'Rebate (₹)':r.rebate,'Interest (₹)':r.interest,
+        'Mode':r.mode,'Cheque No':r.chequeNo,'Receipt No':r.receiptNo,'Remarks':r.remarks
+      };}));
+      ws['!cols']=[{wch:10},{wch:28},{wch:10},{wch:12},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:8},{wch:12},{wch:12},{wch:20}];
+      XLSX.utils.book_append_sheet(wb2,ws,'Rebate & Interest');
+      XLSX.writeFile(wb2,'RebateInterest_'+today()+'.xlsx');toast('✅ Rebate & Interest report exported!');
+    });
+    riPrintBtn.addEventListener('click',function(){
+      var pw=window.open('','_blank');
+      pw.document.write('<!DOCTYPE html><html><head><title>Rebate & Interest</title><style>body{font-family:Arial,sans-serif;font-size:10px;padding:16px}h3{color:#d97706}table{width:100%;border-collapse:collapse}th{background:#d97706;color:#fff;padding:5px 8px;font-size:9px;text-align:left}td{padding:3px 7px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}.summary{display:flex;gap:20px;padding:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;margin-bottom:10px}</style></head><body>');
+      pw.document.write('<h3>'+cfg.company+' — Rebate & Interest Summary — '+today()+'</h3>');
+      pw.document.write('<div class="summary"><span>Total Rebate: <strong style="color:#d97706">₹'+fmt(totalRebate)+'</strong></span><span>Total Interest: <strong style="color:#7c3aed">₹'+fmt(totalInterest)+'</strong></span><span>Entries: '+riData.length+'</span></div>');
+      pw.document.write(cBody.innerHTML);
+      pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+      pw.document.close();
+    });
   }
 
   return wrap;
@@ -10138,13 +10415,19 @@ function printPartyStatement(party, plState) {
     var s=getBillStatus(b);
     var bPays=payments.filter(function(p){return p.billId===b.id;});
     h+='<h3>Bill #'+b.billNo+' &nbsp; '+fmtDate(b.date)+'</h3>';
-    h+='<table><thead><tr><th>Description</th><th class="num">Amount</th><th>Date</th><th>Mode</th><th>Ref No.</th></tr></thead><tbody>';
+    h+='<table><thead><tr><th>Description</th><th class="num">Amount</th><th>Date</th><th>Mode</th><th>Cheque No</th><th>Receipt No</th><th>Rebate</th><th>Interest</th></tr></thead><tbody>';
     h+='<tr><td><strong>Invoice — '+(b.rows||[]).map(function(r){return r.grade;}).join(', ')+'</strong></td>'+
       '<td class="num" style="font-weight:700">₹'+fmt(b.netAmt)+'</td><td>'+fmtDate(b.date)+'</td><td>—</td><td>—</td></tr>';
     bPays.forEach(function(p){
-      h+='<tr><td style="color:#166534">Payment Received</td>'+
+      var isGross=p.grossAmt&&p.grossAmt>0;
+      h+='<tr><td style="color:#166534">'+(isGross?'Payment (GROSS)':'Payment Received')+'</td>'+
         '<td class="num" style="color:#166534">- ₹'+fmt(p.amount||0)+'</td>'+
-        '<td>'+fmtDate(p.date)+'</td><td>'+(p.mode||'-')+'</td><td>'+(p.chequeNo||p.receiptNo||'-')+'</td></tr>';
+        '<td>'+fmtDate(p.date)+'</td><td>'+(p.mode||'-')+'</td>'+
+        '<td style="font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
+        '<td style="font-family:monospace">'+(p.receiptNo||'-')+'</td>'+
+        (p.rebate>0?'<td style="color:#d97706">Rebate: ₹'+fmt(p.rebate)+'</td>':'<td>-</td>')+
+        (p.interest>0?'<td style="color:#7c3aed">Interest: ₹'+fmt(p.interest)+'</td>':'<td>-</td>')+
+        '</tr>';
     });
     h+='<tr style="background:#f9fafb;font-weight:700"><td>Balance</td>'+
       '<td class="num '+s.status+'" style="font-weight:700">₹'+fmt(s.bal)+'</td>'+
@@ -11624,10 +11907,13 @@ function saveBackupToHistory(label) {
     counts: {
       bills: bills.length,
       payments: payments.length,
+      advances: (advances||[]).length,
+      cheques: (cheques||[]).length,
     }
   });
-  if(history.length > 15) history = history.slice(0,15);
+  if(history.length > 20) history = history.slice(0,20);
   DB.setObj('backupHistory', history);
+  localStorage.setItem('cp_lastBackup', today()+' at '+new Date().toLocaleTimeString('en-IN'));
 }
 
 // ══════════════════════════════════════════════════════
@@ -11872,20 +12158,43 @@ function restoreFromJSON(file) {
 
     var errs = validateBackupData(data);
     if(errs.length) {
-      alert('Backup validation failed:\n\n'+errs.join('\n')+'\n\nRestore cancelled.');
+      alert('Backup validation failed:\n\n'+errs.join('\n')+'\n\nRestore cancelled.\n\nFix: Make sure this is a CashewPro JSON backup file.');
       return;
     }
 
     var meta = data._meta||{};
-    var msg = 'Backup restore karna chahte ho?\n\n'+
-      (meta.label||'Backup file')+'\n'+
-      'Bills: '+(data.bills||[]).length+'\n'+
-      'Payments: '+(data.payments||[]).length+'\n\n'+
-      'Current data REPLACE ho jayega. Ek auto-backup pehle save hoga.';
-    if(!confirm(msg)) return;
+    var backupDate = meta.timestamp ? meta.timestamp.replace('T',' ').substring(0,16) : 'Unknown date';
+    var backupBills    = (data.bills||[]).length;
+    var backupPayments = (data.payments||[]).length;
+    var backupAdvances = (data.advances||[]).length;
+    var currentBills   = bills.length;
+    var currentPayments= payments.length;
+
+    // Show clear preview dialog
+    var previewMsg =
+      '╔══════════════════════════════╗\n'+
+      '║   BACKUP RESTORE PREVIEW     ║\n'+
+      '╚══════════════════════════════╝\n\n'+
+      'BACKUP FILE:\n'+
+      '  Label   : '+(meta.label||file.name)+'\n'+
+      '  Date    : '+backupDate+'\n'+
+      '  Company : '+(meta.company||'—')+'\n\n'+
+      'BACKUP CONTAINS:\n'+
+      '  Bills    : '+backupBills+'\n'+
+      '  Payments : '+backupPayments+'\n'+
+      '  Advances : '+backupAdvances+'\n\n'+
+      'CURRENT DATA (will be replaced):\n'+
+      '  Bills    : '+currentBills+'\n'+
+      '  Payments : '+currentPayments+'\n\n'+
+      '⚠️  CURRENT DATA WILL BE REPLACED.\n'+
+      '✅  Auto-backup of current data will be saved first.\n\n'+
+      'Continue with restore?';
+
+    if(!confirm(previewMsg)) return;
 
     // Save current data as safety backup first
     exportBackupJSON();
+    toast('⏳ Restoring backup...');
 
     setTimeout(function(){
       saveUndo('Before Restore');
@@ -11908,17 +12217,17 @@ function restoreFromJSON(file) {
       }
 
       invalidateBillStatusCache();
-      saveDirectFS('bills', bills);
-      saveDirectFS('payments', payments);
-      saveDirectFS('cheques', cheques);
-      saveDirectFS('advances', advances);
-      saveDirectFS('expenses', expenses);
-      saveDirectFS('returns', returns_);
-      saveDirectFS('purchases', purchases);
-      saveDirectFS('suspense', suspense);
+      DB.set('bills',bills); DB.set('payments',payments);
+      DB.set('cheques',cheques); DB.set('advances',advances);
+      DB.set('expenses',expenses); DB.set('returns',returns_);
+      DB.set('purchases',purchases); DB.set('suspense',suspense);
+      saveDirectFS('bills', bills); saveDirectFS('payments', payments);
+      saveDirectFS('cheques', cheques); saveDirectFS('advances', advances);
+      saveDirectFS('expenses', expenses); saveDirectFS('returns', returns_);
+      saveDirectFS('purchases', purchases); saveDirectFS('suspense', suspense);
 
-      saveBackupToHistory('Restored from: '+(meta.label||'backup'));
-      toast('✅ Data restored! Bills: '+bills.length+', Payments: '+payments.length);
+      saveBackupToHistory('Restored from: '+(meta.label||file.name||'backup'));
+      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length);
       refresh();
     }, 1500);
   };
@@ -16183,7 +16492,473 @@ function pgHistory() {
   return wrap;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// RECEIPT LEDGER — All payments received, bill-wise, with full detail
+// ═══════════════════════════════════════════════════════════════
+function pgReceiptLedger() {
+  var state = pageState.rcptLedger = pageState.rcptLedger || {
+    q:'', sortKey:'date', sortDir:-1, filters:{},
+    dateFrom:'', dateTo:'', modeFilter:'ALL'
+  };
+  var wrap = document.createElement('div');
 
-</script>
+  // Header bar
+  var topBar = document.createElement('div');
+  topBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px';
+  topBar.innerHTML = '<div><span style="font-size:17px;font-weight:700;color:#166534">Receipt Ledger</span><span style="font-size:11px;color:#9ca3af;margin-left:8px">All payments received — bill-wise detail</span></div>';
+
+  // Toolbar
+  var toolbar = document.createElement('div');
+  toolbar.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:10px';
+
+  var searchInp = el('input',{cls:'inp-sm',type:'text',placeholder:'Search party / bill / cheque / receipt...',style:'width:250px',value:state.q||''});
+  searchInp.addEventListener('input',function(){state.q=this.value;buildTable();});
+
+  var dfInp = el('input',{cls:'inp-sm',type:'text',placeholder:'From DD-MM-YYYY',style:'width:130px',value:state.dateFrom||''});
+  var dtInp = el('input',{cls:'inp-sm',type:'text',placeholder:'To DD-MM-YYYY',style:'width:130px',value:state.dateTo||''});
+  dfInp.addEventListener('change',function(){state.dateFrom=this.value;buildTable();});
+  dtInp.addEventListener('change',function(){state.dateTo=this.value;buildTable();});
+
+  var modeSel = document.createElement('select');
+  modeSel.className='inp-sm';
+  modeSel.style.width='110px';
+  ['ALL','NEFT','RTGS','UPI','CHEQUE','CASH','IMPS'].forEach(function(m){
+    var o=document.createElement('option');o.value=m;o.textContent=m==='ALL'?'All Modes':m;
+    if(state.modeFilter===m)o.selected=true;
+    modeSel.appendChild(o);
+  });
+  modeSel.addEventListener('change',function(){state.modeFilter=this.value;buildTable();});
+
+  var clrBtn = el('button',{cls:'btn btn-outline btn-sm',text:'Clear Filters'});
+  clrBtn.addEventListener('click',function(){state.q='';state.dateFrom='';state.dateTo='';state.modeFilter='ALL';searchInp.value='';dfInp.value='';dtInp.value='';modeSel.value='ALL';buildTable();});
+
+  var xlBtn = el('button',{cls:'btn btn-outline btn-sm',text:'📊 Excel'});
+  xlBtn.addEventListener('click',exportReceiptLedgerExcel);
+  var pdfBtn = el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
+  pdfBtn.addEventListener('click',printReceiptLedger);
+
+  [el('span',{text:'From:',style:'font-size:11px;color:#6b7280'}),dfInp,
+   el('span',{text:'To:',style:'font-size:11px;color:#6b7280'}),dtInp,
+   el('span',{text:'Mode:',style:'font-size:11px;color:#6b7280'}),modeSel,
+   searchInp,clrBtn,xlBtn,pdfBtn].forEach(function(e){toolbar.appendChild(e);});
+  wrap.appendChild(topBar);
+  wrap.appendChild(toolbar);
+
+  // Summary cards
+  var sumGrid = document.createElement('div');
+  sumGrid.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px';
+  sumGrid.id = 'rl-sumgrid';
+  wrap.appendChild(sumGrid);
+
+  // Table container
+  var tblWrap = document.createElement('div');
+  tblWrap.className = 'card';
+  tblWrap.style.overflow = 'auto';
+  wrap.appendChild(tblWrap);
+
+  function getData() {
+    var q=(state.q||'').toLowerCase();
+    return payments.filter(function(p){
+      var b=bills.find(function(x){return x.id===p.billId;})||{};
+      if(state.modeFilter&&state.modeFilter!=='ALL'&&(p.mode||'')!==state.modeFilter)return false;
+      if(state.dateFrom&&toISO(p.date||'')<toISO(state.dateFrom))return false;
+      if(state.dateTo&&toISO(p.date||'')>toISO(state.dateTo))return false;
+      if(q){
+        var match=(b.party||'').toLowerCase().includes(q)||
+                  (b.billNo||'').includes(q)||
+                  (p.chequeNo||'').toLowerCase().includes(q)||
+                  (p.receiptNo||'').toLowerCase().includes(q)||
+                  (p.remarks||'').toLowerCase().includes(q)||
+                  (p.mode||'').toLowerCase().includes(q);
+        if(!match)return false;
+      }
+      return true;
+    }).sort(function(a,b2){
+      var av,bv;
+      if(state.sortKey==='date'){av=toISO(a.date||'');bv=toISO(b2.date||'');}
+      else if(state.sortKey==='amount'){av=a.amount||0;bv=b2.amount||0;}
+      else if(state.sortKey==='billNo'){
+        var ba=bills.find(function(x){return x.id===a.billId;})||{};
+        var bb2=bills.find(function(x){return x.id===b2.billId;})||{};
+        av=parseInt(ba.billNo)||0;bv=parseInt(bb2.billNo)||0;
+      } else {av=a[state.sortKey]||'';bv=b2[state.sortKey]||'';}
+      if(typeof av==='number'&&typeof bv==='number')return(av-bv)*state.sortDir;
+      return String(av).localeCompare(String(bv))*state.sortDir;
+    });
+  }
+
+  function buildTable(){
+    var data=getData();
+    // Update summary
+    var totalAmt=data.reduce(function(s,p){return s+(p.amount||0);},0);
+    var totalReb=data.reduce(function(s,p){return s+(p.rebate||0);},0);
+    var totalInt=data.reduce(function(s,p){return s+(p.interest||0);},0);
+    var grossCnt=data.filter(function(p){return p.grossAmt&&p.grossAmt>0;}).length;
+    sumGrid.innerHTML='';
+    [{l:'Receipts',v:data.length,c:'#374151'},{l:'Total Received',v:'₹'+fmt(totalAmt),c:'#166534'},
+     {l:'Total Rebate',v:'₹'+fmt(totalReb),c:'#d97706'},{l:'Total Interest',v:'₹'+fmt(totalInt),c:'#7c3aed'},
+     {l:'GROSS Payments',v:grossCnt,c:'#1d4ed8'}].forEach(function(s2){
+      var d=document.createElement('div');
+      d.style.cssText='background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px';
+      d.innerHTML='<div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">'+s2.l+'</div>'+
+        '<div style="font-size:17px;font-weight:700;color:'+s2.c+'">'+s2.v+'</div>';
+      sumGrid.appendChild(d);
+    });
+
+    tblWrap.innerHTML='';
+    var tbl=document.createElement('table');tbl.style.width='100%';tbl.style.borderCollapse='collapse';tbl.style.fontSize='12px';
+    var thead=document.createElement('thead');
+    var htr=document.createElement('tr');htr.style.background='#f0fdf4';
+    var hCols=[
+      {l:'#',k:null},{l:'Date',k:'date'},{l:'Party',k:'party'},{l:'Bill No',k:'billNo'},
+      {l:'Bill Amt',k:'billAmt'},{l:'Pay Type',k:null},{l:'Amount Paid',k:'amount'},
+      {l:'Rebate',k:'rebate'},{l:'Interest',k:'interest'},{l:'Bill Total',k:null},
+      {l:'Mode',k:'mode'},{l:'Cheque No',k:'chequeNo'},{l:'Receipt No',k:'receiptNo'},
+      {l:'Gross Ref',k:null},{l:'Remarks',k:'remarks'}
+    ];
+    hCols.forEach(function(c){
+      var th=document.createElement('th');
+      th.style.cssText='padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#166534;border-bottom:2px solid #bbf7d0;white-space:nowrap'+(c.k?';cursor:pointer':'');
+      th.textContent=c.l+(c.k?(state.sortKey===c.k?(state.sortDir>0?' ↑':' ↓'):' ⇅'):'');
+      if(c.k){(function(key){th.addEventListener('click',function(){state.sortDir=state.sortKey===key?-state.sortDir:-1;state.sortKey=key;buildTable();});})(c.k);}
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);tbl.appendChild(thead);
+
+    var tbody=document.createElement('tbody');
+    if(!data.length){
+      var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',15);
+      etd.style.cssText='text-align:center;padding:40px;color:#9ca3af;font-size:13px';
+      etd.textContent='No receipts found for selected filters';etr.appendChild(etd);tbody.appendChild(etr);
+    }
+    data.forEach(function(p,i){
+      var b=bills.find(function(x){return x.id===p.billId;})||{};
+      var isGross=p.grossAmt&&p.grossAmt>0;
+      var bg=isGross?'#eff6ff':(i%2===0?'#fff':'#fafafa');
+      var tr=document.createElement('tr');tr.style.background=bg;tr.style.borderBottom='1px solid #e5e7eb';
+      function td(val,opts){
+        var d=document.createElement('td');
+        d.style.cssText='padding:7px 10px;vertical-align:middle'+(opts&&opts.right?';text-align:right':'')+(opts&&opts.mono?';font-family:monospace':'')+(opts&&opts.color?';color:'+opts.color:'')+(opts&&opts.bold?';font-weight:700':'');
+        if(val instanceof HTMLElement)d.appendChild(val);else d.innerHTML=val||'-';
+        tr.appendChild(d);return d;
+      }
+      td(String(i+1),{color:'#9ca3af'});
+      td(fmtDate(p.date));
+      var ptyEl=document.createElement('a');ptyEl.style.cssText='color:#166534;font-weight:600;cursor:pointer;text-decoration:none';ptyEl.textContent=b.party||'?';
+      ptyEl.addEventListener('click',function(){pageState.ledgerParty=b.party;go('ledger');});
+      td(ptyEl);
+      td('<strong>'+(b.billNo||'?')+'</strong>');
+      td('₹'+fmt(b.netAmt||0),{right:true});
+      var ptBadge=document.createElement('span');
+      ptBadge.style.cssText='font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;'+(isGross?'background:#dbeafe;color:#1d4ed8':'background:#f3f4f6;color:#374151');
+      ptBadge.textContent=isGross?'GROSS':'SINGLE';td(ptBadge);
+      td('₹'+fmt(p.amount||0),{right:true,bold:true});
+      td(p.rebate>0?'₹'+fmt(p.rebate):'-',{right:true,color:'#d97706'});
+      td(p.interest>0?'₹'+fmt(p.interest):'-',{right:true,color:'#7c3aed'});
+      td('₹'+fmt((p.amount||0)+(p.rebate||0)),{right:true,color:'#166534',bold:true});
+      var modeBadge=document.createElement('span');modeBadge.style.cssText='font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:#e0f2fe;color:#0369a1';modeBadge.textContent=p.mode||'-';td(modeBadge);
+      td(p.chequeNo||'-',{mono:true});
+      td(p.receiptNo||'-',{mono:true});
+      td(isGross?'<span style="color:#1d4ed8;font-size:10px">Header ₹'+fmt(p.grossAmt)+'</span>':'-');
+      td(p.remarks||'-',{color:'#6b7280'});
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+
+    // Totals footer
+    if(data.length>0){
+      var tfoot=document.createElement('tfoot');
+      var tftr=document.createElement('tr');tftr.style.cssText='background:#f0fdf4;font-weight:700;border-top:2px solid #166534';
+      var totalAmt2=data.reduce(function(s,p){return s+(p.amount||0);},0);
+      var totalReb2=data.reduce(function(s,p){return s+(p.rebate||0);},0);
+      var totalInt2=data.reduce(function(s,p){return s+(p.interest||0);},0);
+      var totalBillTotal=data.reduce(function(s,p){return s+(p.amount||0)+(p.rebate||0);},0);
+      for(var ci=0;ci<15;ci++){
+        var ftd=document.createElement('td');ftd.style.cssText='padding:8px 10px;font-size:12px';
+        if(ci===0)ftd.innerHTML='<strong style="color:#166534">TOTAL ('+data.length+')</strong>';
+        else if(ci===6)ftd.innerHTML='<strong style="color:#166534">₹'+fmt(totalAmt2)+'</strong>';
+        else if(ci===7)ftd.innerHTML='<strong style="color:#d97706">₹'+fmt(totalReb2)+'</strong>';
+        else if(ci===8)ftd.innerHTML='<strong style="color:#7c3aed">₹'+fmt(totalInt2)+'</strong>';
+        else if(ci===9)ftd.innerHTML='<strong style="color:#166534">₹'+fmt(totalBillTotal)+'</strong>';
+        ftd.style.textAlign=(ci>=6&&ci<=9)?'right':'left';
+        tftr.appendChild(ftd);
+      }
+      tfoot.appendChild(tftr);tbl.appendChild(tfoot);
+    }
+    tblWrap.appendChild(tbl);
+  }
+  buildTable();
+  return wrap;
+}
+
+function exportReceiptLedgerExcel(){
+  var data=payments.map(function(p){
+    var b=bills.find(function(x){return x.id===p.billId;})||{};
+    return{
+      'Date':fmtDate(p.date),'Party':b.party||'','Bill No':b.billNo||'',
+      'Bill Amount':b.netAmt||0,'Pay Type':(p.grossAmt&&p.grossAmt>0)?'GROSS DETAIL':'SINGLE',
+      'Amount Paid':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+      'Bill Total':(p.amount||0)+(p.rebate||0),
+      'Mode':p.mode||'','Cheque No':p.chequeNo||'','Receipt No':p.receiptNo||'',
+      'Gross Ref':(p.grossAmt&&p.grossAmt>0)?p.grossAmt:'','Remarks':p.remarks||''
+    };
+  }).sort(function(a,b){return a['Date']>b['Date']?-1:1;});
+  var wb2=XLSX.utils.book_new();
+  var ws=XLSX.utils.json_to_sheet(data);
+  XLSX.utils.book_append_sheet(wb2,ws,'Receipt Ledger');
+  XLSX.writeFile(wb2,'ReceiptLedger_'+today()+'.xlsx');
+  toast('✅ Receipt Ledger Excel downloaded!');
+}
+
+function printReceiptLedger(){
+  var data=payments.sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+  var totalAmt=data.reduce(function(s,p){return s+(p.amount||0);},0);
+  var totalReb=data.reduce(function(s,p){return s+(p.rebate||0);},0);
+  var totalInt=data.reduce(function(s,p){return s+(p.interest||0);},0);
+  var html='<!DOCTYPE html><html><head><title>Receipt Ledger</title>'+
+    '<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111}'+
+    'h2{color:#166534;margin-bottom:4px}'+
+    'table{width:100%;border-collapse:collapse;margin-top:10px}'+
+    'th{background:#166534;color:#fff;padding:6px 8px;text-align:left;font-size:10px}'+
+    'td{padding:5px 8px;border-bottom:1px solid #e5e7eb}'+
+    'tr:nth-child(even){background:#f0fdf4}'+
+    '.sumbar{display:flex;gap:20px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin-bottom:10px;font-weight:600}'+
+    '@media print{.sumbar{border:1px solid #ccc}}'+
+    '</style></head><body>'+
+    '<h2>'+(cfg.company||'CashewPro')+' — Receipt Ledger</h2>'+
+    '<div style="font-size:10px;color:#6b7280;margin-bottom:8px">Generated: '+new Date().toLocaleString('en-IN')+'</div>'+
+    '<div class="sumbar">'+
+    '<span>Total Receipts: <strong>'+data.length+'</strong></span>'+
+    '<span>Total Received: <strong>₹'+fmt(totalAmt)+'</strong></span>'+
+    '<span>Total Rebate: <strong>₹'+fmt(totalReb)+'</strong></span>'+
+    '<span>Total Interest: <strong>₹'+fmt(totalInt)+'</strong></span>'+
+    '</div>'+
+    '<table><thead><tr>'+
+    ['#','Date','Party','Bill No','Amount Paid','Rebate','Interest','Bill Total','Mode','Cheque No','Receipt No','Remarks'].map(function(h){return'<th>'+h+'</th>';}).join('')+
+    '</tr></thead><tbody>';
+  data.forEach(function(p,i){
+    var b=bills.find(function(x){return x.id===p.billId;})||{};
+    html+='<tr><td>'+(i+1)+'</td><td>'+fmtDate(p.date)+'</td><td><strong>'+(b.party||'?')+'</strong></td>'+
+      '<td>'+(b.billNo||'?')+'</td>'+
+      '<td style="text-align:right;font-weight:700">₹'+fmt(p.amount||0)+'</td>'+
+      '<td style="text-align:right;color:#d97706">'+(p.rebate>0?'₹'+fmt(p.rebate):'-')+'</td>'+
+      '<td style="text-align:right;color:#7c3aed">'+(p.interest>0?'₹'+fmt(p.interest):'-')+'</td>'+
+      '<td style="text-align:right;font-weight:700">₹'+fmt((p.amount||0)+(p.rebate||0))+'</td>'+
+      '<td>'+(p.mode||'-')+'</td>'+
+      '<td style="font-family:monospace">'+(p.chequeNo||'-')+'</td>'+
+      '<td style="font-family:monospace">'+(p.receiptNo||'-')+'</td>'+
+      '<td style="color:#6b7280">'+(p.remarks||'-')+'</td></tr>';
+  });
+  html+='</tbody></table></body></html>';
+  var w=window.open('','_blank');w.document.write(html);w.document.close();w.print();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI IMPORT RULES — Permanent working rules + auto-updating format
+// ═══════════════════════════════════════════════════════════════
+function pgAIRules() {
+  var PERMANENT_RULES_KEY = 'cp_ai_permanent_rules';
+  var FORMAT_RULES_KEY    = 'cp_ai_format_rules';
+
+  var defaultPermanentRules = [
+    '=== JAI SHREE CASHEW INDUSTRIES — AI IMPORT RULES ===',
+    '',
+    '== BUSINESS WORKING RULES (PERMANENT — DO NOT CHANGE) ==',
+    '',
+    '1. BILL NO. IS MASTER KEY',
+    '   - Every payment must be matched to the exact Bill No. written in the payment sheet',
+    '   - Do not guess or auto-allocate to any bill not written against that payment',
+    '   - Do not use balance or extra payment for bills not written in that payment row',
+    '',
+    '2. GROSS PAYMENT RULE (IS_GROSS = YES)',
+    '   - If multiple bill numbers written → it is a GROSS payment',
+    '   - Use HEADER row for gross total, DETAIL row for each bill',
+    '   - Distribute gross amount to written bill numbers only',
+    '   - Do not forward balance to any other bill',
+    '',
+    '3. INSTALLMENT PAYMENT RULE',
+    '   - If REMARKS contains INSTALLMENT → it is a partial/installment payment',
+    '   - IS_GROSS = NO for installment payments',
+    '   - Use PARTIAL row type in bank upload',
+    '   - Multiple payments on same bill = installments, all go as PARTIAL',
+    '',
+    '4. REBATE RULE',
+    '   - Tolerance: 2% of single bill amount',
+    '   - If payment is short by ≤2% → treat as REBATE (write off)',
+    '   - For gross payments → apply tolerance on gross total',
+    '   - Journal entry: Dr Party A/c, Cr Rebate Allowed A/c',
+    '',
+    '5. INTEREST RULE',
+    '   - Tolerance: 5% of single bill amount',
+    '   - If payment exceeds bill by ≤5% → treat as INTEREST EARNED',
+    '   - Journal entry: Dr Party A/c, Cr Interest Received A/c',
+    '',
+    '6. CHEQUE NUMBER FORMAT',
+    '   - Zero-pad to minimum 6 digits: 178 → 000178, 13224 → 013224',
+    '   - Numbers ≥6 digits kept as-is: 524857 → 524857',
+    '',
+    '7. RECEIPT NO.',
+    '   - Use exactly as shown in FINAL_PAYMENTS sheet',
+    '   - Do not modify or generate receipt numbers',
+    '',
+    '8. REMARKS FIELD',
+    '   - Copy EXACTLY from FINAL_PAYMENTS sheet — do not change or generate',
+    '   - For DETAIL rows: write "X Bills linked with GROSS" (X = number of bills)',
+    '',
+    '9. SKIP PARTIES',
+    '   - Skip parties with: duplicate rows, advance >5%, UNMATCHED status',
+    '   - List skipped parties separately with reason',
+    '',
+    '10. DO NOT MIX BILLS',
+    '    - If payment A is for Bill 101, it cannot be applied to Bill 102',
+    '    - Even if Bill 101 is overpaid, excess does NOT go to Bill 102',
+    '',
+    '== BANK UPLOAD FORMAT (HEADER ROW FOR GROSS) ==',
+    'ROW_TYPE | DATE | PARTY_NAME | BILL_NO | PAYMENT_MODE | CHEQUE_NO | RECEIPT_NO | GROSS_AMT | NET_AMT | REBATE | INTEREST | REMARKS',
+    'HEADER   | date | party      |         | mode         | cheque    | receipt    | total_amt |         |        |          | remarks from payment sheet',
+    'DETAIL   | date | party      | bill_no | mode         |           |            |           | net_amt | rebate | interest | X Bills linked with GROSS',
+    'SINGLE   | date | party      | bill_no | mode         | cheque    | receipt    |           | net_amt | rebate | interest | remarks from payment sheet',
+    'PARTIAL  | date | party      | bill_no | mode         | cheque    | receipt    |           | net_amt |        |          | remarks from payment sheet',
+  ].join('\n');
+
+  var defaultFormatRules = [
+    '== CURRENT FILE FORMATS (CAN BE UPDATED) ==',
+    '',
+    '-- BILL IMPORT FILE FORMAT --',
+    'Columns: Bill No | Date | Party | Station | Broker | Transport | Grades | Weight | Rate | Taxable Value | CGST | SGST | Bardhana | Round Off | Amount | Payment Mode | STP Rate | Price Remarks',
+    'Date format: DD-MM-YYYY',
+    'Bill No: numeric, sequential',
+    'Amount = Taxable + CGST + SGST + Bardhana + Round Off',
+    '',
+    '-- PAYMENT/RECEIPT FILE FORMAT (FINAL_PAYMENTS) --',
+    'Columns: DATE | PARTY NAME | CREDIT (₹) | MODE | CHEQUE NO | BILL NO | IS_GROSS | REMARKS | RECEIPT NO',
+    'DATE format: DD-MM-YYYY',
+    'IS_GROSS: YES or NO',
+    'Multiple bill nos: comma separated (e.g. 23, 52)',
+    'REMARKS: as-is (e.g. GROSS:441646, INSTALLMENT|GROSS_GROUP:125000)',
+    '',
+    '-- BANK STATEMENT FORMAT --',
+    'Columns: Date | Description/Narration | Debit | Credit | Balance',
+    'Date format: DD/MM/YYYY or DD-MM-YYYY',
+    'Match payment to party by narration/UTR/cheque number',
+    '',
+    '-- RECON FILE OUTPUT FORMAT --',
+    'Sheets: Payment Register | Bill-wise Reconciliation | Party-wise Statements | Journal Entries | Advance-Excess Flags | Validation',
+    'Status values: EXACT | REBATE | INTEREST | PARTIAL | ADVANCE | GROSS_PAYMENT | UNMATCHED',
+    'Type values: SINGLE | GROSS_GROUP | INSTALLMENT',
+  ].join('\n');
+
+  var permRules = localStorage.getItem(PERMANENT_RULES_KEY) || defaultPermanentRules;
+  var fmtRules  = localStorage.getItem(FORMAT_RULES_KEY)    || defaultFormatRules;
+
+  var wrap = document.createElement('div');
+  wrap.innerHTML = '<div style="margin-bottom:14px"><span style="font-size:17px;font-weight:700;color:#166534">AI Import Rules</span><span style="font-size:11px;color:#9ca3af;margin-left:8px">Permanent business rules + auto-updating format rules for AI assistants</span></div>';
+
+  // Info box
+  var info = document.createElement('div');
+  info.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#1e40af;line-height:1.7';
+  info.innerHTML = '<strong>How to use:</strong> When asking AI to create bill import files or receipt files, copy the <em>Full AI Prompt</em> below and paste it at the start of your conversation. ' +
+    'The AI will then know all your rules and formats without you explaining again.<br>' +
+    '<strong>Permanent Rules</strong> = Your business rules — these never change.<br>' +
+    '<strong>Format Rules</strong> = Your file column formats — update these if columns change in future.';
+  wrap.appendChild(info);
+
+  function makeSection(title, storageKey, content, isFormat) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginBottom = '14px';
+
+    var hd = document.createElement('div');
+    hd.className = 'card-head';
+    hd.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px';
+    hd.innerHTML = '<h4 style="color:'+(isFormat?'#1d4ed8':'#166534')+'">'+title+'</h4>';
+
+    var btnDiv = document.createElement('div');
+    btnDiv.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+
+    var editBtn = el('button',{cls:'btn btn-outline btn-sm',text:'✏️ Edit'});
+    var saveBtn = el('button',{cls:'btn btn-green btn-sm',text:'💾 Save',style:'display:none'});
+    var resetBtn = el('button',{cls:'btn btn-red btn-sm',text:'↺ Reset to Default'});
+    var copyBtn = el('button',{cls:'btn btn-blue btn-sm',text:'📋 Copy'});
+
+    var body = document.createElement('div');
+    body.style.padding = '14px 16px';
+
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'white-space:pre-wrap;font-size:11px;font-family:monospace;line-height:1.7;color:#374151;background:#f9fafb;padding:12px;border-radius:6px;border:1px solid #e5e7eb;max-height:320px;overflow-y:auto;margin:0';
+    pre.textContent = content;
+
+    var ta = document.createElement('textarea');
+    ta.style.cssText = 'width:100%;min-height:300px;font-size:11px;font-family:monospace;padding:12px;border:1.5px solid #166534;border-radius:6px;line-height:1.7;display:none;box-sizing:border-box';
+    ta.value = content;
+
+    editBtn.addEventListener('click',function(){
+      pre.style.display='none';ta.style.display='block';
+      editBtn.style.display='none';saveBtn.style.display='';
+      ta.focus();
+    });
+    saveBtn.addEventListener('click',function(){
+      localStorage.setItem(storageKey, ta.value);
+      pre.textContent=ta.value;
+      pre.style.display='';ta.style.display='none';
+      editBtn.style.display='';saveBtn.style.display='none';
+      toast('✅ Rules saved!');
+    });
+    resetBtn.addEventListener('click',function(){
+      if(!confirm('Reset to default? Your edits will be lost.'))return;
+      var def = isFormat?defaultFormatRules:defaultPermanentRules;
+      localStorage.removeItem(storageKey);
+      ta.value=def;pre.textContent=def;
+      pre.style.display='';ta.style.display='none';
+      editBtn.style.display='';saveBtn.style.display='none';
+      toast('Rules reset to default');
+    });
+    copyBtn.addEventListener('click',function(){
+      var txt=ta.style.display!=='none'?ta.value:pre.textContent;
+      navigator.clipboard.writeText(txt).then(function(){toast('✅ Copied to clipboard!');}).catch(function(){toast('Copy failed — select text manually','err');});
+    });
+
+    [editBtn,saveBtn,resetBtn,copyBtn].forEach(function(b){btnDiv.appendChild(b);});
+    hd.appendChild(btnDiv);
+    body.appendChild(pre);body.appendChild(ta);
+    card.appendChild(hd);card.appendChild(body);
+    return card;
+  }
+
+  wrap.appendChild(makeSection('📌 Permanent Business Rules (Your Working Style — Never Change)', PERMANENT_RULES_KEY, permRules, false));
+  wrap.appendChild(makeSection('📋 Format Rules (File Columns — Update When Format Changes)', FORMAT_RULES_KEY, fmtRules, true));
+
+  // Full combined prompt copy
+  var promptCard = document.createElement('div');
+  promptCard.className = 'card';
+  promptCard.style.marginBottom = '14px';
+  var ph2 = document.createElement('div');ph2.className='card-head';
+  ph2.innerHTML = '<h4 style="color:#7c3aed">🤖 Full AI Prompt (Copy This to Start Any AI Conversation)</h4>';
+  var pb2 = document.createElement('div');pb2.style.padding='14px 16px';
+  var copyAllBtn = el('button',{cls:'btn btn-green',text:'📋 Copy Full AI Prompt'});
+  copyAllBtn.style.marginBottom='10px';
+  copyAllBtn.addEventListener('click',function(){
+    var cur_perm = localStorage.getItem(PERMANENT_RULES_KEY)||defaultPermanentRules;
+    var cur_fmt  = localStorage.getItem(FORMAT_RULES_KEY)||defaultFormatRules;
+    var fullPrompt = 'You are helping me with data import for my cashew trading business app (CashewPro).\n\n'+
+      cur_perm+'\n\n'+cur_fmt+'\n\n'+
+      '== APP CONTEXT ==\n'+
+      'Company: '+(cfg.company||'Jai Shree Cashew Industries')+'\n'+
+      'Current Bills: '+bills.length+'\n'+
+      'Current Payments: '+payments.length+'\n'+
+      'Current Parties: '+Array.from(new Set(bills.map(function(b){return b.party;}))).length+'\n\n'+
+      'Please follow all rules above exactly. Ask me if anything is unclear before making files.';
+    navigator.clipboard.writeText(fullPrompt).then(function(){toast('✅ Full AI prompt copied! Paste it in your AI conversation.');}).catch(function(){toast('Copy failed','err');});
+  });
+  pb2.appendChild(copyAllBtn);
+  pb2.innerHTML+='<div style="font-size:11px;color:#6b7280;margin-top:6px">Click above to copy the complete prompt including all rules and your current data context. Paste this at the start of any AI conversation (Claude, ChatGPT, etc.) to get accurate results without re-explaining.</div>';
+  pb2.insertBefore(copyAllBtn,pb2.firstChild);
+  promptCard.appendChild(ph2);promptCard.appendChild(pb2);
+  wrap.appendChild(promptCard);
+
+  return wrap;
+}
+
+
 </body>
 </html>
