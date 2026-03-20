@@ -1157,7 +1157,7 @@ function doGoogleLogin() {
   var txt   = document.getElementById('li-g-txt');
   var errEl = document.getElementById('li-err');
 
-  // Reset UI first (prevents double-click freeze)
+  // Reset UI
   if(btn)   { btn.disabled = false; }
   if(sp)    { sp.className = 'lsp'; }
   if(txt)   { txt.textContent = 'Continue with Google'; }
@@ -1171,24 +1171,20 @@ function doGoogleLogin() {
   var provider = new firebase.auth.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
 
-  _auth.signInWithPopup(provider)
+  // Use redirect (works on all browsers/domains including GitHub Pages)
+  _auth.signInWithRedirect(provider)
     .catch(function(err) {
-      // Reset button on any error
-      if(btn)   btn.disabled = false;
-      if(sp)    sp.className = 'lsp';
-      if(txt)   txt.textContent = 'Continue with Google';
-
+      if(btn) btn.disabled = false;
+      if(sp)  sp.className = 'lsp';
+      if(txt) txt.textContent = 'Continue with Google';
       var m;
       switch(err.code) {
-        case 'auth/popup-closed-by-user':   m = 'Popup closed. Please try again.'; break;
-        case 'auth/popup-blocked':          m = '⚠ Popup blocked — allow popups for this site.'; break;
         case 'auth/network-request-failed': m = '⚠ No internet connection.'; break;
         case 'auth/unauthorized-domain':    m = '⚠ Domain not authorized in Firebase Console.'; break;
         default:                            m = '❌ ' + (err.message || 'Login failed. Try again.');
       }
       if(errEl) { errEl.textContent = m; errEl.className = 'le show'; }
     });
-  // SUCCESS is handled by onAuthStateChanged below — no .then() needed here
 }
 
 function doLogin() { doGoogleLogin(); } // alias kept for compatibility
@@ -1222,7 +1218,30 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ─── Auth state listener — single source of truth ───────────────────────────
-// This fires on page load (auto-restores session) AND after signInWithPopup success
+// Handles: page load session restore, redirect result after Google sign-in
+_auth.getRedirectResult()
+  .then(function(result) {
+    // If came back from Google redirect — user will be set in onAuthStateChanged
+    // No action needed here; errors need handling
+  })
+  .catch(function(err) {
+    var errEl = document.getElementById('li-err');
+    var btn   = document.getElementById('li-google');
+    var sp    = document.getElementById('li-g-sp');
+    var txt   = document.getElementById('li-g-txt');
+    if(btn) btn.disabled = false;
+    if(sp)  sp.className = 'lsp';
+    if(txt) txt.textContent = 'Continue with Google';
+    var m;
+    switch(err.code) {
+      case 'auth/popup-closed-by-user':   m = 'Sign-in cancelled. Please try again.'; break;
+      case 'auth/network-request-failed': m = '⚠ No internet connection.'; break;
+      case 'auth/unauthorized-domain':    m = '⚠ Domain not authorized in Firebase Console.'; break;
+      default:                            m = '❌ ' + (err.message || 'Login failed. Try again.');
+    }
+    if(errEl) { errEl.textContent = m; errEl.className = 'le show'; }
+  });
+
 _auth.onAuthStateChanged(function(user) {
   var ls     = document.getElementById('login-screen');
   var app    = document.querySelector('.app');
