@@ -804,6 +804,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 .lb:disabled{background:#9ca3af;cursor:not-allowed;}
 .le{background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);padding:10px 13px;font-size:12.5px;color:var(--red);margin-top:12px;display:none;font-weight:500;}
 .le.show{display:block;}
+.le.show.shake{animation:shake 0.5s ease;}
 .lsp{width:17px;height:17px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:lspin .7s linear infinite;display:none;}
 .lsp.show{display:inline-block;}
 @keyframes lspin{to{transform:rotate(360deg);}}
@@ -1094,45 +1095,96 @@ var DB = {
 // ════════════════════════════════════════════════════════
 // AUTH — login / logout / state
 // ════════════════════════════════════════════════════════
-function doGoogleLogin(){
-  /* Safety: if already signed in, just show the app */
-  if(_auth.currentUser){
-    var ls=document.getElementById('login-screen');
+// ── Login UI helpers ──────────────────────────────────────
+var _loginTimeout = null;
+
+function _loginReset(msg, isErr) {
+  var btn   = document.getElementById('li-google');
+  var sp    = document.getElementById('li-g-sp');
+  var txt   = document.getElementById('li-g-txt');
+  var errEl = document.getElementById('li-err');
+  if(btn)   { btn.disabled = false; }
+  if(sp)    { sp.className = 'lsp'; }
+  if(txt)   { txt.textContent = 'Continue with Google'; }
+  if(_loginTimeout) { clearTimeout(_loginTimeout); _loginTimeout = null; }
+  if(errEl) {
+    if(msg) { errEl.textContent = msg; errEl.className = 'le show' + (isErr ? ' shake' : ''); }
+    else    { errEl.textContent = '';  errEl.className = 'le'; }
+  }
+}
+
+function _loginBusy(label) {
+  var btn = document.getElementById('li-google');
+  var sp  = document.getElementById('li-g-sp');
+  var txt = document.getElementById('li-g-txt');
+  var errEl = document.getElementById('li-err');
+  if(btn)   { btn.disabled = true; }
+  if(sp)    { sp.className = 'lsp show'; }
+  if(txt)   { txt.textContent = label || 'Signing in…'; }
+  if(errEl) { errEl.textContent = ''; errEl.className = 'le'; }
+}
+
+function _loginErr(err) {
+  var code = err && err.code ? err.code : '';
+  var m;
+  if(code === 'auth/popup-closed-by-user') {
+    m = 'Popup was closed. Click the button to try again.';
+  } else if(code === 'auth/popup-blocked') {
+    // Automatically fall back to redirect — no manual action needed
+    m = 'Popup blocked — switching to full-page login…';
+    _loginReset(m, false);
+    setTimeout(function(){ doGoogleLoginRedirect(); }, 1200);
+    return;
+  } else if(code === 'auth/network-request-failed') {
+    m = '⚠ No internet connection. Please check and try again.';
+  } else if(code === 'auth/unauthorized-domain') {
+    m = '⚠ This domain is not authorised in Firebase. Contact support.';
+  } else if(code === 'auth/cancelled-popup-request') {
+    // Silently reset — user clicked the button twice
+    _loginReset('', false);
+    return;
+  } else {
+    m = '❌ Login failed: ' + (err.message || code || 'Unknown error') + '. Please try again.';
+  }
+  _loginReset(m, true);
+}
+
+/* Popup login (primary path) */
+function doGoogleLogin() {
+  if(_auth.currentUser) {
+    var ls = document.getElementById('login-screen');
     if(ls) ls.classList.add('hidden');
     return;
   }
 
-  var btn=document.getElementById('li-google');
-  var sp=document.getElementById('li-g-sp');
-  var txt=document.getElementById('li-g-txt');
-  var errEl=document.getElementById('li-err');
+  _loginBusy('Connecting to Google…');
 
-  /* Always reset to clean state first — prevents freeze if called twice */
-  if(btn){ btn.disabled=false; }
-  if(sp){ sp.className='lsp'; }
-  if(txt){ txt.textContent='Continue with Google'; }
-  if(errEl){ errEl.className='le'; errEl.textContent=''; }
+  /* Safety net: if popup hangs for 30 s, unlock the button */
+  _loginTimeout = setTimeout(function(){
+    _loginReset('Took too long. Please try again.', true);
+  }, 30000);
 
-  if(btn){ btn.disabled=true; }
-  if(sp){ sp.className='lsp show'; }
-  if(txt){ txt.textContent='Redirecting...'; }
-
-  var provider=new firebase.auth.GoogleAuthProvider();
-  provider.setCustomParameters({prompt:'select_account'});
+  var provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
 
   _auth.signInWithPopup(provider)
-    .catch(function(err){
-      if(btn){ btn.disabled=false; }
-      if(sp){ sp.className='lsp'; }
-      if(txt){ txt.textContent='Continue with Google'; }
-      var m='Google login failed. Try again.';
-      if(err.code==='auth/popup-closed-by-user') m='Popup was closed. Please try again.';
-      else if(err.code==='auth/popup-blocked')   m='⚠ Popup blocked. Please allow popups in browser.';
-      else if(err.code==='auth/network-request-failed') m='⚠ No internet. Check connection.';
-      else if(err.code==='auth/unauthorized-domain') m='⚠ Domain not authorized — add it in Firebase Console.';
-      else m='❌ '+(err.message||'Login failed.');
-      if(errEl){ errEl.textContent=m; errEl.className='le show'; }
+    .then(function(result) {
+      /* onAuthStateChanged will handle the rest — just clear timeout */
+      if(_loginTimeout) { clearTimeout(_loginTimeout); _loginTimeout = null; }
+    })
+    .catch(function(err) {
+      _loginErr(err);
     });
+}
+
+/* Redirect login (fallback when popup is blocked) */
+function doGoogleLoginRedirect() {
+  _loginBusy('Redirecting to Google…');
+  var provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  _auth.signInWithRedirect(provider).catch(function(err){
+    _loginReset('Redirect failed: ' + (err.message || err.code), true);
+  });
 }
 
 // keep doLogin as no-op for safety
@@ -1156,6 +1208,20 @@ function doLogout(){
     { label: 'Cancel', fn: function(){ closeModal(); } }
   ]);
 }
+
+// Handle redirect result on page load (fires when returning from signInWithRedirect)
+_auth.getRedirectResult().then(function(result){
+  if(result && result.user){
+    // onAuthStateChanged will take it from here
+    if(_loginTimeout){ clearTimeout(_loginTimeout); _loginTimeout=null; }
+  }
+}).catch(function(err){
+  if(err && err.code){
+    // Show error on the login screen
+    var errEl=document.getElementById('li-err');
+    if(errEl){ errEl.textContent='Redirect login failed: '+(err.message||err.code); errEl.className='le show'; }
+  }
+});
 
 // DOMContentLoaded — wire up login button via addEventListener (works with 'use strict')
 document.addEventListener('DOMContentLoaded',function(){
