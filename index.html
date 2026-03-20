@@ -8132,28 +8132,31 @@ function pgBankUpload() {
   function buildClearanceTab() {
     var wrap2 = document.createElement('div');
 
-    var pendingRows = state.rows.filter(function(r){return r._include&&!r._saved;});
-    var savedRows   = state.rows.filter(function(r){return r._saved;});
-    var issueRows2  = pendingRows.filter(function(r){return r._status==='issue';});
+    var allRows    = state.rows.filter(function(r){ return r._include; });
+    var pendingRows= allRows.filter(function(r){ return !r._saved; });
+    var savedRows  = allRows.filter(function(r){ return r._saved; });
+    var issueRows2 = pendingRows.filter(function(r){ return r._status==='issue'; });
+    var matchedRows= pendingRows.filter(function(r){ return r._status==='matched'; });
 
-    // Header
+    // ── Header ───────────────────────────────────────────────────────────────
     var clHdr = document.createElement('div');
     clHdr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px';
     clHdr.innerHTML='<div><h3 style="font-size:15px;font-weight:700;color:var(--brand);margin:0">✅ Entry Clearance</h3>'+
       '<p style="font-size:12px;color:var(--text-3);margin:3px 0 0">Review payment groups → Confirm → Save to ledger</p></div>';
-    var clBtns=document.createElement('div'); clBtns.style.cssText='display:flex;gap:8px;align-items:center';
+    var clBtns=document.createElement('div'); clBtns.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
     var backBtn=document.createElement('button'); backBtn.className='btn btn-outline btn-sm'; backBtn.innerHTML='← Back to Import';
-    backBtn.addEventListener('click',function(){state.tab='import';refresh();});
+    backBtn.addEventListener('click',function(){ state.tab='import'; refresh(); });
     clBtns.appendChild(backBtn);
-
-    if(pendingRows.length&&!issueRows2.length){
-      var saveAllBtn=document.createElement('button'); saveAllBtn.className='btn btn-green'; saveAllBtn.innerHTML='💾 Save All ('+pendingRows.length+' rows) →';
-      saveAllBtn.addEventListener('click',function(){saveAllRows(pendingRows,true);});
+    if(matchedRows.length) {
+      var saveAllBtn=document.createElement('button'); saveAllBtn.className='btn btn-green btn-sm';
+      saveAllBtn.innerHTML='💾 Save All Matched ('+matchedRows.length+')';
+      saveAllBtn.addEventListener('click',function(){ saveAllRows(matchedRows,true); });
       clBtns.appendChild(saveAllBtn);
     }
-    clHdr.appendChild(clBtns); wrap2.appendChild(clHdr);
+    clHdr.appendChild(clBtns);
+    wrap2.appendChild(clHdr);
 
-    // Issues warning
+    // ── Issues warning ────────────────────────────────────────────────────────
     if(issueRows2.length) {
       var issWarn=document.createElement('div');
       issWarn.style.cssText='background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:12.5px;color:#92400e';
@@ -8162,126 +8165,405 @@ function pgBankUpload() {
       wrap2.appendChild(issWarn);
     }
 
-    // Stats bar
+    // ── Stats bar ─────────────────────────────────────────────────────────────
     var statBar=document.createElement('div');
     statBar.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px';
-    [
-      {label:'Total Rows',val:state.rows.length,color:'#374151',bg:'#f3f4f6'},
-      {label:'Pending Save',val:pendingRows.length,color:'#1d4ed8',bg:'#eff6ff'},
-      {label:'Issues',val:issueRows2.length,color:'#dc2626',bg:'#fee2e2'},
-      {label:'Already Saved',val:savedRows.length,color:'#166534',bg:'#dcfce7'},
+    [{label:'Total Rows',val:allRows.length,color:'#374151',bg:'#f3f4f6'},
+     {label:'Pending Save',val:pendingRows.length,color:'#1d4ed8',bg:'#eff6ff'},
+     {label:'Issues',val:issueRows2.length,color:'#dc2626',bg:'#fee2e2'},
+     {label:'Already Saved',val:savedRows.length,color:'#166534',bg:'#dcfce7'},
     ].forEach(function(s){
       var card2=document.createElement('div');
-      card2.style.cssText='background:'+s.bg+';border-radius:10px;padding:14px 16px;text-align:center';
+      card2.style.cssText='background:'+s.bg+';border-radius:10px;padding:14px 16px;text-align:center;cursor:pointer';
       card2.innerHTML='<div style="font-size:11px;font-weight:700;color:'+s.color+';text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">'+s.label+'</div>'+
         '<div style="font-size:22px;font-weight:700;color:'+s.color+'">'+s.val+'</div>';
       statBar.appendChild(card2);
     });
     wrap2.appendChild(statBar);
 
-    if(!pendingRows.length&&!savedRows.length) {
-      var emptyDiv=document.createElement('div'); emptyDiv.className='card';
-      emptyDiv.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-4)"><div style="font-size:36px;margin-bottom:10px">📭</div><div style="font-size:14px;font-weight:600">No rows to clear</div><div style="font-size:12px;margin-top:6px">Import payment Excel first from the Import tab</div></div>';
-      wrap2.appendChild(emptyDiv); return wrap2;
+    // ── Filter + Sort bar ─────────────────────────────────────────────────────
+    var filterBar=document.createElement('div');
+    filterBar.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--surface-2);border-radius:10px;border:1px solid var(--border)';
+
+    // Search input
+    var srchInp=document.createElement('input'); srchInp.type='text'; srchInp.placeholder='🔍 Search party / bill...';
+    srchInp.style.cssText='flex:1;min-width:160px;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:var(--font)';
+    srchInp.value=state.clSearch||'';
+    srchInp.addEventListener('input',function(){ state.clSearch=this.value; refresh(); });
+    filterBar.appendChild(srchInp);
+
+    // Status filter
+    var stFilt=document.createElement('select');
+    stFilt.style.cssText='padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)';
+    [['all','All Status'],['matched','✅ Matched'],['issue','⚠ Issues'],['saved','💾 Saved']].forEach(function(o){
+      var opt=document.createElement('option'); opt.value=o[0]; opt.textContent=o[1];
+      if((state.clFilterStatus||'all')===o[0]) opt.selected=true;
+      stFilt.appendChild(opt);
+    });
+    stFilt.addEventListener('change',function(){ state.clFilterStatus=this.value; refresh(); });
+    filterBar.appendChild(stFilt);
+
+    // Type filter
+    var typFilt=document.createElement('select');
+    typFilt.style.cssText='padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)';
+    [['all','All Types'],['HEADER','HEADER'],['DETAIL','DETAIL'],['SINGLE','SINGLE'],['ADVANCE','ADVANCE'],['PARTIAL','PARTIAL']].forEach(function(o){
+      var opt=document.createElement('option'); opt.value=o[0]; opt.textContent=o[1];
+      if((state.clFilterType||'all')===o[0]) opt.selected=true;
+      typFilt.appendChild(opt);
+    });
+    typFilt.addEventListener('change',function(){ state.clFilterType=this.value; refresh(); });
+    filterBar.appendChild(typFilt);
+
+    // Sort
+    var sortSel=document.createElement('select');
+    sortSel.style.cssText='padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)';
+    [['date_asc','Date ↑'],['date_desc','Date ↓'],['party_asc','Party A-Z'],['party_desc','Party Z-A'],
+     ['amt_desc','Amount ↓'],['amt_asc','Amount ↑']].forEach(function(o){
+      var opt=document.createElement('option'); opt.value=o[0]; opt.textContent=o[1];
+      if((state.clSort||'date_asc')===o[0]) opt.selected=true;
+      sortSel.appendChild(opt);
+    });
+    sortSel.addEventListener('change',function(){ state.clSort=this.value; refresh(); });
+    filterBar.appendChild(sortSel);
+
+    // Clear filters btn
+    var clrFiltBtn=document.createElement('button'); clrFiltBtn.className='btn btn-outline btn-sm';
+    clrFiltBtn.textContent='✕ Clear';
+    clrFiltBtn.addEventListener('click',function(){
+      state.clSearch=''; state.clFilterStatus='all'; state.clFilterType='all'; state.clSort='date_asc'; refresh();
+    });
+    filterBar.appendChild(clrFiltBtn);
+
+    wrap2.appendChild(filterBar);
+
+    // ── Build groups with filtering/sorting ────────────────────────────────────
+    var groups = buildGroups(pendingRows.concat(savedRows));
+
+    // Apply search filter
+    var srch=(state.clSearch||'').toLowerCase();
+    if(srch) {
+      groups=groups.filter(function(g){
+        return g.party.toLowerCase().indexOf(srch)>=0 ||
+          g.rows.some(function(r){ return (r.billNo||'').toLowerCase().indexOf(srch)>=0; });
+      });
+    }
+    // Apply status filter
+    var sfv=state.clFilterStatus||'all';
+    if(sfv==='matched') groups=groups.filter(function(g){ return g.rows.every(function(r){ return r._status==='matched'; }); });
+    else if(sfv==='issue') groups=groups.filter(function(g){ return g.rows.some(function(r){ return r._status==='issue'; }); });
+    else if(sfv==='saved') groups=groups.filter(function(g){ return g.rows.some(function(r){ return r._saved; }); });
+
+    // Apply type filter
+    var tfv=state.clFilterType||'all';
+    if(tfv!=='all') groups=groups.filter(function(g){ return g.rows.some(function(r){ return r.rowType===tfv; }); });
+
+    // Sort groups
+    var sv=state.clSort||'date_asc';
+    groups.sort(function(a,b){
+      if(sv==='party_asc') return a.party.localeCompare(b.party);
+      if(sv==='party_desc') return b.party.localeCompare(a.party);
+      var aAmt=a.rows.reduce(function(s,r){return s+(r.netAmt||r.grossAmt||0);},0);
+      var bAmt=b.rows.reduce(function(s,r){return s+(r.netAmt||r.grossAmt||0);},0);
+      if(sv==='amt_desc') return bAmt-aAmt;
+      if(sv==='amt_asc') return aAmt-bAmt;
+      var ad=a.rows[0]?a.rows[0].date:''; var bd=b.rows[0]?b.rows[0].date:'';
+      return sv==='date_desc'?bd.localeCompare(ad):ad.localeCompare(bd);
+    });
+
+    if(!groups.length) {
+      var noRes=document.createElement('div');
+      noRes.style.cssText='text-align:center;padding:40px;color:var(--text-3);font-size:13px';
+      noRes.innerHTML='<div style="font-size:32px;margin-bottom:10px">🔍</div>No groups match your filters.';
+      wrap2.appendChild(noRes);
     }
 
-    // Group matched rows by payment groups (HEADER groups + standalones)
-    var groups = buildGroups(pendingRows);
-
+    // ── Render each group ──────────────────────────────────────────────────────
     groups.forEach(function(group) {
+      var isGross=group.header&&group.header.grossAmt>0;
+      var grossAmt=isGross?group.header.grossAmt:0;
+      var rowTotalNet=group.rows.filter(function(r){return r.rowType!=='HEADER';}).reduce(function(s,r){return s+(r.netAmt||0);},0);
+      var rowTotalReb=group.rows.filter(function(r){return r.rowType!=='HEADER';}).reduce(function(s,r){return s+(r.rebate||0);},0);
+      var rowTotalInt=group.rows.filter(function(r){return r.rowType!=='HEADER';}).reduce(function(s,r){return s+(r.interest||0);},0);
+
+      var hasIssue=group.rows.some(function(r){return r._status==='issue';});
+      var allSaved=group.rows.every(function(r){return r._saved;});
+      var allMatched=group.rows.every(function(r){return r._status==='matched'||r._saved;});
+
       var gCard=document.createElement('div'); gCard.className='card'; gCard.style.marginBottom='12px';
+      if(hasIssue) gCard.style.borderLeft='3px solid #f59e0b';
+      else if(allSaved) gCard.style.borderLeft='3px solid #22c55e';
+      else if(allMatched) gCard.style.borderLeft='3px solid #3b82f6';
 
       // Group header
-      var gHead=document.createElement('div'); gHead.className='card-head';
-      var isGross=group.type==='gross';
-      var gAmt=isGross?group.header.grossAmt:(group.rows[0]?group.rows[0].netAmt:0);
-      var gParty=group.party;
-      var gIssues=group.rows.filter(function(r){return r._status==='issue';}).length;
+      var gHead=document.createElement('div');
+      gHead.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px';
 
-      gHead.innerHTML='<div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">'+
-        '<span style="font-size:13px;font-weight:700;color:var(--text-1)">'+(isGross?'🔗 Gross Group':'💳 '+(group.rows[0]?group.rows[0].rowType:' Payment'))+
-        ' — <span style="color:var(--brand)">'+gParty+'</span></span>'+
-        '<span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--brand-mid)">₹'+fmt(gAmt)+'</span>'+
-        (isGross?'<span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">'+group.rows.length+' bills linked</span>':'')+
-        (gIssues?'<span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">⚠ '+gIssues+' issues</span>':'')+
-        '</div>';
+      var gInfo=document.createElement('div'); gInfo.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+      var statusDot=hasIssue?'🟡':allSaved?'🟢':allMatched?'🔵':'⚪';
+      gInfo.innerHTML='<span style="font-size:13px;font-weight:700;color:var(--text-1)">'+statusDot+' '+group.party+'</span>'+
+        (isGross?'<span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">GROSS ₹'+fmt(grossAmt)+'</span>':'<span style="background:#f3f4f6;color:#374151;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">'+group.rows.length+' rows</span>')+
+        '<span style="background:#f3f4f6;color:#6b7280;border-radius:4px;padding:2px 8px;font-size:10px">'+
+          group.rows.filter(function(r){return r.rowType!=='HEADER';}).length+' bills linked</span>'+
+        (allSaved?'<span style="background:#dcfce7;color:#166534;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">✓ Saved</span>':'');
 
-      // Group save button
-      var gSaveDiv=document.createElement('div'); gSaveDiv.style.cssText='display:flex;gap:6px;align-items:center';
-      if(!gIssues) {
-        var gSaveBtn=document.createElement('button'); gSaveBtn.className='btn btn-green btn-sm'; gSaveBtn.innerHTML='💾 Save Group';
+      var gActions=document.createElement('div'); gActions.style.cssText='display:flex;gap:6px;align-items:center';
+
+      // VIEW BILL button - show linked bill details
+      var viewBtn=document.createElement('button'); viewBtn.className='btn btn-outline btn-sm';
+      viewBtn.innerHTML='👁 View Bills';
+      viewBtn.addEventListener('click',(function(g){
+        return function(){
+          var billNos=g.rows.filter(function(r){return r.billNo;}).map(function(r){return r.billNo;});
+          if(!billNos.length){toast('No bill numbers linked','err');return;}
+          var linked=bills.filter(function(b){return billNos.indexOf(b.bill_no||b.billNo||b.id)>=0;});
+          if(!linked.length){toast('Bills not found in system (not entered yet)','err');return;}
+          var body=document.createElement('div');
+          body.innerHTML='<table style="width:100%;font-size:12px;border-collapse:collapse">'+
+            '<thead><tr style="background:#f3f4f6"><th style="padding:8px;text-align:left">Bill No</th>'+
+            '<th style="padding:8px;text-align:left">Party</th>'+
+            '<th style="padding:8px;text-align:right">Amount</th>'+
+            '<th style="padding:8px;text-align:left">Date</th>'+
+            '<th style="padding:8px;text-align:left">Status</th></tr></thead>'+
+            '<tbody>'+linked.map(function(b){
+              var st=getBillStatus(b);
+              return '<tr style="border-bottom:1px solid #f3f4f6">'+
+                '<td style="padding:8px;font-weight:600">'+b.bill_no+'</td>'+
+                '<td style="padding:8px">'+b.party+'</td>'+
+                '<td style="padding:8px;text-align:right;font-family:var(--font-mono)">₹'+fmt(b.amount)+'</td>'+
+                '<td style="padding:8px">'+fmtDate(b.date)+'</td>'+
+                '<td style="padding:8px"><span style="background:'+(st.status==='paid'?'#dcfce7':st.status==='partial'?'#fef3c7':'#fee2e2')+';color:'+(st.status==='paid'?'#166534':st.status==='partial'?'#92400e':'#dc2626')+';border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700">'+st.status.toUpperCase()+'</span></td>'+
+                '</tr>';
+            }).join('')+'</tbody></table>';
+          openModal('Bills — '+g.party,body,[{label:'Close',fn:closeModal}]);
+        };
+      })(group));
+      gActions.appendChild(viewBtn);
+
+      // EDIT GROUP button - edit party/mode/date for all rows in group
+      var editBtn=document.createElement('button'); editBtn.className='btn btn-outline btn-sm';
+      editBtn.innerHTML='✏ Edit';
+      editBtn.addEventListener('click',(function(g){
+        return function(){
+          var body=document.createElement('div'); body.style.padding='4px 0';
+          // Party input
+          var partyLbl=document.createElement('label'); partyLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; partyLbl.textContent='Party Name';
+          var partyInp=document.createElement('input'); partyInp.type='text'; partyInp.className='inp'; partyInp.value=g.party; partyInp.style.marginBottom='12px';
+          // Provide party suggestions from existing bills
+          var parties=[...new Set(bills.map(function(b){return b.party;}))].sort();
+          var datalist=document.createElement('datalist'); datalist.id='_edit_parties_dl';
+          parties.forEach(function(p){ var o=document.createElement('option'); o.value=p; datalist.appendChild(o); });
+          partyInp.setAttribute('list','_edit_parties_dl');
+          body.appendChild(partyLbl); body.appendChild(partyInp); body.appendChild(datalist);
+          // Mode input
+          var modeLbl=document.createElement('label'); modeLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; modeLbl.textContent='Payment Mode (applies to all rows)';
+          var modeSel=document.createElement('select'); modeSel.className='inp'; modeSel.style.marginBottom='12px';
+          ['','NEFT','RTGS','CHEQUE','UPI','CASH','IMPS'].forEach(function(m){
+            var o=document.createElement('option'); o.value=m; o.textContent=m||'(keep existing)';
+            if(m===(g.rows[0]&&g.rows[0].mode||'')) o.selected=true;
+            modeSel.appendChild(o);
+          });
+          body.appendChild(modeLbl); body.appendChild(modeSel);
+          // Remarks
+          var remLbl=document.createElement('label'); remLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; remLbl.textContent='Remarks (optional)';
+          var remInp=document.createElement('input'); remInp.type='text'; remInp.className='inp'; remInp.value=g.rows[0]&&g.rows[0].remarks||'';
+          body.appendChild(remLbl); body.appendChild(remInp);
+          openModal('Edit Group — '+g.party, body, [
+            {label:'✅ Apply', fn:function(){
+              var newParty=partyInp.value.trim();
+              var newMode=modeSel.value;
+              var newRem=remInp.value.trim();
+              if(!newParty){toast('Party name required','err');return;}
+              g.rows.forEach(function(r){
+                r.party=newParty;
+                if(newMode) r.mode=newMode;
+                if(newRem) r.remarks=newRem;
+                // Re-validate
+                var matched=bills.filter(function(b){return b.party===newParty&&(r.rowType==='HEADER'||b.bill_no===r.billNo||b.bill_no==r.billNo);});
+                r._status=matched.length>0?'matched':'issue';
+              });
+              if(group.header) group.header.party=newParty;
+              closeModal(); refresh();
+              toast('Group updated','ok');
+            }},
+            {label:'Cancel',fn:closeModal}
+          ]);
+        };
+      })(group));
+      gActions.appendChild(editBtn);
+
+      // DELETE GROUP button
+      if(!allSaved) {
+        var delBtn=document.createElement('button'); delBtn.className='btn btn-sm';
+        delBtn.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca';
+        delBtn.innerHTML='🗑 Delete';
+        delBtn.addEventListener('click',(function(g){
+          return function(){
+            if(!confirm('Delete all '+g.rows.length+' rows for '+g.party+'?')) return;
+            g.rows.forEach(function(r){ r._include=false; });
+            refresh(); toast('Group deleted','ok');
+          };
+        })(group));
+        gActions.appendChild(delBtn);
+      }
+
+      // SAVE GROUP button
+      if(!allSaved) {
+        var gSaveBtn=document.createElement('button'); gSaveBtn.className='btn btn-green btn-sm';
+        gSaveBtn.innerHTML='💾 Save Group';
         gSaveBtn.addEventListener('click',(function(g){
           return function(){ saveAllRows(g.rows,false); };
         })(group));
-        gSaveDiv.appendChild(gSaveBtn);
+        gActions.appendChild(gSaveBtn);
       }
-      gHead.appendChild(gSaveDiv);
+
+      gHead.appendChild(gInfo);
+      gHead.appendChild(gActions);
       gCard.appendChild(gHead);
 
-      // Group rows table
-      var gTbl=document.createElement('table'); gTbl.style.cssText='width:100%;font-size:12px';
-      var gThead=document.createElement('thead'); gThead.innerHTML='<tr style="background:var(--surface-2)">'+
-        '<th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Type</th>'+
-        '<th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Date</th>'+
-        '<th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Bill No</th>'+
-        '<th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Mode</th>'+
-        '<th style="padding:8px 12px;text-align:right;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Net ₹</th>'+
-        '<th style="padding:8px 12px;text-align:right;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Rebate ₹</th>'+
-        '<th style="padding:8px 12px;text-align:right;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Interest ₹</th>'+
-        '<th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Status</th>'+
-        '<th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Remarks</th>'+
+      // ── Group rows table ────────────────────────────────────────────────────
+      var gTbl=document.createElement('table'); gTbl.style.cssText='width:100%;font-size:12px;border-collapse:collapse';
+      var gThead=document.createElement('thead');
+      gThead.innerHTML='<tr style="background:var(--surface-2)">'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Type</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Date</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Bill No</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Mode</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Cheque No</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Receipt No</th>'+
+        '<th style="padding:8px 10px;text-align:right;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Net ₹</th>'+
+        '<th style="padding:8px 10px;text-align:right;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Rebate</th>'+
+        '<th style="padding:8px 10px;text-align:right;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Interest</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Status</th>'+
+        '<th style="padding:8px 10px;text-align:left;font-size:10.5px;color:var(--text-3);font-weight:700;text-transform:uppercase">Action</th>'+
         '</tr>';
       gTbl.appendChild(gThead);
 
       var gTbody=document.createElement('tbody');
-      // If HEADER show it first in light blue
-      if(isGross&&group.header){
-        var hrow=document.createElement('tr'); hrow.style.cssText='background:#eff6ff;border-bottom:1px solid #bfdbfe';
-        hrow.innerHTML='<td style="padding:8px 12px"><span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">HEADER</span></td>'+
-          '<td style="padding:8px 12px;font-size:12px">'+group.header.date+'</td>'+
-          '<td style="padding:8px 12px;color:#6b7280;font-size:12px">—</td>'+
-          '<td style="padding:8px 12px;font-size:12px">'+group.header.mode+'</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-weight:700;color:#1d4ed8">₹'+fmt(group.header.grossAmt)+'</td>'+
-          '<td style="padding:8px 12px;text-align:right">—</td>'+
-          '<td style="padding:8px 12px;text-align:right">—</td>'+
-          '<td style="padding:8px 12px"><span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">GROSS TOTAL</span></td>'+
-          '<td style="padding:8px 12px;font-size:12px;color:#6b7280">'+group.header.remarks+'</td>';
-        gTbody.appendChild(hrow);
-      }
+      group.rows.forEach(function(row,rowIdx) {
+        var stColor=row._saved?'background:#dcfce7;color:#166534':
+          row._status==='matched'?'background:#dbeafe;color:#1d4ed8':
+          row._status==='issue'?'background:#fef3c7;color:#92400e':'background:#f3f4f6;color:#6b7280';
+        var stLabel=row._saved?'✓ Saved':row._status==='matched'?'Matched':row._status==='issue'?'⚠ Issue':'Pending';
 
-      var rowTotalNet=0, rowTotalReb=0, rowTotalInt=0;
-      group.rows.forEach(function(row){
-        if(row.rowType==='HEADER') return; // already shown above
-        var tr2=document.createElement('tr'); tr2.style.cssText='border-bottom:1px solid var(--border-light)';
-        if(row._status==='issue') tr2.style.background='#fffbeb';
+        var tr2=document.createElement('tr');
+        tr2.style.cssText='border-bottom:1px solid var(--border-light)'+(row._status==='issue'?';background:#fffbeb':'');
 
-        var billObj=row.billId?bills.find(function(b){return b.id===row.billId;}):null;
-        var billStat2=billObj?getBillStatus(billObj):null;
-        rowTotalNet+=row.netAmt; rowTotalReb+=row.rebate; rowTotalInt+=row.interest;
+        // Type badge
+        var typeBg={'HEADER':'#dbeafe','DETAIL':'#f0fdf4','SINGLE':'#fdf4ff','ADVANCE':'#fff7ed','PARTIAL':'#fdf4ff'};
+        var typeColor={'HEADER':'#1e40af','DETAIL':'#166534','SINGLE':'#7e22ce','ADVANCE':'#c2410c','PARTIAL':'#7e22ce'};
 
-        var stColor=row._status==='matched'?'background:#dcfce7;color:#166534':row._status==='issue'?'background:#fef3c7;color:#b45309':'background:#dbeafe;color:#1d4ed8';
-        var stLabel=row._status==='matched'?'✅ Matched':row._status==='issue'?'⚠️ Issue':'🔵 Pending';
+        tr2.innerHTML=
+          '<td style="padding:8px 10px"><span style="background:'+(typeBg[row.rowType]||'#f3f4f6')+';color:'+(typeColor[row.rowType]||'#374151')+';border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">'+row.rowType+'</span></td>'+
+          '<td style="padding:8px 10px;font-size:11.5px">'+fmtDate(row.date)+'</td>'+
+          '<td style="padding:8px 10px;font-family:var(--font-mono);font-weight:600;color:var(--brand)">'+( row.billNo||'—')+'</td>'+
+          '<td style="padding:8px 10px;font-size:11px">'+( row.mode||'—')+'</td>'+
+          '<td style="padding:8px 10px;font-size:11px;font-family:var(--font-mono)">'+( row.chequeNo||'—')+'</td>'+
+          '<td style="padding:8px 10px;font-size:11px;font-family:var(--font-mono)">'+( row.receiptNo||'—')+'</td>'+
+          '<td style="padding:8px 10px;text-align:right;font-family:var(--font-mono);font-weight:600">'+( (row.netAmt||row.grossAmt)>0?'₹'+fmt(row.netAmt||row.grossAmt):'—')+'</td>'+
+          '<td style="padding:8px 10px;text-align:right;font-family:var(--font-mono);color:#d97706">'+( row.rebate>0?'₹'+fmt(row.rebate):'—')+'</td>'+
+          '<td style="padding:8px 10px;text-align:right;font-family:var(--font-mono);color:#7c3aed">'+( row.interest>0?'₹'+fmt(row.interest):'—')+'</td>'+
+          '<td style="padding:8px 10px"><span style="'+stColor+';border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">'+stLabel+'</span></td>';
 
-        tr2.innerHTML='<td style="padding:8px 12px"><span style="background:#f3f4f6;color:#374151;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">'+row.rowType+'</span></td>'+
-          '<td style="padding:8px 12px;font-size:12px">'+row.date+'</td>'+
-          '<td style="padding:8px 12px">'+(billObj?'<strong>#'+billObj.billNo+'</strong>'+(billStat2?'<span style="font-size:10px;color:#6b7280"> Bal:₹'+fmt(billStat2.bal)+'</span>':''):'<span style="color:'+( row.billIssue?'#dc2626':'#6b7280')+'">'+(row.billNo||'—')+'</span>')+'</td>'+
-          '<td style="padding:8px 12px;font-size:12px">'+row.mode+(row.chequeNo?'<br><span style="font-size:10px;color:#6b7280">'+row.chequeNo+'</span>':'')+'</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-weight:600">₹'+fmt(row.netAmt)+'</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);color:#d97706">'+( row.rebate>0?'₹'+fmt(row.rebate):'—')+'</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);color:#7c3aed">'+(row.interest>0?'₹'+fmt(row.interest):'—')+'</td>'+
-          '<td style="padding:8px 12px"><span style="'+stColor+';border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">'+stLabel+'</span></td>'+
-          '<td style="padding:8px 12px;font-size:11px;color:#6b7280">'+( row.remarks||(row.receiptNo?'Rcpt:'+row.receiptNo:''))+'</td>';
+        // ACTION cell - edit row + delete row
+        var actionTd=document.createElement('td'); actionTd.style.cssText='padding:6px 8px;white-space:nowrap';
+        if(!row._saved) {
+          // Edit row button
+          var rowEditBtn=document.createElement('button'); rowEditBtn.className='btn btn-outline btn-sm';
+          rowEditBtn.style.cssText='padding:3px 8px;font-size:10px;margin-right:4px';
+          rowEditBtn.textContent='✏';
+          rowEditBtn.title='Edit this row';
+          rowEditBtn.addEventListener('click',(function(r){
+            return function(){
+              var bd=document.createElement('div'); bd.style.padding='4px 0';
+              // Bill No
+              var bnLbl=document.createElement('label'); bnLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; bnLbl.textContent='Bill No';
+              var bnInp=document.createElement('input'); bnInp.type='text'; bnInp.className='inp'; bnInp.value=r.billNo||''; bnInp.style.marginBottom='10px';
+              var bnDl=document.createElement('datalist'); bnDl.id='_edit_bills_dl';
+              var partyBills=bills.filter(function(b){return b.party===r.party;});
+              partyBills.forEach(function(b){ var o=document.createElement('option'); o.value=b.bill_no; bnDl.appendChild(o); });
+              bnInp.setAttribute('list','_edit_bills_dl');
+              // Net Amt
+              var naLbl=document.createElement('label'); naLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; naLbl.textContent='Net Amount';
+              var naInp=document.createElement('input'); naInp.type='number'; naInp.className='inp'; naInp.value=r.netAmt||r.grossAmt||''; naInp.style.marginBottom='10px';
+              // Rebate
+              var rbLbl=document.createElement('label'); rbLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; rbLbl.textContent='Rebate';
+              var rbInp=document.createElement('input'); rbInp.type='number'; rbInp.className='inp'; rbInp.value=r.rebate||''; rbInp.style.marginBottom='10px';
+              // Interest
+              var inLbl=document.createElement('label'); inLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; inLbl.textContent='Interest';
+              var inInp=document.createElement('input'); inInp.type='number'; inInp.className='inp'; inInp.value=r.interest||''; inInp.style.marginBottom='10px';
+              // Mode
+              var mdLbl=document.createElement('label'); mdLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; mdLbl.textContent='Mode';
+              var mdSel=document.createElement('select'); mdSel.className='inp'; mdSel.style.marginBottom='10px';
+              ['NEFT','RTGS','CHEQUE','UPI','CASH','IMPS'].forEach(function(m){
+                var o=document.createElement('option'); o.value=m; o.textContent=m;
+                if(m===r.mode) o.selected=true; mdSel.appendChild(o);
+              });
+              // Cheque No
+              var chLbl=document.createElement('label'); chLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; chLbl.textContent='Cheque No';
+              var chInp=document.createElement('input'); chInp.type='text'; chInp.className='inp'; chInp.value=r.chequeNo||''; chInp.style.marginBottom='10px';
+              // Receipt No
+              var rcLbl=document.createElement('label'); rcLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; rcLbl.textContent='Receipt No';
+              var rcInp=document.createElement('input'); rcInp.type='text'; rcInp.className='inp'; rcInp.value=r.receiptNo||''; rcInp.style.marginBottom='10px';
+              // Remarks
+              var remLbl2=document.createElement('label'); remLbl2.style.cssText='font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px'; remLbl2.textContent='Remarks';
+              var remInp2=document.createElement('input'); remInp2.type='text'; remInp2.className='inp'; remInp2.value=r.remarks||'';
+              bd.appendChild(bnLbl); bd.appendChild(bnInp); bd.appendChild(bnDl);
+              bd.appendChild(naLbl); bd.appendChild(naInp);
+              bd.appendChild(rbLbl); bd.appendChild(rbInp);
+              bd.appendChild(inLbl); bd.appendChild(inInp);
+              bd.appendChild(mdLbl); bd.appendChild(mdSel);
+              bd.appendChild(chLbl); bd.appendChild(chInp);
+              bd.appendChild(rcLbl); bd.appendChild(rcInp);
+              bd.appendChild(remLbl2); bd.appendChild(remInp2);
+              openModal('Edit Row — '+r.party, bd, [
+                {label:'✅ Save', fn:function(){
+                  r.billNo=bnInp.value.trim();
+                  r.netAmt=parseFloat(naInp.value)||0;
+                  r.rebate=parseFloat(rbInp.value)||0;
+                  r.interest=parseFloat(inInp.value)||0;
+                  r.mode=mdSel.value;
+                  r.chequeNo=chInp.value.trim();
+                  r.receiptNo=rcInp.value.trim();
+                  r.remarks=remInp2.value.trim();
+                  // Re-validate match
+                  var matched2=bills.filter(function(b){ return b.party===r.party&&(r.rowType==='HEADER'||b.bill_no===r.billNo); });
+                  r._status=matched2.length>0?'matched':'issue';
+                  closeModal(); refresh(); toast('Row updated','ok');
+                }},
+                {label:'Cancel',fn:closeModal}
+              ]);
+            };
+          })(row));
+          actionTd.appendChild(rowEditBtn);
+
+          // Delete row button
+          var rowDelBtn=document.createElement('button'); rowDelBtn.className='btn btn-sm';
+          rowDelBtn.style.cssText='padding:3px 8px;font-size:10px;background:#fee2e2;color:#dc2626;border:1px solid #fecaca';
+          rowDelBtn.textContent='🗑';
+          rowDelBtn.title='Delete this row';
+          rowDelBtn.addEventListener('click',(function(r){
+            return function(){
+              if(!confirm('Delete this row?')) return;
+              r._include=false;
+              refresh(); toast('Row deleted','ok');
+            };
+          })(row));
+          actionTd.appendChild(rowDelBtn);
+        } else {
+          actionTd.innerHTML='<span style="font-size:10px;color:#166534">✓</span>';
+        }
+        tr2.appendChild(actionTd);
         gTbody.appendChild(tr2);
       });
 
       // Totals row
-      if(group.rows.length>1) {
+      if(group.rows.filter(function(r){return r.rowType!=='HEADER';}).length>1) {
         var totRow=document.createElement('tr'); totRow.style.cssText='background:var(--brand-pale);border-top:2px solid var(--brand-light)';
-        totRow.innerHTML='<td colspan="4" style="padding:8px 12px;font-size:12px;font-weight:700;color:var(--brand)">Total ('+group.rows.filter(function(r){return r.rowType!=='HEADER';}).length+' bills)</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-weight:700;color:var(--brand)">₹'+fmt(rowTotalNet)+'</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-weight:700;color:#d97706">'+( rowTotalReb>0?'₹'+fmt(rowTotalReb):'—')+'</td>'+
-          '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-weight:700;color:#7c3aed">'+(rowTotalInt>0?'₹'+fmt(rowTotalInt):'—')+'</td>'+
-          '<td colspan="2" style="padding:8px 12px">'+(isGross&&group.header?
+        totRow.innerHTML='<td colspan="6" style="padding:8px 10px;font-size:12px;font-weight:700;color:var(--brand)">Total ('+group.rows.filter(function(r){return r.rowType!=='HEADER';}).length+' bills)</td>'+
+          '<td style="padding:8px 10px;text-align:right;font-family:var(--font-mono);font-weight:700;color:var(--brand)">₹'+fmt(rowTotalNet)+'</td>'+
+          '<td style="padding:8px 10px;text-align:right;font-family:var(--font-mono);font-weight:700;color:#d97706">'+( rowTotalReb>0?'₹'+fmt(rowTotalReb):'—')+'</td>'+
+          '<td style="padding:8px 10px;text-align:right;font-family:var(--font-mono);font-weight:700;color:#7c3aed">'+( rowTotalInt>0?'₹'+fmt(rowTotalInt):'—')+'</td>'+
+          '<td colspan="2" style="padding:8px 10px">'+( isGross&&group.header?
             (Math.abs(group.header.grossAmt-rowTotalNet)<1?
               '<span style="background:#dcfce7;color:#166534;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">✅ Gross matches</span>':
               '<span style="background:#fef3c7;color:#b45309;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">⚠ Diff: ₹'+fmt(Math.abs(group.header.grossAmt-rowTotalNet))+'</span>'):
@@ -8294,8 +8576,8 @@ function pgBankUpload() {
       wrap2.appendChild(gCard);
     });
 
-    // Already saved section
-    if(savedRows.length) {
+    // ── Already saved section ─────────────────────────────────────────────────
+    if(savedRows.length&&!(state.clFilterStatus&&state.clFilterStatus!=='all'&&state.clFilterStatus!=='saved')) {
       var savedCard=document.createElement('div'); savedCard.className='card'; savedCard.style.marginTop='16px';
       var savedH=document.createElement('div'); savedH.className='card-head';
       savedH.innerHTML='<h4 style="color:#166534">✓ Already Saved ('+savedRows.length+' rows)</h4>';
@@ -8303,7 +8585,9 @@ function pgBankUpload() {
       var savedInfo=document.createElement('div');
       savedInfo.style.cssText='padding:12px 16px;font-size:12px;color:var(--text-3)';
       savedInfo.innerHTML=savedRows.map(function(r){
-        return '<div style="padding:4px 0;border-bottom:1px solid var(--border-light)">✓ '+r.party+' — '+r.rowType+' — ₹'+fmt(r.netAmt||r.grossAmt)+' — '+r.date+'</div>';
+        return '<div style="padding:4px 0;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between">'+
+          '<span>✓ <strong>'+r.party+'</strong> — '+r.rowType+' — <span style="font-family:var(--font-mono)">₹'+fmt(r.netAmt||r.grossAmt)+'</span></span>'+
+          '<span style="color:#9ca3af">'+fmtDate(r.date)+'</span></div>';
       }).join('');
       savedCard.appendChild(savedInfo);
       wrap2.appendChild(savedCard);
