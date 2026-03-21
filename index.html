@@ -3333,7 +3333,7 @@ function pgAllBills() {
       var rowPaysGross=payments.filter(function(p){return p.billId===row.id&&p.grossAmt&&p.grossAmt>0;});
       if(rowPaysGross.length){
         var gpM=(grossPayments||[]).find(function(g){
-          return g.party===row.party&&g.date===rowPaysGross[0].date&&g.grossAmt===rowPaysGross[0].grossAmt;
+          return (rowPaysGross[0].gpId&&g.id===rowPaysGross[0].gpId)||(g.party===row.party&&g.date===rowPaysGross[0].date&&g.grossAmt===rowPaysGross[0].grossAmt);
         });
         if(gpM){
           var gpBnos=(gpM.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
@@ -5200,7 +5200,7 @@ function pgPartyLedger(party) {
     // Check if any payment for this bill is from a gross
     var billPays=payments.filter(function(p){return p.billId===b.id;});
     var grossPay=billPays.find(function(p){return p.grossAmt&&p.grossAmt>0;});
-    var gpMatch=grossPay?(grossPayments||[]).find(function(g){return g.party===b.party&&g.date===grossPay.date&&g.grossAmt===grossPay.grossAmt;}):null;
+    var gpMatch=grossPay?(grossPayments||[]).find(function(g){return (grossPay.gpId&&g.id===grossPay.gpId)||(g.party===b.party&&g.date===grossPay.date&&g.grossAmt===grossPay.grossAmt);}):null;
     var grossBadge='';
     if(gpMatch){
       var gpBillNos=(gpMatch.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
@@ -5262,7 +5262,7 @@ function pgPartyLedger(party) {
         var grossId='';
         if(isGross){
           var gp=(grossPayments||[]).find(function(g){
-            return g.party===party && g.date===p.date && g.grossAmt===p.grossAmt;
+            return (p.gpId&&g.id===p.gpId)||(g.party===party&&g.date===p.date&&g.grossAmt===p.grossAmt);
           });
           if(gp){
             var gpBillNos2=(gp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(', ');
@@ -6944,7 +6944,7 @@ function togglePayDetails(billId) {
       var grossRef='-';
       if(p.grossAmt&&p.grossAmt>0){
         var gp=(grossPayments||[]).find(function(g){
-          return g.party===bill.party && g.date===p.date && g.grossAmt===p.grossAmt;
+          return (p.gpId&&g.id===p.gpId)||(g.party===bill.party&&g.date===p.date&&g.grossAmt===p.grossAmt);
         });
         if(gp){
           var gpBnos=(gp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(', ');
@@ -6984,7 +6984,7 @@ function printMultipleBills(billList){
     +'<button onclick="window.close()" style="background:#f3f4f6;border:none;padding:7px 18px;border-radius:6px;cursor:pointer">Close</button></div>';
   billList.forEach(function(bill){
     var s=getBillStatus(bill);
-    var bPays=payments.filter(function(p){return p.billId===bill.id&&p.rowType!=='DETAIL';});
+    var bPays=payments.filter(function(p){return p.billId===bill.id;});
     var gr=(bill.rows||[]).map(function(r,i){return'<tr><td>'+(i+1)+'</td><td>'+r.grade+'</td><td>'+(r.qty||0)+'</td><td>'+r.weight+' kg</td><td>₹'+fmt(r.rate)+'</td><td>₹'+fmt(r.taxable)+'</td></tr>';}).join('');
     var payRows='';
     if(bPays.length){
@@ -6994,7 +6994,7 @@ function printMultipleBills(billList){
         var grossRef='-';
         if(p.grossAmt&&p.grossAmt>0){
           var gp=(grossPayments||[]).find(function(g){
-            return g.party===bill.party && g.date===p.date && g.grossAmt===p.grossAmt;
+            return (p.gpId&&g.id===p.gpId)||(g.party===bill.party&&g.date===p.date&&g.grossAmt===p.grossAmt);
           });
           if(gp){
             var gpBnos2=(gp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(', ');
@@ -8641,6 +8641,20 @@ function pgBankUpload() {
     });
 
     // Step 2: All non-HEADER rows -> payments[] (for bill status)
+    // Build groupId->HEADER map so DETAIL rows inherit parent's grossAmt/mode/cheque
+    var headerByGroupId={};
+    headerRows.forEach(function(r){ headerByGroupId[r._id]=r; });
+    // Build groupId->gpId map for DETAIL rows to reference their GP record
+    var gpIdByGroupId={};
+    headerRows.forEach(function(r){
+      var gp=grossPayments[grossPayments.length-1];// last added for this header
+      // Find the GP we just created for this header
+      var myGp=(grossPayments||[]).slice().reverse().find(function(g){
+        return g.party===r.party&&g.date===r.date&&g.grossAmt===r.grossAmt;
+      });
+      if(myGp) gpIdByGroupId[r._id]=myGp.id;
+    });
+
     rowsFiltered.forEach(function(row){
       try {
         if(row.rowType==='ADVANCE'||(!row.billId&&row.rowType!=='HEADER')) {
@@ -8650,11 +8664,19 @@ function pgBankUpload() {
             linked:false,createdAt:new Date().toISOString()});
           advCnt++;
         } else if(row.billId) {
+          // DETAIL rows inherit parent HEADER's grossAmt, mode, cheque
+          var parentHdr=row.rowType==='DETAIL'?(headerByGroupId[row.groupId]||null):null;
+          var effGrossAmt=parentHdr?(parentHdr.grossAmt||0):(row.grossAmt||0);
+          var effMode=parentHdr?(parentHdr.mode||row.mode||'NEFT'):(row.mode||'NEFT');
+          var effCheque=parentHdr?(parentHdr.chequeNo||row.chequeNo||''):(row.chequeNo||'');
+          var effReceipt=parentHdr?(parentHdr.receiptNo||row.receiptNo||''):(row.receiptNo||'');
           payments.push({id:uid(),billId:row.billId,
             amount:row.netAmt,rebate:row.rebate||0,interest:row.interest||0,
-            date:row.date,mode:row.mode||'NEFT',chequeNo:row.chequeNo||'',receiptNo:row.receiptNo||'',
-            grossAmt:row.grossAmt||0,rowType:row.rowType||'SINGLE',
-            remarks:(row.remarks?row.remarks:'Bank Upload')+(row.chequeNo?' Chq:'+row.chequeNo:'')+(row.receiptNo?' Rcpt:'+row.receiptNo:'')});
+            date:row.date,mode:effMode,chequeNo:effCheque,receiptNo:effReceipt,
+            grossAmt:effGrossAmt,rowType:row.rowType||'SINGLE',
+            groupId:row.groupId||'',
+            gpId:row.rowType==='DETAIL'?(gpIdByGroupId[row.groupId||'']||''):'',
+            remarks:(row.remarks?row.remarks:'Bank Upload')+(effCheque?' Chq:'+effCheque:'')+(effReceipt?' Rcpt:'+effReceipt:'')});
         }
         row._saved=true; cnt++;
       } catch(ex){payErr++;}
@@ -9839,7 +9861,7 @@ function pgInterest() {
           var iGrossRef='';
           if(p.grossAmt&&p.grossAmt>0){
             var igp=(grossPayments||[]).find(function(g){
-              return g.party===b.party && g.date===p.origDate && g.grossAmt===p.grossAmt;
+              return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);
             });
             if(igp){
               var igpBnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
@@ -9958,7 +9980,7 @@ function pgInterest() {
           payInfo=calc.bPays.map(function(p){
             var gRef='';
             if(p.grossAmt&&p.grossAmt>0){
-              var igp=(grossPayments||[]).find(function(g){return g.party===party&&g.date===p.origDate&&g.grossAmt===p.grossAmt;});
+              var igp=(grossPayments||[]).find(function(g){return (p.gpId&&g.id===p.gpId)||(g.party===party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);});
               if(igp){
                 var bnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
                 gRef=' <span class="gross-badge">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+bnos+')</span>';
@@ -10723,7 +10745,7 @@ function printPartyStatement(party, plState) {
   }
   pb2.forEach(function(b){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id&&p.rowType!=='DETAIL';});
+    var bPays=payments.filter(function(p){return p.billId===b.id;});
     h+='<h3>Bill #'+b.billNo+' &nbsp; '+fmtDate(b.date)+' &nbsp; <span class="'+s.status+'">'+s.status.toUpperCase()+'</span></h3>';
     h+='<table><thead><tr><th>Description</th><th class="num">Amount</th><th>Date</th><th>Mode</th><th>Cheque/Rcpt</th><th>Rebate</th><th>Interest</th></tr></thead><tbody>';
     h+='<tr><td><strong>Invoice — '+(b.rows||[]).map(function(r){return r.grade;}).join(', ')+'</strong></td>'
@@ -10733,7 +10755,7 @@ function printPartyStatement(party, plState) {
       var grossRef='';
       if(p.grossAmt&&p.grossAmt>0){
         var gp2=(grossPayments||[]).find(function(g){
-          return g.party===b.party && g.date===p.date && g.grossAmt===p.grossAmt;
+          return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.date&&g.grossAmt===p.grossAmt);
         });
         if(gp2){
           var gpBillNos3=(gp2.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(', ');
