@@ -1345,6 +1345,7 @@ _auth.onAuthStateChanged(function(user){
 // ════════════════════════════════════════════════════════
 var bills=[],payments=[],cheques=[],advances=[],expenses=[],returns_=[],purchases=[],suspense=[],grossPayments=[];
 var cfg={}, hiddenPages={};
+var acceptedDups=new Set();
 
 // ═══════════════════════════════════════
 // HELPERS
