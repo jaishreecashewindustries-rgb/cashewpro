@@ -59,6 +59,40 @@
   --font-mono:   'DM Mono', 'SF Mono', 'Fira Code', monospace;
 }
 
+
+/* ── ADVANCED TOOLBAR SYSTEM ── */
+.atb { display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 14px;background:var(--surface);border-bottom:2px solid var(--border);position:sticky;top:0;z-index:50;box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.atb-group { display:flex;align-items:center;gap:4px;padding:0 8px;border-right:1px solid var(--border);flex-wrap:wrap; }
+.atb-group:last-child { border-right:none; }
+.atb-btn { display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font-size:11.5px;font-weight:600;cursor:pointer;transition:all .12s;font-family:var(--font);white-space:nowrap; }
+.atb-btn:hover { background:var(--brand-pale);color:var(--brand);border-color:var(--brand-light); }
+.atb-btn.active { background:var(--brand-light);color:var(--brand);border-color:var(--brand); }
+.atb-btn.danger { color:var(--red); }
+.atb-btn.danger:hover { background:var(--red-bg);border-color:var(--red); }
+.atb-btn.success { color:#166534; }
+.atb-btn.success:hover { background:#f0fdf4;border-color:#bbf7d0; }
+.atb-inp { padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:11.5px;font-family:var(--font);color:var(--text-1);outline:none;transition:border .12s; }
+.atb-inp:focus { border-color:var(--brand);box-shadow:0 0 0 3px rgba(26,107,60,.1); }
+.atb-sel { padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:11.5px;font-family:var(--font);color:var(--text-1);cursor:pointer; }
+.atb-label { font-size:10px;font-weight:700;color:var(--text-4);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap; }
+.atb-badge { font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;background:var(--brand-light);color:var(--brand); }
+.atb-sep { width:1px;height:20px;background:var(--border);margin:0 4px; }
+/* Debug overlay */
+.debug-overlay { position:fixed;bottom:0;left:0;right:0;background:#111;color:#0f0;font-family:monospace;font-size:11px;padding:10px 14px;max-height:200px;overflow-y:auto;z-index:9999;border-top:2px solid #0f0; }
+.debug-overlay .dh { color:#ff0;font-weight:bold;margin-bottom:4px; }
+/* Column chooser */
+.col-chooser { position:absolute;top:100%;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);padding:10px;min-width:180px;z-index:200;display:none; }
+.col-chooser.open { display:block; }
+.col-chooser label { display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;cursor:pointer;font-size:12px;color:var(--text-2); }
+.col-chooser label:hover { background:var(--brand-pale); }
+/* Verify mode highlight */
+.verify-warn { background:#fffbeb!important;border-left:3px solid #f59e0b; }
+.verify-err { background:#fef2f2!important;border-left:3px solid #dc2626; }
+.verify-ok { border-left:3px solid #166534; }
+/* Status bar */
+.status-bar { display:flex;gap:16px;align-items:center;padding:6px 14px;background:var(--brand-pale);border-top:1px solid var(--brand-light);font-size:11.5px;font-weight:500;flex-wrap:wrap;position:sticky;bottom:0;z-index:40; }
+.status-bar span strong { font-weight:700; }
+
 /* ── RESET ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -927,6 +961,8 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
         <button class="btn btn-outline" id="btn-gross-pay" onclick="openGrossPayModal()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700">⊕ Gross</button>
       </div>
     </div>
+    <!-- GLOBAL TOOLBAR STRIP -->
+    <div id="global-atb" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:11.5px;"></div>
     <div class="page" id="page"></div>
   </div>
 </div>
@@ -1955,6 +1991,209 @@ function mkFilterDrop(key, getVals, filterState, onApply) {
 
 
 // SVG icons for nav items
+
+// ══════════════════════════════════════════════════════════════════
+// ADVANCED TOOLBAR SYSTEM v2.0
+// ══════════════════════════════════════════════════════════════════
+var _ATB = {
+  debugMode: false,
+  verifyMode: false,
+  expandedAll: false,
+  _debugEl: null,
+
+  // ── Debug log ──
+  log: function(tag, data) {
+    if(!this.debugMode) return;
+    if(!this._debugEl) return;
+    var line = document.createElement('div');
+    var ts = new Date().toLocaleTimeString('en-IN');
+    line.innerHTML = '<span style="color:#888">['+ts+']</span> <span style="color:#ff0">['+tag+']</span> ' + JSON.stringify(data).substring(0,300);
+    this._debugEl.appendChild(line);
+    this._debugEl.scrollTop = this._debugEl.scrollHeight;
+  },
+
+  // ── Show/hide debug overlay ──
+  toggleDebug: function() {
+    this.debugMode = !this.debugMode;
+    if(this.debugMode) {
+      if(!this._debugEl) {
+        this._debugEl = document.createElement('div');
+        this._debugEl.className = 'debug-overlay';
+        this._debugEl.innerHTML = '<div class="dh">🐛 DEBUG MODE — Live Data Inspector</div>';
+        var closeB = document.createElement('button');
+        closeB.textContent = '✕ Close';
+        closeB.style.cssText = 'float:right;background:#dc2626;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-top:-18px';
+        closeB.addEventListener('click', function(){ _ATB.toggleDebug(); });
+        this._debugEl.appendChild(closeB);
+        document.body.appendChild(this._debugEl);
+      }
+      this._debugEl.style.display = 'block';
+      this.log('INIT', {bills: bills.length, payments: payments.length, grossPayments: (grossPayments||[]).length});
+    } else {
+      if(this._debugEl) this._debugEl.style.display = 'none';
+    }
+    refresh();
+  },
+
+  // ── Verify Mode ──
+  toggleVerify: function() {
+    this.verifyMode = !this.verifyMode;
+    refresh();
+    if(this.verifyMode) toast('🔍 Verify Mode ON — Issues highlighted in red/yellow', 'ok');
+    else toast('Verify Mode OFF');
+  },
+
+  // ── Refresh display — cache clear karo, data same rahega ──
+  recalculate: function() {
+    invalidateBillStatusCache();
+    prewarmBillStatusCache();
+    refresh();
+    toast('✅ Status Refreshed — '+bills.length+' bills');
+    this.log('RECALC', {bills: bills.length, payments: payments.length});
+  },
+
+  // ── Expand / Collapse all ──
+  expandAll: function(container) {
+    if(!container) return;
+    this.expandedAll = true;
+    container.querySelectorAll('.collapsible-body').forEach(function(el){ el.style.display='block'; });
+    container.querySelectorAll('.expand-btn').forEach(function(el){ el.textContent='▲'; });
+  },
+  collapseAll: function(container) {
+    if(!container) return;
+    this.expandedAll = false;
+    container.querySelectorAll('.collapsible-body').forEach(function(el){ el.style.display='none'; });
+    container.querySelectorAll('.expand-btn').forEach(function(el){ el.textContent='▼'; });
+  },
+
+  // ── Column chooser ──
+  makeColChooser: function(cols, state, onUpdate) {
+    var wrap = document.createElement('div');
+    wrap.style.position = 'relative';
+    var btn2 = document.createElement('button');
+    btn2.className = 'atb-btn';
+    btn2.innerHTML = '⚙ Columns <span style="font-size:9px">▼</span>';
+    var chooser = document.createElement('div');
+    chooser.className = 'col-chooser';
+    cols.forEach(function(col) {
+      var lbl = document.createElement('label');
+      var chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = state.hiddenCols ? state.hiddenCols.indexOf(col.key) < 0 : true;
+      chk.style.accentColor = '#166534';
+      chk.addEventListener('change', function() {
+        if(!state.hiddenCols) state.hiddenCols = [];
+        if(this.checked) { state.hiddenCols = state.hiddenCols.filter(function(k){return k!==col.key;}); }
+        else { if(state.hiddenCols.indexOf(col.key)<0) state.hiddenCols.push(col.key); }
+        onUpdate();
+      });
+      lbl.appendChild(chk);
+      lbl.appendChild(document.createTextNode(' '+col.label));
+      chooser.appendChild(lbl);
+    });
+    btn2.addEventListener('click', function(e) {
+      e.stopPropagation();
+      chooser.classList.toggle('open');
+    });
+    document.addEventListener('click', function() { chooser.classList.remove('open'); });
+    wrap.appendChild(btn2);
+    wrap.appendChild(chooser);
+    return wrap;
+  },
+
+  // ── Status bar builder ──
+  makeStatusBar: function(items) {
+    var bar = document.createElement('div');
+    bar.className = 'status-bar';
+    items.forEach(function(item) {
+      var span = document.createElement('span');
+      span.innerHTML = item.label + ': <strong style="color:' + (item.color||'var(--text-1)') + '">' + item.value + '</strong>';
+      bar.appendChild(span);
+    });
+    return bar;
+  },
+
+  // ── Universal toolbar builder ──
+  build: function(config) {
+    var tb = document.createElement('div');
+    tb.className = 'atb';
+    tb.dataset.tbId = config.id || 'tb-'+Date.now();
+
+    (config.groups || []).forEach(function(group) {
+      var grp = document.createElement('div');
+      grp.className = 'atb-group';
+
+      if(group.label) {
+        var lbl = document.createElement('span');
+        lbl.className = 'atb-label';
+        lbl.textContent = group.label;
+        grp.appendChild(lbl);
+      }
+
+      (group.items || []).forEach(function(item) {
+        if(item.type === 'search') {
+          var inp = document.createElement('input');
+          inp.className = 'atb-inp';
+          inp.placeholder = item.placeholder || '🔍 Search...';
+          inp.style.minWidth = item.width || '200px';
+          if(item.value !== undefined) inp.value = item.value;
+          inp.addEventListener('input', function() {
+            clearTimeout(inp._t);
+            inp._t = setTimeout(function() { if(item.onChange) item.onChange(inp.value); }, item.delay || 150);
+          });
+          item._el = inp;
+          grp.appendChild(inp);
+        } else if(item.type === 'select') {
+          var sel = document.createElement('select');
+          sel.className = 'atb-sel';
+          sel.style.minWidth = item.width || '120px';
+          (item.options || []).forEach(function(opt) {
+            var o = document.createElement('option');
+            o.value = opt[0]; o.textContent = opt[1];
+            if(opt[0] === item.value) o.selected = true;
+            sel.appendChild(o);
+          });
+          sel.addEventListener('change', function() { if(item.onChange) item.onChange(sel.value); });
+          item._el = sel;
+          grp.appendChild(sel);
+        } else if(item.type === 'date') {
+          var di = document.createElement('input');
+          di.type = 'date'; di.className = 'atb-inp';
+          di.style.minWidth = item.width || '130px';
+          if(item.value) di.value = item.value;
+          di.addEventListener('change', function() { if(item.onChange) item.onChange(di.value); });
+          item._el = di;
+          grp.appendChild(di);
+        } else if(item.type === 'btn' || !item.type) {
+          var b = document.createElement('button');
+          b.className = 'atb-btn' + (item.cls ? ' '+item.cls : '') + (item.active ? ' active' : '');
+          b.innerHTML = item.icon ? item.icon + ' ' + item.label : item.label;
+          b.title = item.title || '';
+          if(item.onClick) b.addEventListener('click', item.onClick);
+          item._el = b;
+          grp.appendChild(b);
+        } else if(item.type === 'sep') {
+          var sep = document.createElement('div');
+          sep.className = 'atb-sep';
+          grp.appendChild(sep);
+        } else if(item.type === 'badge') {
+          var bdg = document.createElement('span');
+          bdg.className = 'atb-badge';
+          bdg.textContent = item.label;
+          item._el = bdg;
+          grp.appendChild(bdg);
+        } else if(item.type === 'colchooser') {
+          grp.appendChild(_ATB.makeColChooser(item.cols, item.state, item.onUpdate));
+        }
+      });
+
+      tb.appendChild(grp);
+    });
+
+    return tb;
+  }
+};
+
 var NAV_ICONS={
   grid:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
   plus:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>',
@@ -2038,6 +2277,52 @@ function go(page) {
 window.addEventListener('beforeunload', function(e){
   if(_dirtyForm){e.preventDefault();e.returnValue='';return '';}
 });
+
+function buildGlobalATB() {
+  var gtb = document.getElementById('global-atb');
+  if(!gtb) return;
+  gtb.innerHTML = '';
+
+  function gb(label, icon, onClick, cls, title, active) {
+    var b = document.createElement('button');
+    b.className = 'atb-btn' + (cls?' '+cls:'') + (active?' active':'');
+    b.innerHTML = (icon?icon+' ':'')+label;
+    b.title = title||label;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  // ── GROUP 1: View Controls ──
+  var g1 = document.createElement('div'); g1.className='atb-group';
+  g1.appendChild(gb('Expand All','⊞', function(){ document.querySelectorAll('.collapsible-body').forEach(function(e){e.style.display='block';}); document.querySelectorAll('.expand-btn').forEach(function(e){e.textContent='▲';}); toast('All expanded'); },'','Expand all rows'));
+  g1.appendChild(gb('Collapse All','⊟', function(){ document.querySelectorAll('.collapsible-body').forEach(function(e){e.style.display='none';}); document.querySelectorAll('.expand-btn').forEach(function(e){e.textContent='▼';}); toast('All collapsed'); },'','Collapse all rows'));
+  gtb.appendChild(g1);
+
+  // ── GROUP 2: Data Tools ──
+  var g2 = document.createElement('div'); g2.className='atb-group';
+  g2.appendChild(gb('Refresh Status','🔄', function(){ _ATB.recalculate(); }, '', 'Refresh display — cache clear karo, data same rahega & balances'));
+  gtb.appendChild(g2);
+
+  // ── GROUP 3: Modes ──
+  var g3 = document.createElement('div'); g3.className='atb-group';
+  var dbBtn = gb('Debug','🐛', function(){ _ATB.toggleDebug(); this.classList.toggle('active'); }, '', 'Debug Mode — inspect live data', _ATB.debugMode);
+  var vrBtn = gb('Verify','🔍', function(){ _ATB.toggleVerify(); this.classList.toggle('active'); }, '', 'Verify Mode — highlight anomalies', _ATB.verifyMode);
+  g3.appendChild(dbBtn); g3.appendChild(vrBtn);
+  gtb.appendChild(g3);
+
+  // ── GROUP 4: Status indicators ──
+  var g4 = document.createElement('div'); g4.className='atb-group'; g4.style.marginLeft='auto';
+  var overpaid = bills.filter(function(b){var s=getBillStatus(b);return s.recv>(b.netAmt||0)+0.5;}).length;
+  var dupPay = (function(){var seen={};var c=0;payments.forEach(function(p){var k=p.billId+':'+Math.round(p.amount||0)+':'+p.date;if(seen[k])c++;seen[k]=true;});return c;})();
+  if(overpaid>0){var ob=document.createElement('span');ob.className='atb-btn danger';ob.style.cursor='pointer';ob.innerHTML='⚠️ '+overpaid+' Overpaid';ob.title='Click to view overpayments';ob.addEventListener('click',function(){go('overpayments');});g4.appendChild(ob);}
+  if(dupPay>0){var db2=document.createElement('span');db2.className='atb-btn danger';db2.style.cursor='pointer';db2.innerHTML='🔴 '+dupPay+' Dup Payments';db2.title='Click to view duplicates';db2.addEventListener('click',function(){go('duplicates');});g4.appendChild(db2);}
+  var billsCount = document.createElement('span'); billsCount.className='atb-badge'; billsCount.title='Total bills';
+  billsCount.textContent = '📄 '+bills.length+' Bills';
+  var payCount = document.createElement('span'); payCount.className='atb-badge'; payCount.style.marginLeft='4px'; payCount.title='Total payments';
+  payCount.textContent = '💰 '+(payments.filter(function(p){return p.rowType!=='DETAIL';}).length)+' Pays';
+  g4.appendChild(billsCount); g4.appendChild(payCount);
+  gtb.appendChild(g4);
+}
 
 function refresh() { invalidateGsIndex(); go(currentPage); }
 
@@ -2722,6 +3007,7 @@ function render(page) {
     var content = fn();
     if (content instanceof HTMLElement) p.appendChild(content);
   }
+  buildGlobalATB();
 }
 
 // ── DASHBOARD ──
@@ -3296,7 +3582,42 @@ function pgNewBill() {
 // ── ALL BILLS ──
 function pgAllBills() {
   prewarmBillStatusCache();
-  var state=pageState.allBills=pageState.allBills||{q:'',sortKey:'date',sortDir:-1,showPay:false,printMode:false,zoom:100,filters:{},showPaid:true};
+  var state=pageState.allBills=pageState.allBills||
+  // ── Advanced Toolbar ──
+  (function(){
+    var tb = buildAdvToolbar({
+      page:'all-bills',
+      showExpand: true,
+      showRecalc: true,
+      showVerify: true,
+      showDebug: true,
+      statusOptions:[
+        {v:'all',l:'All',cls:''},
+        {v:'due',l:'Due',cls:'tb-red'},
+        {v:'partial',l:'Partial',cls:'tb-orange'},
+        {v:'paid',l:'Paid',cls:'tb-green'}
+      ],
+      currentStatus: pageState.allBills ? (pageState.allBills.statusFilter||'all') : 'all',
+      onStatusChange: function(v){
+        if(pageState.allBills){ pageState.allBills.statusFilter=v; }
+        var fs=pageState.allBills?pageState.allBills.filters:{};
+        if(v==='all') delete fs.status;
+        else fs.status=new Set([v]);
+        refresh();
+      },
+      onRecalc: function(){ invalidateBillStatusCache(); refresh(); },
+      showColChooser: false,
+      extraBtns:[
+        {label:'Select All',cls:'',fn:function(){ if(pageState.allBills){pageState.allBills.printMode=true;pageState.allBills.sel=new Set(bills.map(function(b){return b.id;}));refresh();} },title:'Select all bills'},
+        {label:'Deselect All',cls:'',fn:function(){ if(pageState.allBills){pageState.allBills.sel=new Set();refresh();} },title:'Deselect all'}
+      ]
+    });
+    setTimeout(function(){
+      var card=document.querySelector('#page .card');
+      if(card) card.insertBefore(tb, card.firstChild);
+    }, 0);
+  })();
+{q:'',sortKey:'date',sortDir:-1,showPay:false,printMode:false,zoom:100,filters:{},showPaid:true};
   state._pageLimit=200; // Show 200 rows initially, load more on scroll
   if(!state.sel)state.sel=new Set();
 
@@ -3312,13 +3633,19 @@ function pgAllBills() {
   function passFilter(b){
     var s=getBillStatus(b),fs=state.filters;
     if(!state.showPaid&&s.status==='paid')return false;
-    if(hasF('status')&&!fs.status.has(s.status))return false;
+    if(fs.status&&typeof fs.status==='string'&&fs.status&&s.status!==fs.status)return false;
+    else if(hasF('status')&&fs.status instanceof Set&&!fs.status.has(s.status))return false;
     if(hasF('broker')&&!fs.broker.has(b.broker||''))return false;
     if(hasF('party')&&!fs.party.has(b.party))return false;
-    if(hasF('billType')&&!fs.billType.has(b.billType||'credit'))return false;
-    // Date range filter
+    if(fs.billType&&typeof fs.billType==='string'&&fs.billType&&(b.billType||'credit')!==fs.billType)return false;
+    else if(hasF('billType')&&fs.billType instanceof Set&&!fs.billType.has(b.billType||'credit'))return false;
+    // Date range filter (from atb2 toolbar)
+    if(state.dateFrom&&toISO(b.date||'')<toISO(state.dateFrom)) return false;
+    if(state.dateTo&&toISO(b.date||'')>toISO(state.dateTo)) return false;
     if(fs.date_from&&toISO(b.date||'')<toISO(fs.date_from)) return false;
     if(fs.date_to&&toISO(b.date||'')>toISO(fs.date_to)) return false;
+    // Verify mode — status filter from atb2
+    if(state.filters.status&&!['due','partial','paid'].includes(state.filters.status)===false&&state.filters.status&&getBillStatus(b).status!==state.filters.status) return false;
     if(hasF('grade')){var bg=(b.rows||[]).map(function(r){return r.grade;});if(!bg.some(function(g){return fs.grade.has(g);}))return false;}
     if(state.amtMin!=null&&b.netAmt<state.amtMin)return false;
     if(state.amtMax!=null&&b.netAmt>state.amtMax)return false;
@@ -3465,6 +3792,73 @@ function pgAllBills() {
   var xlsxExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Styled Excel'});
   xlsxExportBtn.addEventListener('click',function(){exportStyledReportExcel(getData());});
   toolbar.appendChild(htmlExportBtn);toolbar.appendChild(xlsxExportBtn);
+
+  // ── ADVANCED TOOLBAR ROW 2 ──
+  var atb2=document.createElement('div');
+  atb2.className='atb';atb2.style.cssText='border-top:1px solid var(--border-light);background:var(--surface-2);padding:5px 14px;gap:6px';
+
+  // Date range
+  var dg=document.createElement('div');dg.className='atb-group';
+  dg.innerHTML='<span class="atb-label">Date</span>';
+  var df=document.createElement('input');df.type='date';df.className='atb-inp';df.style.minWidth='120px';
+  df.title='From date';if(state.dateFrom)df.value=state.dateFrom;
+  var dt=document.createElement('input');dt.type='date';dt.className='atb-inp';dt.style.minWidth='120px';
+  dt.title='To date';if(state.dateTo)dt.value=state.dateTo;
+  df.addEventListener('change',function(){state.dateFrom=this.value;rebuildAll();});
+  dt.addEventListener('change',function(){state.dateTo=this.value;rebuildAll();});
+  dg.appendChild(df);dg.appendChild(document.createTextNode('→'));dg.appendChild(dt);
+  atb2.appendChild(dg);
+
+  // Status filter
+  var sg2=document.createElement('div');sg2.className='atb-group';
+  sg2.innerHTML='<span class="atb-label">Status</span>';
+  var stSel=document.createElement('select');stSel.className='atb-sel';
+  [['','All'],['due','Due'],['partial','Partial'],['paid','Paid']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.filters.status||'')=== o[0])op.selected=true;stSel.appendChild(op);});
+  stSel.addEventListener('change',function(){state.filters.status=this.value||null;rebuildAll();});
+  sg2.appendChild(stSel);atb2.appendChild(sg2);
+
+  // Bill Type
+  var btg=document.createElement('div');btg.className='atb-group';
+  btg.innerHTML='<span class="atb-label">Type</span>';
+  var btSel=document.createElement('select');btSel.className='atb-sel';
+  [['','All'],['credit','Credit'],['cash','Cash']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.filters.billType||'')=== o[0])op.selected=true;btSel.appendChild(op);});
+  btSel.addEventListener('change',function(){state.filters.billType=this.value||null;rebuildAll();});
+  btg.appendChild(btSel);atb2.appendChild(btg);
+
+  // Expand/Collapse
+  var ecg=document.createElement('div');ecg.className='atb-group';
+  var expB=document.createElement('button');expB.className='atb-btn';expB.innerHTML='⊞ Expand All';
+  expB.addEventListener('click',function(){document.querySelectorAll('#abt .collapsible-body').forEach(function(e){e.style.display='block';});});
+  var colB=document.createElement('button');colB.className='atb-btn';colB.innerHTML='⊟ Collapse All';
+  colB.addEventListener('click',function(){document.querySelectorAll('#abt .collapsible-body').forEach(function(e){e.style.display='none';});});
+  ecg.appendChild(expB);ecg.appendChild(colB);atb2.appendChild(ecg);
+
+  // Verify mode toggle
+  var vmg=document.createElement('div');vmg.className='atb-group';
+  var vmB=document.createElement('button');vmB.className='atb-btn'+((_ATB.verifyMode)?' active':'');
+  vmB.innerHTML='🔍 Verify';vmB.title='Highlight anomalies: overpaid, zero amounts, missing data';
+  vmB.addEventListener('click',function(){_ATB.toggleVerify();this.classList.toggle('active');});
+  vmg.appendChild(vmB);atb2.appendChild(vmg);
+
+  // Column chooser
+  var ccg=document.createElement('div');ccg.className='atb-group';
+  ccg.appendChild(_ATB.makeColChooser([
+    {key:'broker',label:'Broker'},{key:'grade',label:'Grade'},{key:'billType',label:'Type'},
+    {key:'recv',label:'Received'},{key:'bal',label:'Balance'},{key:'station',label:'Station'},
+    {key:'transport',label:'Transport'},{key:'remarks',label:'Remarks'}
+  ], state, function(){rebuildAll();}));
+  atb2.appendChild(ccg);
+
+  // Recalculate
+  var rcg=document.createElement('div');rcg.className='atb-group';
+  var rcB=document.createElement('button');rcB.className='atb-btn success';rcB.innerHTML='🔄 Refresh Status';
+  rcB.title='Refresh display — cache clear karo, data same rahega';
+  rcB.addEventListener('click',function(){_ATB.recalculate();});
+  rcg.appendChild(rcB);atb2.appendChild(rcg);
+
+  // Row count badge
+  var rcBadge=document.createElement('span');rcBadge.className='atb-badge';rcBadge.id='abt-row-count';rcBadge.style.marginLeft='auto';
+  atb2.appendChild(rcBadge);
 
   // Sum bar
   var sumBar=document.createElement('div');sumBar.style.cssText='display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;background:var(--brand-pale);border-top:2px solid var(--brand-light);border-bottom:1px solid var(--brand-light);font-size:13px;font-weight:500;position:sticky;bottom:0;z-index:3;';
@@ -3738,7 +4132,7 @@ function pgAllBills() {
   },15);
 
   var card=document.createElement('div');card.className='card';
-  card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);
+  card.appendChild(toolbar);card.appendChild(atb2);card.appendChild(tblOuter);card.appendChild(sumBar);
   return card;
 }
 
@@ -4144,7 +4538,26 @@ function printBill(bill) {
 
 
 function pgDueList() {
-  var state=pageState.due=pageState.due||{q:'',sortKey:'days',sortDir:-1,filters:{},printMode:false};
+  var state=pageState.due=pageState.due||
+  // ── Advanced Toolbar ──
+  (function(){
+    var tb = buildAdvToolbar({
+      page:'due-list',
+      showExpand:true, showRecalc:true, showVerify:true, showDebug:true,
+      statusOptions:[
+        {v:'all',l:'All'},
+        {v:'due',l:'Overdue',cls:'tb-red'},
+        {v:'partial',l:'Partial',cls:'tb-orange'},
+        {v:'today',l:'Due Today',cls:'tb-blue'}
+      ],
+      currentStatus:'all',
+      onStatusChange:function(v){ if(pageState.due){pageState.due.statusEx=v;refresh();} },
+      onRecalc:function(){ invalidateBillStatusCache();refresh(); },
+      extraBtns:[{label:'Send Reminders',cls:'tb-orange',fn:function(){go('reminder');},title:'Go to Payment Reminder'}]
+    });
+    setTimeout(function(){var card=document.querySelector('#page .card');if(card)card.insertBefore(tb,card.firstChild);},0);
+  })();
+{q:'',sortKey:'days',sortDir:-1,filters:{},printMode:false};
   if(!state.sel)state.sel=new Set();
   var showNearlyPaid=pageState.due.showNearlyPaid||false;
   var dueBills=bills.filter(function(b){
@@ -4161,10 +4574,11 @@ function pgDueList() {
   var uMonth=Array.from(new Set(dueBills.map(function(b){return b.date?b.date.substring(0,7):'';}).filter(Boolean))).sort();
 
   function hasF(k){return !!(state.filters[k]&&state.filters[k].size>0);}
-  function passFilter(b){
+    function passFilter(b){
     var s=getBillStatus(b),fs=state.filters;
-    if(hasF('status')&&!fs.status.has(s.status))return false;
-    if(hasF('broker')&&!fs.broker.has(b.broker||''))return false;
+    if(state.dateFrom&&toISO(b.date||'')<toISO(state.dateFrom))return false;
+    if(state.dateTo&&toISO(b.date||'')>toISO(state.dateTo))return false;
+    if(hasF('status')&&!fs.status.has(s.status))return false;   if(hasF('broker')&&!fs.broker.has(b.broker||''))return false;
     if(hasF('party')&&!fs.party.has(b.party))return false;
     if(hasF('billNo')&&!fs.billNo.has(b.billNo||''))return false;
     if(hasF('month')){var m=b.date?b.date.substring(0,7):'';if(!fs.month.has(m))return false;}
@@ -4277,6 +4691,34 @@ function pgDueList() {
   toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'Excel',onclick:exportDueExcel}));
   toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'WA All',onclick:function(){var d=getData();if(!d.length)return;var msg=cfg.company+'\n\nDue Summary:\n';d.slice(0,10).forEach(function(b,i){msg+=(i+1)+'. '+b.party+' \u20b9'+fmt(getBillStatus(b).bal)+'\n';});window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');}}));
 
+
+  // ── ATB2: Advanced Toolbar ──
+  var atb2_due=document.createElement('div');
+  atb2_due.className='atb';atb2_due.style.cssText='background:var(--surface-2);padding:5px 14px;border-bottom:1px solid var(--border-light);gap:5px';
+  
+  var dg2=document.createElement('div');dg2.className='atb-group';
+  dg2.innerHTML='<span class="atb-label">Date Range</span>';
+  var df2=document.createElement('input');df2.type='date';df2.className='atb-inp';df2.style.minWidth='120px';df2.title='From';
+  var dt2=document.createElement('input');dt2.type='date';dt2.className='atb-inp';dt2.style.minWidth='120px';dt2.title='To';
+  if(state.dateFrom)df2.value=state.dateFrom;if(state.dateTo)dt2.value=state.dateTo;
+  df2.addEventListener('change',function(){state.dateFrom=this.value;rebuildAll();});
+  dt2.addEventListener('change',function(){state.dateTo=this.value;rebuildAll();});
+  dg2.appendChild(df2);dg2.appendChild(document.createTextNode(' → '));dg2.appendChild(dt2);
+  atb2_due.appendChild(dg2);
+  var ecg2=document.createElement('div');ecg2.className='atb-group';
+  var expB2=document.createElement('button');expB2.className='atb-btn';expB2.innerHTML='⊞ Expand All';
+  expB2.addEventListener('click',function(){document.querySelectorAll('.collapsible-body').forEach(function(e){e.style.display='block';});});
+  var colB2=document.createElement('button');colB2.className='atb-btn';colB2.innerHTML='⊟ Collapse All';
+  colB2.addEventListener('click',function(){document.querySelectorAll('.collapsible-body').forEach(function(e){e.style.display='none';});});
+  ecg2.appendChild(expB2);ecg2.appendChild(colB2);atb2_due.appendChild(ecg2);
+  var vmg2=document.createElement('div');vmg2.className='atb-group';
+  var vmB2=document.createElement('button');vmB2.className='atb-btn'+((_ATB.verifyMode)?' active':'');
+  vmB2.innerHTML='🔍 Verify';vmB2.addEventListener('click',function(){_ATB.toggleVerify();this.classList.toggle('active');});
+  var rcB2=document.createElement('button');rcB2.className='atb-btn success';rcB2.innerHTML='🔄 Refresh Status';
+  rcB2.addEventListener('click',function(){_ATB.recalculate();});
+  vmg2.appendChild(vmB2);vmg2.appendChild(rcB2);atb2_due.appendChild(vmg2);
+  var rcBadge2=document.createElement('span');rcBadge2.className='atb-badge';rcBadge2.style.marginLeft='auto';
+  atb2_due.appendChild(rcBadge2);
   var sumBar=document.createElement('div');sumBar.style.cssText='display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;background:#fff1f2;border-top:2px solid #fecaca;border-bottom:1px solid #fecaca;font-size:13px;font-weight:500;position:sticky;bottom:0;z-index:3;';
   function updateSum(d){
     var tB=d.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -4423,7 +4865,7 @@ function pgDueList() {
   }
   function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);}
   rebuildAll();
-  var card=document.createElement('div');card.className='card';card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);
+  var card=document.createElement('div');card.className='card';card.appendChild(toolbar);card.appendChild(atb2_due);card.appendChild(tblOuter);card.appendChild(sumBar);
   return card;
 }
 
@@ -5002,7 +5444,12 @@ function openAddModal(title, fields, onSave) {
 
 // ── ADVANCES ──
 function pgAdvances() {
-  var state=pageState.advSt=pageState.advSt||{q:'',filters:{}};
+  var state=pageState.advSt=pageState.advSt||
+  (function(){
+    var tb=buildAdvToolbar({page:'advances',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{q:'',filters:{}};
   var uParty=Array.from(new Set(advances.map(function(a){return a.party;}))).sort();
   var uMode=Array.from(new Set(advances.map(function(a){return a.mode||'';}))).sort();
   var uLinked=['linked','pending'];
@@ -5228,7 +5675,12 @@ function pgAdvances() {
 
 // ── CHEQUES ──
 function pgCheques() {
-  var state=pageState.chqSt=pageState.chqSt||{q:'',filters:{}};
+  var state=pageState.chqSt=pageState.chqSt||
+  (function(){
+    var tb=buildAdvToolbar({page:'cheques',showExpand:true,showRecalc:true,showVerify:true,showDebug:true,statusOptions:[{v:'',l:'All'},{v:'Received',l:'Received'},{v:'Deposited',l:'Deposited',cls:'tb-blue'},{v:'Cleared',l:'Cleared',cls:'tb-green'},{v:'Bounced',l:'Bounced',cls:'tb-red'}],currentStatus:'',onStatusChange:function(v){if(pageState.chqSt)pageState.chqSt.statusF=v;refresh();}});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{q:'',filters:{}};
   var uParty=Array.from(new Set(cheques.map(function(c){return c.party||'';}))).sort();
   var uStatus=['Received','Deposited','Cleared','Bounced'];
   var uMode=['NEFT','RTGS','IMPS','UPI','CASH','CHEQUE'];
@@ -5451,6 +5903,8 @@ function pgCheques() {
 // ── LEDGER ──
 function pgLedger() {
   if (pageState.ledgerParty) return pgPartyLedger(pageState.ledgerParty);
+  (function(){var tb=buildAdvToolbar({page:'ledger',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});setTimeout(function(){var w=document.querySelector('#page');if(w)w.insertBefore(tb,w.firstChild);},0);})();
+
   var q = (pageState.ledgerQ || '').toLowerCase();
   var search = el('input', { cls: 'inp-sm', type: 'text', placeholder: '🔍 Search party...', value: q, style: 'width:180px' });
   var _lsTimer=null;
@@ -5957,7 +6411,12 @@ function exportPartyLedgerExcel(party) {
 
 // ── RETURNS ──
 function pgReturns() {
-  var state=pageState.retSt=pageState.retSt||{q:'',sortKey:'date',sortDir:-1,filters:{}};
+  var state=pageState.retSt=pageState.retSt||
+  (function(){
+    var tb=buildAdvToolbar({page:'returns',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{q:'',sortKey:'date',sortDir:-1,filters:{}};
   var uParty=Array.from(new Set(returns_.map(function(r){return r.party||'';})).values()).sort();
   var uGrade=Array.from(new Set(returns_.map(function(r){return r.grade||'';})).values()).filter(Boolean).sort();
 
@@ -6121,7 +6580,12 @@ function pgReturns() {
 
 // ── EXPENSES ──
 function pgExpenses() {
-  var state=pageState.expSt=pageState.expSt||{q:'',sortKey:'date',sortDir:-1,filters:{}};
+  var state=pageState.expSt=pageState.expSt||
+  (function(){
+    var tb=buildAdvToolbar({page:'expenses',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{q:'',sortKey:'date',sortDir:-1,filters:{}};
   var cats=['Transport','Electricity','Salary','Rent','Diesel','Repair','Other'];
   var uCat=Array.from(new Set(expenses.map(function(e){return e.category||'Other';}))).sort();
 
@@ -6270,7 +6734,12 @@ function pgExpenses() {
 
 // ── PURCHASES ──
 function pgPurchases() {
-  var state=pageState.purSt=pageState.purSt||{q:'',sortKey:'date',sortDir:-1,filters:{}};
+  var state=pageState.purSt=pageState.purSt||
+  (function(){
+    var tb=buildAdvToolbar({page:'purchases',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{q:'',sortKey:'date',sortDir:-1,filters:{}};
   var uSupplier=Array.from(new Set(purchases.map(function(p){return p.supplier||'';})).values()).filter(Boolean).sort();
   var uGrade=Array.from(new Set(purchases.map(function(p){return p.grade||'';})).values()).filter(Boolean).sort();
 
@@ -9572,7 +10041,17 @@ function pgBankUpload() {
 // BILL IMPORT (Excel + PDF)
 // ═══════════════════════════════════════
 function pgBillImport() {
-  var state = pageState.billImp = pageState.billImp || {rows:[]};
+  var state = pageState.billImp = pageState.billImp || {rows:[]}
+  (function(){
+    var tb=buildAdvToolbar({page:'bill-import',showExpand:false,showRecalc:false,showVerify:false,showDebug:true,
+      extraBtns:[
+        {label:'Select All',cls:'tb-green',fn:function(){if(pageState.billImp&&pageState.billImp.rows)pageState.billImp.rows.forEach(function(r){r._include=true;});refresh();},title:'Select all bills'},
+        {label:'Deselect Dups',cls:'tb-orange',fn:function(){if(pageState.billImp&&pageState.billImp.rows)pageState.billImp.rows.filter(function(r){return r._dup;}).forEach(function(r){r._include=false;});refresh();},title:'Deselect duplicates'}
+      ]
+    });
+    setTimeout(function(){var w=document.querySelector('#page');if(w)w.insertBefore(tb,w.firstChild);},0);
+  })();
+;
   var wrap = document.createElement('div');
 
   var hdr=document.createElement('div');hdr.style.cssText='margin-bottom:14px';
@@ -10354,7 +10833,15 @@ function pgBillImport() {
 
 function pgOverpayments() {
   var wrap=document.createElement('div');
-  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#dc2626;margin:0 0 6px">⚠️ Overpayments</h3><p style="font-size:12px;color:#6b7280;margin:0 0 16px">Bills jahan received > bill amount</p>';
+  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#dc2626
+  // ── Advanced Toolbar ──
+  (function(){
+    var tb=buildAdvToolbar({page:'overpayments',showExpand:false,showRecalc:true,showVerify:true,showDebug:true,
+      extraBtns:[{label:'View All in Ledger',cls:'tb-blue',fn:function(){go('ledger');},title:'Go to party ledger'}]
+    });
+    setTimeout(function(){var wrap=document.querySelector('#page');if(wrap)wrap.insertBefore(tb,wrap.firstChild);},0);
+  })();
+;margin:0 0 6px">⚠️ Overpayments</h3><p style="font-size:12px;color:#6b7280;margin:0 0 16px">Bills jahan received > bill amount</p>';
   var ob=bills.filter(function(b){var s=getBillStatus(b);return s.recv>(b.netAmt||0)+0.5;});
   var tot=ob.reduce(function(s,b){var st=getBillStatus(b);return s+(st.recv-(b.netAmt||0));},0);
   var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px';
@@ -10475,6 +10962,23 @@ function pgDuplicates() {
   var wrap = document.createElement('div');
 
   // ── Header ──
+  // ── Advanced Toolbar ──
+  (function(){
+    var tb=buildAdvToolbar({page:'duplicates',showExpand:false,showRecalc:true,showVerify:true,showDebug:true,
+      extraBtns:[{label:'Auto-Fix Duplicates',cls:'tb-orange',fn:function(){
+        var dups=payments.filter(function(p,i){return payments.findIndex(function(q){return q.billId===p.billId&&Math.abs((q.amount||0)-(p.amount||0))<1&&q.date===p.date&&q.id!==p.id;})>i;});
+        if(!dups.length){toast('No auto-fixable duplicates found');return;}
+        if(!confirm(dups.length+' duplicate payments found. Delete extras?'))return;
+        var removed=0;
+        var seen={};
+        payments=payments.filter(function(p){var k=p.billId+':'+Math.round(p.amount||0)+':'+p.date;if(seen[k]){removed++;return false;}seen[k]=true;return true;});
+        invalidateBillStatusCache();DB.set('payments',payments);
+        toast('✅ '+removed+' duplicates removed!');refresh();
+      },title:'Automatically remove duplicate payments'}]
+    });
+    setTimeout(function(){var wrap=document.querySelector('#page');if(wrap)wrap.insertBefore(tb,wrap.firstChild);},0);
+  })();
+
   var hdr = document.createElement('div');
   hdr.style.cssText = 'margin-bottom:16px';
   hdr.innerHTML = '<h3 style="font-size:16px;font-weight:700;color:#dc2626;margin:0">⚠️ Issues & Duplicates</h3>'+
@@ -11016,7 +11520,12 @@ function openEditCheque(c) {
 // ═══════════════════════════════════════
 function pgInterest() {
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var state=pageState.int=pageState.int||{
+  var state=pageState.int=pageState.int||
+  (function(){
+    var tb=buildAdvToolbar({page:'interest',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{
     partyFilter:'',dateFrom:'',dateTo:'',
     showPaid:false,          // show paid bills too
     payDateAdj:{},           // per-payment adjusted date: payId -> DD-MM-YYYY
@@ -11455,7 +11964,12 @@ function pgInterest() {
 // AGEING ANALYSIS
 // ═══════════════════════════════════════
 function pgAgeing() {
-  var state=pageState.age=pageState.age||{partyFilter:'',brokerFilter:''};
+  var state=pageState.age=pageState.age||
+  (function(){
+    var tb=buildAdvToolbar({page:'ageing',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{partyFilter:'',brokerFilter:''};
   var wrap=document.createElement('div');
 
   var hdr=document.createElement('div');hdr.style.cssText='margin-bottom:14px';
@@ -11836,7 +12350,12 @@ function pgPartialTracking() {
   wrap.appendChild(hdr);
 
   // Filter
-  var state=pageState.partial=pageState.partial||{q:'',showPaid:false};
+  var state=pageState.partial=pageState.partial||
+  (function(){
+    var tb=buildAdvToolbar({page:'partial',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+{q:'',showPaid:false};
   var fBar=document.createElement('div');fBar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap';
   var si3=el('input',{cls:'inp-sm',type:'text',placeholder:'Search party...',value:state.q||'',style:'width:180px'});
   var st3=null;
@@ -12386,7 +12905,12 @@ function exportStyledReportExcel(data) {
 // SUSPENSE ACCOUNT — Full Page + Helpers
 // ═══════════════════════════════════════
 function pgSuspense() {
-  var state = pageState.susp = pageState.susp || {q:'', sortKey:'date', sortDir:-1};
+  var state = pageState.susp = pageState.susp || {
+  (function(){
+    var tb=buildAdvToolbar({page:'suspense',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+q:'', sortKey:'date', sortDir:-1};
   var allParties = Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
 
   function getData() {
@@ -13103,6 +13627,11 @@ function exportYearWisePDF(fyStart) {
 // ═══════════════════════════════════════
 function pgBrokerage() {
   var state = pageState.brok = pageState.brok || {
+  (function(){
+    var tb=buildAdvToolbar({page:'brokerage',showExpand:true,showRecalc:true,showVerify:true,showDebug:true});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+
     q: '', broker: '', dateFrom: '', dateTo: '',
     customRate: '',   // override rate for all
     sortKey: 'date', sortDir: -1
@@ -18360,6 +18889,11 @@ function pgAIRules() {
 
 function pgReceiptLedger() {
   var state = pageState.rcptLedger = pageState.rcptLedger || {
+  (function(){
+    var tb=buildAdvToolbar({page:'receipt-ledger',showExpand:true,showRecalc:true,showVerify:true,showDebug:true,statusOptions:[{v:'ALL',l:'All'},{v:'NEFT',l:'NEFT',cls:'tb-blue'},{v:'IMPS',l:'IMPS',cls:'tb-blue'},{v:'CHEQUE',l:'Cheque'},{v:'CASH',l:'Cash'},{v:'UPI',l:'UPI',cls:'tb-green'}],currentStatus:'ALL',onStatusChange:function(v){var s=pageState.rcptLedger;if(s){s.modeFilter=v;refresh();}}});
+    setTimeout(function(){var c=document.querySelector('#page .card');if(c)c.insertBefore(tb,c.firstChild);},0);
+  })();
+
     q:'', sortKey:'date', sortDir:-1, filters:{},
     dateFrom:'', dateTo:'', modeFilter:'ALL'
   };
@@ -18412,6 +18946,27 @@ function pgReceiptLedger() {
   sumGrid.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px';
   sumGrid.id = 'rl-sumgrid';
   wrap.appendChild(sumGrid);
+
+  // ATB2 for Receipt Ledger
+  var atb2_rl=document.createElement('div');
+  atb2_rl.className='atb';atb2_rl.style.cssText='background:var(--surface-2);padding:5px 14px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);gap:5px';
+  var ecgRL=document.createElement('div');ecgRL.className='atb-group';
+  var expBRL=document.createElement('button');expBRL.className='atb-btn';expBRL.innerHTML='⊞ Expand All';
+  expBRL.addEventListener('click',function(){document.querySelectorAll('.rl-detail').forEach(function(e){e.style.display='table-row';});});
+  var colBRL=document.createElement('button');colBRL.className='atb-btn';colBRL.innerHTML='⊟ Collapse All';
+  colBRL.addEventListener('click',function(){document.querySelectorAll('.rl-detail').forEach(function(e){e.style.display='none';});});
+  ecgRL.appendChild(expBRL);ecgRL.appendChild(colBRL);atb2_rl.appendChild(ecgRL);
+  var vmgRL=document.createElement('div');vmgRL.className='atb-group';
+  var rcBRL=document.createElement('button');rcBRL.className='atb-btn success';rcBRL.innerHTML='🔄 Refresh Status';
+  rcBRL.addEventListener('click',function(){_ATB.recalculate();buildTable();});
+  var vrBRL=document.createElement('button');vrBRL.className='atb-btn'+((_ATB.verifyMode)?' active':'');
+  vrBRL.innerHTML='🔍 Verify';vrBRL.addEventListener('click',function(){_ATB.toggleVerify();this.classList.toggle('active');buildTable();});
+  vmgRL.appendChild(rcBRL);vmgRL.appendChild(vrBRL);atb2_rl.appendChild(vmgRL);
+  var dlBRL=document.createElement('div');dlBRL.className='atb-group';
+  var dbBRL=document.createElement('button');dbBRL.className='atb-btn';dbBRL.innerHTML='🐛 Debug';
+  dbBRL.addEventListener('click',function(){_ATB.toggleDebug();});
+  dlBRL.appendChild(dbBRL);atb2_rl.appendChild(dlBRL);
+  wrap.appendChild(atb2_rl);
 
   // Table container
   var tblWrap = document.createElement('div');
@@ -18670,6 +19225,327 @@ function printReceiptLedger(){
   var w=window.open('','_blank');if(!w){toast('Please allow popups!','err');return;}
   w.document.write(html);w.document.close();w.print();
 }
+
+
+// ══════════════════════════════════════════════════════════════════
+// GLOBAL ADVANCED TOOLBAR SYSTEM
+// ══════════════════════════════════════════════════════════════════
+var _debugMode = false;
+var _verifyMode = false;
+var _debugLog = [];
+var _expandedAll = false;
+
+// ── Debug Logger ──
+function dbg(msg, type) {
+  type = type || 'info';
+  var ts = new Date().toTimeString().slice(0,8);
+  _debugLog.push({ts:ts, msg:msg, type:type});
+  if(_debugLog.length > 200) _debugLog.shift();
+  var panel = document.getElementById('global-debug-panel');
+  if(panel && _debugMode) {
+    var line = document.createElement('div');
+    line.className = 'debug-line '+(type==='err'?'err':type==='warn'?'warn':'ok');
+    line.textContent = '['+ts+'] '+msg;
+    panel.appendChild(line);
+    panel.scrollTop = panel.scrollHeight;
+  }
+}
+
+// ── Build Advanced Toolbar ──
+function buildAdvToolbar(opts) {
+  /*
+    opts = {
+      page: 'all-bills',
+      showExpand: true,
+      showColChooser: true,
+      showDebug: true,
+      showVerify: true,
+      showRecalc: true,
+      showStatus: true,       // status filter row
+      onExpand: fn,
+      onCollapse: fn,
+      onRecalc: fn,
+      onVerify: fn,
+      statusOptions: [{v:'all',l:'All'},{v:'paid',l:'Paid'},...],
+      currentStatus: 'all',
+      onStatusChange: fn,
+      columns: [{key,label,visible},...],
+      onColChange: fn,
+      extraBtns: [{label,icon,cls,fn,title},...],
+    }
+  */
+  opts = opts || {};
+  var bar = document.createElement('div');
+  bar.className = 'adv-toolbar no-print';
+  bar.id = 'adv-tb-' + (opts.page||'main');
+
+  // ── Section 1: Expand / Collapse ──
+  if(opts.showExpand !== false) {
+    var s1 = document.createElement('div'); s1.className = 'adv-toolbar-section';
+    var expAll = mkTbBtn('↕ Expand All', '', function(){
+      _expandedAll = true;
+      document.querySelectorAll('.tb-expandable').forEach(function(el){ el.style.display=''; });
+      document.querySelectorAll('.tb-row-detail').forEach(function(el){ el.style.display='table-row'; });
+      if(opts.onExpand) opts.onExpand();
+      expAll.classList.add('active'); colAll.classList.remove('active');
+      dbg('Expand All triggered on '+opts.page);
+    });
+    var colAll = mkTbBtn('↕ Collapse All', '', function(){
+      _expandedAll = false;
+      document.querySelectorAll('.tb-row-detail').forEach(function(el){ el.style.display='none'; });
+      if(opts.onCollapse) opts.onCollapse();
+      colAll.classList.add('active'); expAll.classList.remove('active');
+      dbg('Collapse All triggered on '+opts.page);
+    });
+    expAll.title = 'Expand all rows to show full detail';
+    colAll.title = 'Collapse all detail rows';
+    s1.appendChild(expAll); s1.appendChild(colAll);
+    bar.appendChild(s1);
+    bar.appendChild(mkTbSep());
+  }
+
+  // ── Section 2: Status Filter ──
+  if(opts.statusOptions && opts.statusOptions.length) {
+    var s2 = document.createElement('div'); s2.className = 'adv-toolbar-section';
+    var sLabel = document.createElement('span'); sLabel.className = 'tb-sep-label'; sLabel.textContent = 'STATUS:';
+    s2.appendChild(sLabel);
+    opts.statusOptions.forEach(function(so){
+      var sb = mkTbBtn(so.l, so.cls||'', function(){
+        document.querySelectorAll('#adv-tb-'+opts.page+' .status-btn').forEach(function(b){b.classList.remove('active');});
+        sb.classList.add('active');
+        if(opts.onStatusChange) opts.onStatusChange(so.v);
+        dbg('Status filter: '+so.v);
+      });
+      sb.classList.add('status-btn');
+      if(opts.currentStatus === so.v) sb.classList.add('active');
+      s2.appendChild(sb);
+    });
+    bar.appendChild(s2);
+    bar.appendChild(mkTbSep());
+  }
+
+  // ── Section 3: Recalculate ──
+  if(opts.showRecalc !== false) {
+    var s3 = document.createElement('div'); s3.className = 'adv-toolbar-section';
+    var recalcBtn = mkTbBtn('⟳ Recalculate', 'tb-blue', function(){
+      invalidateBillStatusCache();
+      if(opts.onRecalc) opts.onRecalc();
+      else refresh();
+      toast('✅ Recalculated!');
+      dbg('Recalculate triggered');
+    });
+    recalcBtn.title = 'Force recalculate all balances and statuses';
+    s3.appendChild(recalcBtn);
+    bar.appendChild(s3);
+    bar.appendChild(mkTbSep());
+  }
+
+  // ── Section 4: Verify Mode ──
+  if(opts.showVerify !== false) {
+    var s4 = document.createElement('div'); s4.className = 'adv-toolbar-section';
+    var verifyBtn = mkTbBtn('✔ Verify', 'tb-green', function(){
+      runVerify(opts.page);
+    });
+    verifyBtn.title = 'Run data integrity checks — find mismatches, orphans, zero amounts';
+    s4.appendChild(verifyBtn);
+
+    // ── Column Chooser ──
+    if(opts.columns && opts.columns.length) {
+      var ccWrap = document.createElement('div'); ccWrap.style.position='relative';
+      var ccBtn = mkTbBtn('⊞ Columns', 'tb-purple', function(){
+        ccPanel.classList.toggle('visible');
+      });
+      ccBtn.title = 'Show/hide columns';
+      var ccPanel = document.createElement('div'); ccPanel.className = 'col-chooser-panel';
+      ccPanel.innerHTML = '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px">Choose Columns</div>';
+      opts.columns.forEach(function(col){
+        var row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:3px 0;cursor:pointer;font-size:12px;color:var(--text-2)';
+        var ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = col.visible !== false;
+        ck.style.accentColor = 'var(--brand)';
+        ck.addEventListener('change', function(){
+          col.visible = this.checked;
+          if(opts.onColChange) opts.onColChange(opts.columns);
+          dbg('Column '+(this.checked?'show':'hide')+': '+col.label);
+        });
+        row.appendChild(ck);
+        row.appendChild(document.createTextNode(col.label));
+        ccPanel.appendChild(row);
+      });
+      document.addEventListener('click', function(e){ if(!ccWrap.contains(e.target)) ccPanel.classList.remove('visible'); });
+      ccWrap.appendChild(ccBtn); ccWrap.appendChild(ccPanel);
+      s4.appendChild(ccWrap);
+    }
+    bar.appendChild(s4);
+    bar.appendChild(mkTbSep());
+  }
+
+  // ── Section 5: Debug Mode ──
+  if(opts.showDebug !== false) {
+    var s5 = document.createElement('div'); s5.className = 'adv-toolbar-section';
+    var dbgBtn = mkTbBtn('🐛 Debug', _debugMode?'tb-debug active':'', function(){
+      _debugMode = !_debugMode;
+      var panel = document.getElementById('global-debug-panel');
+      if(panel) panel.classList.toggle('visible', _debugMode);
+      dbgBtn.className = 'tb-btn ' + (_debugMode ? 'tb-debug active' : '');
+      dbgBtn.textContent = _debugMode ? '🐛 Debug ON' : '🐛 Debug';
+      if(_debugMode) {
+        dbg('Debug mode enabled on: '+opts.page, 'ok');
+        dbg('Bills: '+bills.length+' | Payments: '+payments.length+' | Gross: '+(grossPayments||[]).length, 'info');
+      }
+    });
+    dbgBtn.title = 'Toggle debug panel — shows raw data and logs';
+    s5.appendChild(dbgBtn);
+    bar.appendChild(s5);
+    bar.appendChild(mkTbSep());
+  }
+
+  // ── Section 6: Extra Buttons ──
+  if(opts.extraBtns && opts.extraBtns.length) {
+    var s6 = document.createElement('div'); s6.className = 'adv-toolbar-section';
+    opts.extraBtns.forEach(function(eb){
+      var eb2 = mkTbBtn((eb.icon||'') + (eb.label||''), eb.cls||'', eb.fn||function(){});
+      if(eb.title) eb2.title = eb.title;
+      s6.appendChild(eb2);
+    });
+    bar.appendChild(s6);
+  }
+
+  // ── Right side: live stats badge ──
+  var spacer = document.createElement('div'); spacer.style.flex='1';
+  bar.appendChild(spacer);
+  if(opts.stats) {
+    var statsBadge = document.createElement('div');
+    statsBadge.id = 'adv-stats-'+opts.page;
+    statsBadge.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+    opts.stats.forEach(function(s){
+      var b = document.createElement('span');
+      b.className = 'tb-badge';
+      b.style.cssText = 'background:'+(s.bg||'#f3f4f6')+';color:'+(s.c||'#374151');
+      b.textContent = s.l+': '+s.v;
+      statsBadge.appendChild(b);
+    });
+    bar.appendChild(statsBadge);
+  }
+
+  return bar;
+}
+
+function mkTbBtn(label, cls, fn) {
+  var b = document.createElement('button');
+  b.className = 'tb-btn ' + (cls||'');
+  b.textContent = label;
+  b.addEventListener('click', fn);
+  return b;
+}
+
+function mkTbSep() {
+  var s = document.createElement('div');
+  s.className = 'adv-toolbar-sep';
+  return s;
+}
+
+// ── Verify Runner ──
+function runVerify(page) {
+  var issues = [];
+  var checks = 0;
+
+  // 1. Bills with zero amount
+  bills.forEach(function(b){ checks++; if(!b.netAmt||b.netAmt<=0) issues.push({type:'warn',msg:'Bill #'+b.billNo+' ('+b.party+') — Zero amount'}); });
+
+  // 2. Payments without matching bill
+  payments.forEach(function(p){ checks++; if(!bills.find(function(b){return b.id===p.billId;})) issues.push({type:'err',msg:'Orphan payment '+p.id+' — No matching bill'}); });
+
+  // 3. Gross payments sum mismatch
+  (grossPayments||[]).forEach(function(g){ checks++;
+    var billSum=(g.bills||[]).reduce(function(s,b){return s+(b.amount||0);},0);
+    if(Math.abs(billSum-(g.grossAmt||0))>1) issues.push({type:'warn',msg:'Gross '+g.id+' ('+g.party+') — Bills sum ₹'+fmt(billSum)+' ≠ Gross ₹'+fmt(g.grossAmt)});
+  });
+
+  // 4. Overpaid bills
+  bills.forEach(function(b){ checks++;
+    var s=getBillStatus(b);
+    if(s.recv>(b.netAmt||0)+0.5) issues.push({type:'warn',msg:'Overpaid: Bill #'+b.billNo+' ('+b.party+') — Excess ₹'+fmt(s.recv-(b.netAmt||0))});
+  });
+
+  // 5. Duplicate bill numbers
+  var bnMap={};
+  bills.forEach(function(b){ if(!bnMap[b.billNo])bnMap[b.billNo]=0; bnMap[b.billNo]++; });
+  Object.keys(bnMap).forEach(function(k){ checks++; if(bnMap[k]>1) issues.push({type:'err',msg:'Duplicate Bill# '+k+' ('+bnMap[k]+' times)'}); });
+
+  // Show results
+  var ov = document.getElementById('global-verify-overlay');
+  if(!ov){
+    ov = document.createElement('div'); ov.id='global-verify-overlay'; ov.className='verify-overlay';
+    var box = document.createElement('div'); box.className='verify-box';
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('visible');});
+  }
+  var box2 = ov.querySelector('.verify-box');
+  var errCount = issues.filter(function(i){return i.type==='err';}).length;
+  var warnCount = issues.filter(function(i){return i.type==='warn';}).length;
+  box2.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+    '<h3 style="font-size:16px;font-weight:700;margin:0;color:'+(issues.length?'#dc2626':'#166534')+'">'+
+    (issues.length?'⚠️ Verify: '+issues.length+' Issues Found':'✅ Verify: All Clear')+'</h3>'+
+    '<button onclick="document.getElementById('global-verify-overlay').classList.remove('visible')" style="background:none;border:none;cursor:pointer;font-size:18px;color:#9ca3af">✕</button>'+
+    '</div>'+
+    '<div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap">'+
+    '<span class="tb-badge" style="background:#f0fdf4;color:#166534">✓ Checks: '+checks+'</span>'+
+    '<span class="tb-badge" style="background:#fee2e2;color:#dc2626">⛔ Errors: '+errCount+'</span>'+
+    '<span class="tb-badge" style="background:#fffbeb;color:#92400e">⚠ Warnings: '+warnCount+'</span>'+
+    '</div>';
+
+  if(!issues.length) {
+    box2.innerHTML += '<div style="text-align:center;padding:30px;color:#166534;font-size:15px">🎉 Data is clean! No issues found.</div>';
+  } else {
+    var list = document.createElement('div'); list.style.maxHeight='400px'; list.style.overflowY='auto';
+    issues.forEach(function(iss){
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:8px 10px;border-bottom:1px solid #f3f4f6;font-size:12px;display:flex;align-items:flex-start;gap:8px;background:'+(iss.type==='err'?'#fff5f5':'#fffbeb');
+      row.innerHTML = '<span style="font-weight:700;color:'+(iss.type==='err'?'#dc2626':'#d97706')+('">'+(iss.type==='err'?'⛔':'⚠')+'</span><span>'+iss.msg+'</span>');
+      list.appendChild(row);
+    });
+    box2.appendChild(list);
+  }
+  ov.classList.add('visible');
+  dbg('Verify complete: '+issues.length+' issues from '+checks+' checks');
+}
+
+// ── Debug Panel ──
+function initDebugPanel() {
+  if(document.getElementById('global-debug-panel')) return;
+  var panel = document.createElement('div');
+  panel.id = 'global-debug-panel';
+  panel.className = 'debug-panel no-print';
+  panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 8px;border-bottom:1px solid #374151;margin-bottom:4px">'+
+    '<span style="font-weight:700;color:#6ee7b7;font-size:12px">🐛 DEBUG CONSOLE</span>'+
+    '<div style="display:flex;gap:8px">'+
+    '<span style="font-size:10px;color:#9ca3af">Bills: '+bills.length+' | Payments: '+payments.length+' | Gross: '+(grossPayments||[]).length+'</span>'+
+    '<button onclick="document.getElementById('global-debug-panel').innerHTML='<div style=\"padding:8px;color:#6ee7b7\">Cleared</div>'" style="background:#374151;color:#f9fafb;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:10px">Clear</button>'+
+    '<button onclick="_debugMode=false;document.getElementById('global-debug-panel').classList.remove('visible')" style="background:#374151;color:#f9fafb;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:10px">✕ Close</button>'+
+    '</div></div>';
+  document.body.appendChild(panel);
+}
+
+// ── Auto Adjust Buttons (responsive) ──
+function autoAdjustToolbar(barEl) {
+  if(!barEl) return;
+  var btns = barEl.querySelectorAll('.tb-btn');
+  var w = barEl.offsetWidth;
+  // If narrow, hide text keep icons
+  btns.forEach(function(b){
+    if(w < 600) { b.style.fontSize='10px'; b.style.padding='3px 6px'; }
+    else { b.style.fontSize=''; b.style.padding=''; }
+  });
+}
+
+// Init on load
+document.addEventListener('DOMContentLoaded', function(){ initDebugPanel(); });
+window.addEventListener('resize', function(){
+  document.querySelectorAll('.adv-toolbar').forEach(function(tb){ autoAdjustToolbar(tb); });
+});
 
 </script>
 </body>
