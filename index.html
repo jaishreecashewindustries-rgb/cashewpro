@@ -1493,6 +1493,122 @@ function prewarmBillStatusCache() {
   bills.forEach(function(b){ if(!_billStatusCache[b.id]) getBillStatus(b); });
 }
 
+// ══════════════════════════════════════════════════════════
+// STATION NORMALISATION RULES (from Party Address Checklist)
+// Global typo aliases — safe for any party
+// ══════════════════════════════════════════════════════════
+var STATION_TYPO_ALIASES = {
+  'BADI CHPAD':'BADI CHOPAD','BAHARATPUR':'BHARATPUR','BANIPRAK':'BANIPARK',
+  'BAVARI':'BAVRI','BAWRI':'BAVRI','CAKSU':'CHAKSU','CHANDPOLE BAZAR':'CHANDPOLE',
+  'DEHI':'DEI','DHORI MANNA':'DHORIMANNA','DNG':'BARAH JI KI GALI',
+  'DUASA':'DAUSA','DUNAGRPUR':'DUNGARPUR','GANGORI BAZR':'GANGORI BAZAR',
+  'INDARGARH':'INDRAGARH','INDERGARH':'INDRAGARH',
+  'JOHRI BAZAR':'JOHARI BAZAR','KAWAR':'KARWAR','KISHANPOLE BAZAR':'KISHANPOLE',
+  'LALOSTH':'LALSOTH','LALOSOTH':'LALSOTH','LUDHIANA':'LUDHIYANA',
+  'MANSAORVAR':'MANSAROVAR','MANSAOVAR':'MANSAROVAR','MANSAROAVR':'MANSAROVAR',
+  'MANSROVAR':'MANSAROVAR','MASAROVAR':'MANSAROVAR','MASNAROVAR':'MANSAROVAR',
+  'MANSAORAVR':'MANSAROVAR','MANSAORVAR':'MANSAROVAR',
+  'NAGAR FORT':'NAGARFORT','PARATP NAGAR':'PRATAP NAGAR','PHAGI':'FAGI',
+  'PRATAPNAGAR':'PRATAP NAGAR','SAWAI MADHOPUR':'SAWAIMADHOPUR',
+  'SHAMBAR':'SAMBHAR','TONK FATAK':'TONK PHATAK','TONK PHTAK':'TONK PHATAK',
+  'TRIL':'TRIPOLIYA BAZAR','TRILPOLIYA BAZAR':'TRIPOLIYA BAZAR',
+  'VIDHYADHAR NAGAR':'VIDYADHAR NAGAR','VIDYADAHR NAGAR':'VIDYADHAR NAGAR',
+  'BHAWARGARH':'BHILWARA',
+  'SUMERGANJ MANDI':'SUMERGANJ',
+  'KHERTAL':'KHERTHAL',
+  'DHORIMANNA':'DHORIMANNA','DUASA':'DAUSA','DASUA':'DAUSA',
+  'RAJAL DESAL':'RAJALDESAR','RAJALDESAL':'RAJALDESAR','RAJAK':'RAJALDESAR',
+  'TODARAI SINGH':'TODARAISINGH'
+};
+
+// Party-specific: when JAIPUR or generic city is actually a specific locality
+var PARTY_STATION_CORRECTIONS = {
+  'AMAR AND SONS':{'JAIPUR':'MANSAROVAR'},
+  'BHURAMAL BHAGIRATH':{'JAIPUR':'SODALA'},
+  'BK ENTERPIRSES':{'JAIPUR':'TONK PHATAK'},
+  'BRIJ TALUKA & COMPANY':{'JAIPUR':'TRIPOLIYA BAZAR'},
+  'CHETANDAS TRADERS':{'JAIPUR':'BARAH JI KI GALI'},
+  'CHUNNILAL KALYANBAKSH':{'JAIPUR':'TRIPOLIYA BAZAR'},
+  'DIVYA TRADING COMPANY':{'JAIPUR':'SODALA'},
+  'GAJANAND TRADING COMPANY':{'JAIPUR':'BARAH JI KI GALI'},
+  'GANPATI DEPARTMENTAL STORE':{'JAIPUR':'MANSAROVAR'},
+  'GARV INDUSTRIES':{'JAIPUR':'GANGORI BAZAR'},
+  'GOPAL TRADING COMPANY':{'JAIPUR':'VIDYADHAR NAGAR'},
+  'GOVIND TRADING COMPANY':{'JAIPUR':'MUHANA MANDI'},
+  'JYOTI AGENCIES':{'RAMSINGH':'CHAPPAR'},
+  'KALYAN KRIPA HARBAL PVT LTD':{'JAIPUR':'TRIPOLIYA BAZAR'},
+  'KAPOORCHAND PHOOLCHAND':{'JAIPUR':'TRIPOLIYA BAZAR','TRILPOLIYA BAZAR':'TRIPOLIYA BAZAR'},
+  'KERALA TRADING COMPANY':{'JAIPUR':'BARAH JI KI GALI'},
+  'KH ENTERPRISES':{'JAIPUR':'BARAH JI KI GALI'},
+  'KHANDELWAL ENTERPRISES':{'JAIPUR':'SANGANER'},
+  'KISHAN MISHTAN BHANDAR':{'JAIPUR':'RAMGANJ'},
+  'MANISH KHANDELWAL':{'JAIPUR':'RAMKRISHNA MARKET','RAM KRISHNA':'RAMKRISHNA MARKET','RAMA KRISHNA MARKET':'RAMKRISHNA MARKET'},
+  'MN TRADERS':{'DELHI':'HAPUR'},
+  'MOOLCHAND KIRANA STORE':{'JAIPUR':'SHASTRI NAGAR'},
+  'QUALITY KING':{'JAIPUR':'MANSAROVAR','MASNAROVAR':'MANSAROVAR'},
+  'SANJEEVNI JADI BUTI BHANDAR':{'JAIPUR':'BARAH JI KI GALI'},
+  'SANWARIYA TRADERS':{'JAIPUR':'SANGANER'},
+  'SHRI AMAR MISHTAN BHANDAR':{'JAIPUR':'MANSAROVAR','PAREEK JI':'MANSAROVAR','MANSAOVAR':'MANSAROVAR','MANSAROAVR':'MANSAROVAR','MANSROVAR':'MANSAROVAR','MASAROVAR':'MANSAROVAR'},
+  'SHRI LAXMI GROCERY':{'JAIPUR':'NAYA KHEDA'},
+  'SHUBHAM JAIN':{'DELHI':'DEI'},
+  'SONU DEPARTMENTAL STORE':{'JAIPUR':'MANSAROVAR'},
+  'SUBHASH AND COMPANY':{'JAIPUR':'SANGANER'},
+  'SUPER DEPARTMENTAL STORE':{'JAIPUR':'MANSAROVAR','MANSAOVAR':'MANSAROVAR','MANSROVAR':'MANSAROVAR'},
+  'VARDHMAN TRADING COMPANY':{'JAIPUR':'KISHANPOLE','KISHANPOLE BAZAR':'KISHANPOLE'},
+  'VICKY KIRANA STORE':{'INDERGARH':'MANSAROVAR','INDRAGARH':'MANSAROVAR'},
+  'VIJAYWALAS':{'JAIPUR':'BANIPARK','MANSAROVAR':'BANIPARK','BANIPRAK':'BANIPARK'},
+  'VISHNU ENTERPRISES':{'JAIPUR':'BARAH JI KI GALI'},
+  'VR ENTERPRISES':{'JAIPUR':'CHANDPOLE'},
+  'ALADDIN KHA ABDUL LATIF':{'CAKSU':'CHAKSU'},
+  'DHAKAD TRADING COMPANY':{'NAGAR FORT':'NAGARFORT'},
+  'DHARMENDRA KIRANA STORE':{'INDERGARH':'INDRAGARH'},
+  'GARV INDUSTRIES':{'GANGORI BAZR':'GANGORI BAZAR','JAIPUR':'GANGORI BAZAR'},
+  'GM ENTERPRISES':{'DUNAGRPUR':'DUNGARPUR'},
+  'GUPTA TRADERS':{'BAVARI':'BAVRI','BAWRI':'BAVRI'},
+  'HARI OM TRADERS':{'SHAMBAR':'SAMBHAR'},
+  'KANHAIYA KIRANA AND AYURVEDIC STORE':{'LALOSTH':'LALSOTH','LALOSOTH':'LALSOTH'},
+  'KASANA SWEETS':{'MANSAOVAR':'MANSAROVAR'},
+  'KHERU KIRANA STORE':{'BAHARATPUR':'BHARATPUR'},
+  'KRISHNA TRADERS':{'DUASA':'DAUSA'},
+  'MAHAVEERPRASAD MAHENDRAKUMAR':{'SUMERGANJ MANDI':'SUMERGANJ'},
+  'NARSINGH DAS GURCHARAN DAS':{'LUDHIANA':'LUDHIYANA'},
+  'OM SHIV PROVISIONAL STORE':{'DUASA':'DAUSA'},
+  'OM TRADERS':{'DUASA':'DAUSA'},
+  'RAMKISHAN AND BROTHERS':{'BADI CHPAD':'BADI CHOPAD'},
+  'RIDHIKA TRADERS':{'KAWAR':'KARWAR'},
+  'RONAK TRADING COMPANY':{'DHORI MANNA':'DHORIMANNA'},
+  'SANJAY KUMAR MANOJ KUMAR':{'FAGI':'FAGI','PHAGI':'FAGI'},
+  'SHRI GANESH KIRANA STORE':{'JOHRI BAZAR':'JOHARI BAZAR'},
+  'SHRI GANESH SUPER MART':{'SAWAI MADHOPUR':'SAWAIMADHOPUR'},
+  'SHRI JEE TRADING COMPANY':{'PARATP NAGAR':'PRATAP NAGAR'},
+  'SHUBHAM KIRANA STORE':{'INDARGARH':'INDRAGARH'},
+  'SHYAM KIRANA STORE':{'PRATAPNAGAR':'PRATAP NAGAR'},
+  'VINOD KUMAR AND COMPANY':{'TODARAI SINGH':'TODARAISINGH'},
+  'GOPAL TRADING COMPANY':{'VIDYADAHR NAGAR':'VIDYADHAR NAGAR','VIDHYADHAR NAGAR':'VIDYADHAR NAGAR','JAIPUR':'VIDYADHAR NAGAR'}
+};
+
+// Parties confirmed to be genuinely different at different locations
+// (do NOT merge these even if name matches exactly)
+var SEPARATE_LOCATION_PARTIES = [
+  'AGARWAL TRADING COMPANY','ASHOK TRADING COMPANY','CHANANDAS PARMANAND',
+  'MAHAVEERPRASAD MAHENDRAKUMAR','MANOJ AGENCIES','MUKESH PROVISIONAL STORE',
+  'NARENDRA KUMAR AND COMPANY','NAVKAR ENTERPRISES','PANKAJ JAIN',
+  'PARAS AGENCIES','PRADEEP TRADING COMPANY','RAJENDRA TRADING COMPANY',
+  'RAMAVTAR PRADEEP KUMAR','SHIV TRADING COMPANY','SS TRADING COMPANY'
+];
+
+// Normalise station: apply global typo fix, then party-specific correction
+function normaliseStation(stationRaw, partyName) {
+  var st = (stationRaw||'').trim().toUpperCase();
+  if(!st) return st;
+  // 1. Global typo alias
+  if(STATION_TYPO_ALIASES[st]) st = STATION_TYPO_ALIASES[st];
+  // 2. Party-specific correction
+  var pCorr = PARTY_STATION_CORRECTIONS[partyName];
+  if(pCorr && pCorr[st]) st = pCorr[st];
+  return st;
+}
+
 // Build party profile index: name → {brokers:[], stations:[], gstin:''}
 function buildPartyIndex() {
   var idx = {};
@@ -1501,10 +1617,11 @@ function buildPartyIndex() {
     if(!p) return;
     if(!idx[p]) idx[p] = {brokers:new Set(), stations:new Set(), gstin:''};
     if(b.broker && b.broker.trim()) idx[p].brokers.add(b.broker.trim().toUpperCase());
-    if(b.station && b.station.trim()) idx[p].stations.add(b.station.trim().toUpperCase());
+    // Normalise station before indexing
+    var st = normaliseStation(b.station, p);
+    if(st) idx[p].stations.add(st);
     if(b.partyGstin && b.partyGstin.trim() && !idx[p].gstin) idx[p].gstin = b.partyGstin.trim().toUpperCase();
   });
-  // Convert Sets to arrays
   Object.keys(idx).forEach(function(k){
     idx[k].brokers = Array.from(idx[k].brokers);
     idx[k].stations = Array.from(idx[k].stations);
@@ -1513,35 +1630,45 @@ function buildPartyIndex() {
 }
 
 // Resolve imported party name using name + station + broker logic
-// Returns: {match: 'exact'/'warn'/'new', party: string, reason: string}
+// Returns: {match: 'exact'/'warn'/'fuzzy'/'new', party: string, reason: string}
 function resolveImportedParty(importedName, importedStation, importedBroker) {
-  var name = (importedName||'').trim().toUpperCase();
-  var station = (importedStation||'').trim().toUpperCase();
-  var broker = (importedBroker||'').trim().toUpperCase();
+  var name    = (importedName||'').trim().toUpperCase();
+  var station = normaliseStation(importedStation, name);
+  var broker  = (importedBroker||'').trim().toUpperCase();
   var partyIdx = buildPartyIndex();
 
   // 1. Exact name match
   if(partyIdx[name]) {
     var profile = partyIdx[name];
 
-    // If broker given + broker matches → confident same party
+    // Is this a known separate-location party?
+    var isSeparate = SEPARATE_LOCATION_PARTIES.indexOf(name) >= 0;
+    if(isSeparate && station) {
+      // Match by station to distinguish
+      if(profile.stations.indexOf(station) < 0) {
+        return {match:'warn', party:name,
+          reason:'Same name but DIFFERENT LOCATION party. Station "'+station+'" not in known stations: '+profile.stations.join(', ')};
+      }
+    }
+
+    // Broker match → confident
     if(broker && profile.brokers.length && profile.brokers.indexOf(broker) >= 0) {
       return {match:'exact', party:name, reason:'Name + Broker match'};
     }
 
-    // If broker given + broker DOESN'T match → warn
+    // Same name, different broker → warn
     if(broker && profile.brokers.length && profile.brokers.indexOf(broker) < 0) {
       return {match:'warn', party:name,
-        reason:'Same name but different broker. Existing brokers: '+profile.brokers.join(', ')+'. Imported broker: '+broker};
+        reason:'Same name but different broker. Existing: '+profile.brokers.join(', ')+'. Imported: '+broker};
     }
 
-    // No broker in either → check station
+    // No broker → check station (after normalisation, should match now)
     if(!broker || !profile.brokers.length) {
       if(station && profile.stations.length && profile.stations.indexOf(station) < 0) {
         return {match:'warn', party:name,
-          reason:'Same name but different station. Existing: '+profile.stations.join(', ')+'. Imported: '+station};
+          reason:'Same name, station mismatch after normalisation. Existing: '+profile.stations.join(', ')+'. Imported: '+station};
       }
-      return {match:'exact', party:name, reason:'Name match (no broker to compare)'};
+      return {match:'exact', party:name, reason:'Name match (station normalised)'};
     }
 
     return {match:'exact', party:name, reason:'Name match'};
@@ -1557,7 +1684,7 @@ function resolveImportedParty(importedName, importedStation, importedBroker) {
 
   if(scored.length) {
     return {match:'fuzzy', party:scored[0].p,
-      reason:'Close match found: '+scored[0].p+' ('+Math.round(scored[0].s*100)+'% similar)'};
+      reason:'Close match: "'+scored[0].p+'" ('+Math.round(scored[0].s*100)+'% word match)'};
   }
 
   // 3. New party
@@ -2932,17 +3059,8 @@ function mkColFilter(th, getVals, filtersObj, key, onApply, opts) {
       var okB  = el('button',{cls:'btn btn-green btn-sm',text:'Apply'});
 
       function doListApply(){
-        // FIX: if user searched, apply only checked visible items
-        var q3 = si.value.trim();
-        var effectiveCur = cur;
-        if(q3){
-          var fvApply = vals.filter(function(v){return String(v).toLowerCase().includes(q3.toLowerCase());});
-          var checkedVisible = fvApply.filter(function(v){return cur.has(v);});
-          if(checkedVisible.length > 0 && checkedVisible.length < vals.length){
-            effectiveCur = new Set(checkedVisible);
-          }
-        }
-        filtersObj[key] = effectiveCur.size === 0 ? null : (effectiveCur.size >= vals.length ? null : effectiveCur);
+        // BUG FIX: if cur == all vals, treat as "no filter" (show all)
+        filtersObj[key] = cur.size === 0 ? null : (cur.size >= vals.length ? null : cur);
         applyAndClose(drop);
       }
 
@@ -7043,174 +7161,93 @@ function pgReports() {
 // ─── FINANCIAL YEAR ──────────────────────────────────────────────
 function pgFinancialYear() {
   var wrap=document.createElement('div');
+  var head=document.createElement('div');head.className='card-head';
+  head.innerHTML='<h4>📅 Financial Year Management</h4>';
+  wrap.appendChild(head);
 
   // Current FY detection
   var now=new Date();
-  var curFY=(now.getMonth()>=3)?(now.getFullYear()+'-'+(now.getFullYear()+1)):((now.getFullYear()-1)+'-'+now.getFullYear());
-  var activeFY=cfg.financialYear||curFY;
+  var curFY=(now.getMonth()>=3)?(now.getFullYear()+'-'+(now.getFullYear()+1)):(( now.getFullYear()-1)+'-'+now.getFullYear());
+  var savedFY=cfg.financialYear||curFY;
 
-  // Compute FY list from bills
-  var fySet=new Set([curFY,activeFY]);
-  bills.forEach(function(b){
-    if(!b.date)return;
-    var d=toISO(b.date||'');if(!d)return;
-    var yr=parseInt(d.substring(0,4));var mo=parseInt(d.substring(5,7));
-    if(!yr||!mo)return;
-    var fyY=(mo>=4)?yr:(yr-1);
-    fySet.add(fyY+'-'+(fyY+1));
+  // FY summary card
+  var fyCard=document.createElement('div');fyCard.className='card';fyCard.style.marginBottom='12px';
+  var fyHead=document.createElement('div');fyHead.className='card-head';
+  fyHead.innerHTML='<h4>Current Financial Year</h4>';
+  fyCard.appendChild(fyHead);
+  var fyBody=document.createElement('div');fyBody.style.padding='16px';
+
+  // Available FYs from data
+  var allDates=bills.map(function(b){return b.date;}).filter(Boolean);
+  var fySet=new Set();
+  allDates.forEach(function(d){
+    var parts=d.split('-');
+    if(parts.length<3)return;
+    var year=parseInt(parts[2]);var month=parseInt(parts[1]);
+    if(isNaN(year)||isNaN(month))return;
+    var fyYear=(month>=4)?year:(year-1);
+    fySet.add(fyYear+'-'+(fyYear+1));
   });
-  var fyList=Array.from(fySet).filter(function(fy){
-    var p=fy.split('-');return p.length===2&&!isNaN(parseInt(p[0]))&&(parseInt(p[0])>1990);
-  }).sort().reverse();
+  fySet.add(curFY);
+  var fyList=Array.from(fySet).sort().reverse();
 
-  // ── ACTIVE FY BANNER ──
-  var activeBills=bills.filter(function(b){
-    var d=toISO(b.date||'');var p=activeFY.split('-');
-    return d>=(p[0]+'-04-01')&&d<=(p[1]+'-03-31');
-  });
-  var activeAmt=activeBills.reduce(function(s,b){return s+b.netAmt;},0);
-  var activeRecv=activeBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
-  var activeBal=activeBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-  var activeDue=activeBills.filter(function(b){return getBillStatus(b).status!=='paid';}).length;
-
-  var banner=document.createElement('div');
-  banner.style.cssText='background:linear-gradient(135deg,#166534,#15803d);color:#fff;border-radius:14px;padding:22px 24px;margin-bottom:18px;box-shadow:0 4px 16px rgba(22,101,52,.3)';
-  banner.innerHTML='<div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:.8;text-transform:uppercase;margin-bottom:6px">Active Financial Year</div>'+
-    '<div style="font-size:28px;font-weight:800;margin-bottom:4px">FY '+activeFY+'</div>'+
-    '<div style="font-size:12px;opacity:.85;margin-bottom:16px">'+
-      'Apr '+activeFY.split('-')[0]+' — Mar '+activeFY.split('-')[1]+
-    '</div>'+
-    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">'+
-      '<div style="background:rgba(255,255,255,.15);border-radius:10px;padding:12px">'+
-        '<div style="font-size:10px;opacity:.8;margin-bottom:4px">Total Bills</div>'+
-        '<div style="font-size:20px;font-weight:800">'+activeBills.length+'</div>'+
-      '</div>'+
-      '<div style="background:rgba(255,255,255,.15);border-radius:10px;padding:12px">'+
-        '<div style="font-size:10px;opacity:.8;margin-bottom:4px">Total Sales</div>'+
-        '<div style="font-size:18px;font-weight:800">\u20b9'+fmt(activeAmt)+'</div>'+
-      '</div>'+
-      '<div style="background:rgba(255,255,255,.15);border-radius:10px;padding:12px">'+
-        '<div style="font-size:10px;opacity:.8;margin-bottom:4px">Received</div>'+
-        '<div style="font-size:18px;font-weight:800">\u20b9'+fmt(activeRecv)+'</div>'+
-      '</div>'+
-      '<div style="background:rgba(220,252,231,.2);border-radius:10px;padding:12px;border:1px solid rgba(255,255,255,.3)">'+
-        '<div style="font-size:10px;opacity:.8;margin-bottom:4px">Balance Due</div>'+
-        '<div style="font-size:18px;font-weight:800">\u20b9'+fmt(activeBal)+'</div>'+
-        '<div style="font-size:10px;opacity:.8">'+activeDue+' bills pending</div>'+
-      '</div>'+
-    '</div>';
-  wrap.appendChild(banner);
-
-  // ── SWITCH / START FY ──
-  var actCard=document.createElement('div');actCard.className='card';actCard.style.marginBottom='12px';
-  var actHead=document.createElement('div');actHead.className='card-head';
-  actHead.innerHTML='<h4>Switch Financial Year</h4>';
-  actCard.appendChild(actHead);
-  var actBody=document.createElement('div');actBody.style.cssText='padding:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center';
-
-  // FY selector buttons
+  var fyInfo=document.createElement('div');fyInfo.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px';
   fyList.forEach(function(fy){
-    var isActive=fy===activeFY;
-    var fyBills=bills.filter(function(b){
-      var d=toISO(b.date||'');var p=fy.split('-');
-      return d>=(p[0]+'-04-01')&&d<=(p[1]+'-03-31');
-    });
-    var btn=document.createElement('button');
-    btn.style.cssText='padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:'+(isActive?'default':'pointer')+
-      ';border:2px solid '+(isActive?'#166534':'#d1d5db')+
-      ';background:'+(isActive?'#166534':'#fff')+
-      ';color:'+(isActive?'#fff':'#374151')+
-      ';display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:120px';
-    btn.innerHTML='<span>FY '+fy+'</span>'+
-      '<span style="font-size:10px;font-weight:400;opacity:'+(isActive?'0.85':'0.6')+'">'+fyBills.length+' bills'+(isActive?' · ACTIVE':'')+'</span>';
-    if(!isActive){
-      btn.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';this.style.borderColor='#86efac';});
-      btn.addEventListener('mouseleave',function(){this.style.background='#fff';this.style.borderColor='#d1d5db';});
-      btn.addEventListener('click',function(){
-        if(confirm('Switch to FY '+fy+'?\n\nDashboard aur reports mein '+fy+' ka data dikhega.\nSaara data preserve rahega — sirf view change hogi.')){
-          cfg.financialYear=fy;DB.set('cfg',cfg);toast('\u2705 FY '+fy+' active!');refresh();
-        }
-      });
-    }
-    actBody.appendChild(btn);
-  });
-
-  // New FY button
-  var latestFY=fyList[0]||curFY;
-  var lp=latestFY.split('-');
-  var nextFY=(parseInt(lp[1]))+'-'+(parseInt(lp[1])+1);
-  var newBtn=el('button',{cls:'btn btn-amber btn-sm',text:'+ Start FY '+nextFY,style:'align-self:center'});
-  newBtn.style.cssText+='padding:10px 16px;font-size:12px;font-weight:700';
-  newBtn.addEventListener('click',function(){
-    if(confirm('Start new Financial Year '+nextFY+'?\n\nYe FY '+nextFY+' ko active kar dega.\nPurani saari bills aur payments safe rahengi.')){
-      cfg.financialYear=nextFY;DB.set('cfg',cfg);
-      toast('\u2705 FY '+nextFY+' shuru!');refresh();
-    }
-  });
-  actBody.appendChild(newBtn);
-  actCard.appendChild(actBody);
-  wrap.appendChild(actCard);
-
-  // ── ALL YEARS SUMMARY TABLE (Tally style) ──
-  var sumCard=document.createElement('div');sumCard.className='card';
-  var sumHead=document.createElement('div');sumHead.className='card-head';
-  sumHead.innerHTML='<h4>Year-wise Summary</h4>';
-  sumCard.appendChild(sumHead);
-  var sumBody=document.createElement('div');sumBody.style.padding='0';
-
-  var tbl=document.createElement('table');
-  tbl.style.cssText='width:100%;border-collapse:collapse;font-size:13px';
-  var thead=document.createElement('thead');
-  thead.innerHTML='<tr style="background:#f0fdf4">'+
-    ['Financial Year','Period','Bills','Total Sales','Received','Balance','Status'].map(function(h){
-      return '<th style="padding:10px 14px;text-align:'+(h==='Financial Year'||h==='Period'||h==='Status'?'left':'right')+';font-size:11px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #bbf7d0">'+h+'</th>';
-    }).join('')+
-  '</tr>';
-  tbl.appendChild(thead);
-  var tbody2=document.createElement('tbody');
-
-  fyList.forEach(function(fy,i){
-    var p=fy.split('-');
+    var parts=fy.split('-');
+    var fyStart=new Date('01/04/'+parts[0]);
+    var fyEnd=new Date('31/03/'+parts[1]);
     var fyBills=bills.filter(function(b){
       var d=toISO(b.date||'');
-      return d>=(p[0]+'-04-01')&&d<=(p[1]+'-03-31');
+      return d>=''+parts[0]+'-04-01' && d<=''+parts[1]+'-03-31';
     });
-    var amt=fyBills.reduce(function(s,b){return s+b.netAmt;},0);
-    var recv=fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
-    var bal=fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-    var isActive=fy===activeFY;
-    var tr=document.createElement('tr');
-    tr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(isActive?'#f0fdf4':(i%2===0?'#fff':'#fafafa'));
-    if(!isActive){tr.addEventListener('mouseenter',function(){this.style.background='#f8fffe';});tr.addEventListener('mouseleave',function(){this.style.background=i%2===0?'#fff':'#fafafa';});}
-    tr.innerHTML=
-      '<td style="padding:11px 14px;font-weight:'+(isActive?'800':'600')+';color:'+(isActive?'#166534':'#374151')+'">'+
-        'FY '+fy+(isActive?'<span style="margin-left:8px;font-size:9px;background:#166534;color:#fff;padding:1px 6px;border-radius:4px;font-weight:700">ACTIVE</span>':'')+
-      '</td>'+
-      '<td style="padding:11px 14px;color:#6b7280;font-size:12px">Apr '+p[0]+' — Mar '+p[1]+'</td>'+
-      '<td style="padding:11px 14px;text-align:right;font-weight:700">'+fyBills.length+'</td>'+
-      '<td style="padding:11px 14px;text-align:right;font-weight:700">'+(amt?'\u20b9'+fmt(amt):'-')+'</td>'+
-      '<td style="padding:11px 14px;text-align:right;color:#166534;font-weight:700">'+(recv?'\u20b9'+fmt(recv):'-')+'</td>'+
-      '<td style="padding:11px 14px;text-align:right;color:'+(bal>0?'#dc2626':'#374151')+';font-weight:700">'+(bal?'\u20b9'+fmt(bal):'-')+'</td>'+
-      '<td style="padding:11px 14px">'+
-        (fyBills.length===0?'<span style="color:#9ca3af;font-size:11px">No data</span>':
-         bal===0&&fyBills.length>0?'<span style="font-size:11px;background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:700">✓ Clear</span>':
-         '<span style="font-size:11px;background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:4px;font-weight:700">'+fyBills.filter(function(b){return getBillStatus(b).status!=='paid';}).length+' Due</span>')+
-      '</td>';
-    if(!isActive&&fyBills.length>0){
-      tr.style.cursor='pointer';
-      tr.title='Click to switch to FY '+fy;
-      tr.addEventListener('click',function(){
-        if(confirm('Switch to FY '+fy+'?')){cfg.financialYear=fy;DB.set('cfg',cfg);toast('\u2705 FY '+fy+' active!');refresh();}
-      });
-    }
-    tbody2.appendChild(tr);
+    var fyRecv=fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+    var fyAmt=fyBills.reduce(function(s,b){return s+b.netAmt;},0);
+    var isActive=fy===savedFY;
+    var card=document.createElement('div');
+    card.style.cssText='border:2px solid '+(isActive?'#166534':'#e5e7eb')+';border-radius:10px;padding:14px;background:'+(isActive?'#f0fdf4':'#fff')+';cursor:pointer';
+    card.innerHTML='<div style="font-size:14px;font-weight:700;color:'+(isActive?'#166534':'#374151')+'">FY '+fy+'</div>'+
+      '<div style="font-size:11px;color:#6b7280;margin-top:4px">Apr '+parts[0]+' — Mar '+parts[1]+'</div>'+
+      '<div style="font-size:12px;margin-top:8px">Bills: <strong>'+fyBills.length+'</strong></div>'+
+      '<div style="font-size:12px">Sales: <strong>\u20b9'+fmt(fyAmt)+'</strong></div>'+
+      '<div style="font-size:12px">Recv: <strong style="color:#166534">\u20b9'+fmt(fyRecv)+'</strong></div>'+
+      (isActive?'<div style="margin-top:8px;background:#166534;color:#fff;text-align:center;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700">ACTIVE</div>':'');
+    card.addEventListener('click',function(){
+      if(isActive)return;
+      if(confirm('Switch to FY '+fy+'? Dashboard and reports will show data for this year by default.')){
+        cfg.financialYear=fy;DB.set('cfg',cfg);toast('✅ FY switched to '+fy);refresh();
+      }
+    });
+    fyInfo.appendChild(card);
   });
+  fyBody.appendChild(fyInfo);
 
-  tbl.appendChild(tbody2);
-  sumBody.appendChild(tbl);
-  sumCard.appendChild(sumBody);
-  wrap.appendChild(sumCard);
+  // New FY start option
+  var newFYDiv=document.createElement('div');
+  newFYDiv.style.cssText='background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:16px;margin-bottom:16px';
+  newFYDiv.innerHTML='<h4 style="color:#c2410c;margin:0 0 8px">🗓️ Start New Financial Year</h4>'+
+    '<p style="font-size:12px;color:#6b7280;margin:0 0 12px">Naya FY start karne se existing bills/payments preserve rehte hain. Sirf active FY switch hogi.</p>';
+  var nextFY;
+  if(fyList.length>0){
+    var lp=fyList[0].split('-');
+    nextFY=(parseInt(lp[1]))+'-'+(parseInt(lp[1])+1);
+  } else { nextFY=curFY; }
+  var newFYBtn=el('button',{cls:'btn btn-amber btn-sm',text:'Start FY '+nextFY});
+  newFYBtn.addEventListener('click',function(){
+    if(!confirm('Start new Financial Year '+nextFY+'? Ye sirf active FY switch karega. Purana data preserve rahega.'))return;
+    cfg.financialYear=nextFY;DB.set('cfg',cfg);
+    toast('✅ Financial Year '+nextFY+' started!');refresh();
+  });
+  newFYDiv.appendChild(newFYBtn);
+  fyBody.appendChild(newFYDiv);
 
+  // Archive option
+  var archDiv=document.createElement('div');
+  archDiv.style.cssText='background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:16px';
+  archDiv.innerHTML='<h4 style="color:#374151;margin:0 0 8px">📦 Data by Year</h4>'+
+    '<p style="font-size:12px;color:#6b7280;margin:0 0 10px">All Bills, Reports etc. mein Year filter available hai. Specific FY ka data dekhne ke liye wahan Date filter use karo.</p>';
+  fyBody.appendChild(archDiv);
+
+  fyCard.appendChild(fyBody);wrap.appendChild(fyCard);
   return wrap;
 }
 
@@ -9692,53 +9729,7 @@ function pgBillImport() {
   aiGuideBtn.title='View AI rules for bill import';
   aiGuideBtn.addEventListener('click',function(){go('ai-rules');});
 
-  // ── Party Master Download button ──
-  var partyDlBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\U0001f4cb Party Master Excel'});
-  partyDlBtn.title='Download party list with address, broker, GSTIN for AI file making';
-  partyDlBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
-  partyDlBtn.addEventListener('click',function(){
-    // Build party master from all bills
-    var partyMap={};
-    bills.forEach(function(b){
-      var pName=(b.party||'').trim().toUpperCase();
-      if(!pName)return;
-      if(!partyMap[pName])partyMap[pName]={
-        name:pName,gstin:b.partyGstin||'',
-        station:b.station||'',brokers:new Set(),
-        transport:b.transport||'',billCount:0,lastBillDate:''
-      };
-      var pm=partyMap[pName];
-      if(b.broker&&b.broker.trim())pm.brokers.add(b.broker.trim().toUpperCase());
-      if(b.station&&!pm.station)pm.station=b.station.toUpperCase();
-      if(b.partyGstin&&!pm.gstin)pm.gstin=b.partyGstin.toUpperCase();
-      pm.billCount++;
-      var d=toISO(b.date||'');
-      if(d>pm.lastBillDate)pm.lastBillDate=b.date||'';
-    });
-    var rows=[['PARTY_NAME','PARTY_GSTIN','DELIVERY_STATION','BROKER','BILL_COUNT','LAST_BILL_DATE','NOTES']];
-    Object.keys(partyMap).sort().forEach(function(p){
-      var pm=partyMap[p];
-      rows.push([
-        pm.name,
-        pm.gstin,
-        pm.station,
-        Array.from(pm.brokers).join(' / '),
-        pm.billCount,
-        pm.lastBillDate,
-        ''
-      ]);
-    });
-    if(!window.XLSX){toast('XLSX library load nahi hua — reload karo','err');return;}
-    var wb=XLSX.utils.book_new();
-    var ws=XLSX.utils.aoa_to_sheet(rows);
-    // Style header row width
-    ws['!cols']=[{wch:30},{wch:18},{wch:18},{wch:25},{wch:12},{wch:15},{wch:20}];
-    XLSX.utils.book_append_sheet(wb,ws,'Party Master');
-    XLSX.writeFile(wb,'CashewPro_PartyMaster_'+today().replace(/-/g,'')+'.xlsx');
-    toast('\u2705 Party Master downloaded! '+Object.keys(partyMap).length+' parties — AI ko share karo bill import ke liye.');
-  });
-
-  btnRow.appendChild(dl1);btnRow.appendChild(dl2);btnRow.appendChild(aiGuideBtn);btnRow.appendChild(partyDlBtn);
+  btnRow.appendChild(dl1);btnRow.appendChild(dl2);btnRow.appendChild(aiGuideBtn);
   instrB.appendChild(btnRow);
   instrCard.appendChild(instrB);
   wrap.appendChild(instrCard);
@@ -9800,7 +9791,7 @@ function pgBillImport() {
             return res.party;
           })(),
           partyGstin:(gcv(row,'PARTY_GSTIN')||gcv(row,'GSTIN')||'').toUpperCase().trim(),
-          station:(gcv(row,'STATION')||gcv(row,'DELIVERY STATION')||'').toUpperCase().trim(),
+          station:(function(){var _st=(gcv(row,'STATION')||gcv(row,'DELIVERY STATION')||'').toUpperCase().trim();return normaliseStation(_st,(gcv(row,'PARTY')||gcv(row,'PARTY_NAME')||gcv(row,'BUYER NAME')||'').toUpperCase().trim());})(),
           broker:(gcv(row,'BROKER')||'').toUpperCase().trim(),
           transport:(gcv(row,'TRANSPORT')||'').toUpperCase().trim(),
           transGstin:(gcv(row,'TRANSPORT_GSTIN')||gcv(row,'TRANS_GSTIN')||'').toUpperCase().trim(),
@@ -9957,7 +9948,7 @@ function pgBillImport() {
           var igst=gn2(cols.igst);
           if(!cgst&&!sgst&&!igst){var gstTotal=netAmt-taxable-(gn2(cols.bardhana)||0);cgst=Math.round(gstTotal/2*100)/100;sgst=cgst;}
 
-          var importStation=(gv2(cols.station)||'').toUpperCase();
+          var importStation=normaliseStation((gv2(cols.station)||'').toUpperCase(),(party||'').toUpperCase());
           var importBroker=(gv2(cols.broker)||'').toUpperCase();
           var partyResolved=resolveImportedParty(party,importStation,importBroker);
           rows.push({
@@ -18005,6 +17996,138 @@ function pgAIRules() {
 
   biGB.appendChild(guidePre);biGB.appendChild(copyGuideBtn);
   biGuideCard.appendChild(biGB);wrap.appendChild(biGuideCard);
+
+  // ── Station Normalisation Rules Card ──
+  var stCard=document.createElement('div');stCard.className='card';stCard.style.marginBottom='14px';
+  var stH=document.createElement('div');stH.className='card-head';
+  stH.innerHTML='<h4 style="color:#7c3aed">\U0001f4cd Station Address Rules <span style="font-size:10px;font-weight:400;color:#9ca3af;margin-left:8px">App ke andar automatically apply hote hain + AI ko bhi batao</span></h4>'+
+    '<a href="#" onclick="go(\'bill-import\');return false;" style="font-size:11px;color:#1d4ed8;text-decoration:none">Open Bill Import \u2192</a>';
+  stCard.appendChild(stH);
+  var stB=document.createElement('div');stB.style.cssText='padding:14px 16px';
+
+  var stInfo=document.createElement('div');
+  stInfo.style.cssText='background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:#6b21a8;line-height:1.7';
+  stInfo.innerHTML='<strong>Ye rules kab kaam aate hain:</strong><br>'+
+    '1. <strong>Bill Import ke waqt</strong> — upload ki gayi file mein station/address typo auto-fix hote hain<br>'+
+    '2. <strong>AI ko file banate waqt</strong> — ye rules AI prompt mein copy karke do, AI sahi station use karega<br>'+
+    '3. <strong>Party matching mein</strong> — same party ke alag-alag spellings automatically merge ho jaate hain';
+  stB.appendChild(stInfo);
+
+  // Build station rules text
+  var globalAliases=[
+    'DUASA → DAUSA','DUNAGRPUR → DUNGARPUR','CAKSU → CHAKSU',
+    'INDARGARH → INDRAGARH','INDERGARH → INDRAGARH',
+    'MANSAOVAR / MANSAORVAR / MANSAROAVR / MANSROVAR / MASAROVAR → MANSAROVAR',
+    'GANGORI BAZR → GANGORI BAZAR','BAHARATPUR → BHARATPUR',
+    'TONK FATAK / TONK PHTAK → TONK PHATAK',
+    'TRIL / TRILPOLIYA BAZAR → TRIPOLIYA BAZAR',
+    'VIDHYADHAR NAGAR / VIDYADAHR NAGAR → VIDYADHAR NAGAR',
+    'PARATP NAGAR / PRATAPNAGAR → PRATAP NAGAR',
+    'SAWAI MADHOPUR → SAWAIMADHOPUR','SHAMBAR → SAMBHAR',
+    'PHAGI → FAGI','LALOSTH / LALOSOTH → LALSOTH',
+    'JOHRI BAZAR → JOHARI BAZAR','KAWAR → KARWAR',
+    'BAWRI / BAVARI → BAVRI','BANIPRAK → BANIPARK',
+    'KISHANPOLE BAZAR → KISHANPOLE','CHANDPOLE BAZAR → CHANDPOLE',
+    'BADI CHPAD → BADI CHOPAD','DEHI → DEI',
+    'DHORI MANNA → DHORIMANNA','LUDHIANA → LUDHIYANA',
+    'NAGAR FORT → NAGARFORT','DNG → BARAH JI KI GALI',
+    'RAJAL DESAL / RAJALDESAL / RAJAK → RAJALDESAR',
+    'BHAWARGARH → BHILWARA (Agarwal Trading ke liye alag party hai)'
+  ];
+
+  var partySpecific=[
+    'JAIPUR → MANSAROVAR (AMAR AND SONS, GANPATI DEPARTMENTAL STORE, QUALITY KING, SONU DEPARTMENTAL STORE, SUPER DEPARTMENTAL STORE, SHRI AMAR MISHTAN BHANDAR)',
+    'JAIPUR → TONK PHATAK (BK ENTERPIRSES)',
+    'JAIPUR → TRIPOLIYA BAZAR (BRIJ TALUKA & COMPANY, CHUNNILAL KALYANBAKSH, KALYAN KRIPA HARBAL PVT LTD, KAPOORCHAND PHOOLCHAND)',
+    'JAIPUR → BARAH JI KI GALI (CHETANDAS TRADERS, GAJANAND TRADING COMPANY, KERALA TRADING COMPANY, KH ENTERPRISES, SANJEEVNI JADI BUTI BHANDAR, VISHNU ENTERPRISES)',
+    'JAIPUR → SODALA (BHURAMAL BHAGIRATH, DIVYA TRADING COMPANY)',
+    'JAIPUR → SANGANER (KHANDELWAL ENTERPRISES, SANWARIYA TRADERS, SUBHASH AND COMPANY)',
+    'JAIPUR → GANGORI BAZAR (GARV INDUSTRIES)',
+    'JAIPUR → MUHANA MANDI (GOVIND TRADING COMPANY)',
+    'JAIPUR → VIDYADHAR NAGAR (GOPAL TRADING COMPANY)',
+    'JAIPUR → BANIPARK (VIJAYWALAS — MANSAROVAR bhi BANIPARK hoga)',
+    'JAIPUR → CHANDPOLE (VR ENTERPRISES)',
+    'JAIPUR → NAYA KHEDA (SHRI LAXMI GROCERY)',
+    'JAIPUR → RAMGANJ (KISHAN MISHTAN BHANDAR)',
+    'JAIPUR → SHASTRI NAGAR (MOOLCHAND KIRANA STORE)',
+    'PAREEK JI → MANSAROVAR (SHRI AMAR MISHTAN BHANDAR — broker name tha station mein galti se)',
+    'RAMSINGH → CHAPPAR (JYOTI AGENCIES)',
+    'DELHI → DEI (SHUBHAM JAIN), DELHI → HAPUR (MN TRADERS)'
+  ];
+
+  var separateList=[
+    'AGARWAL TRADING COMPANY (BHILWARA aur BHAWARGARH = alag)',
+    'ASHOK TRADING COMPANY (TONK aur KOTA = alag)',
+    'CHANANDAS PARMANAND (TRIPOLIYA BAZAR aur RAJAPARK = alag)',
+    'MANOJ AGENCIES (TONK, KHERTAL, JAIPUR = alag)',
+    'MUKESH PROVISIONAL STORE (DAUSA aur DHORIMANNA = alag)',
+    'NARENDRA KUMAR AND COMPANY (LAWA aur JAIPUR = alag)',
+    'NAVKAR ENTERPRISES (PAGARIYA aur BHAWANIMANDI = alag)',
+    'PANKAJ JAIN (DEI aur LAKHERI = alag)',
+    'PARAS AGENCIES (RAJALDESAR aur BANSWARA = alag)',
+    'PRADEEP TRADING COMPANY (SURATGARH aur BHARATPUR = alag)',
+    'RAJENDRA TRADING COMPANY (MALPURA aur DHORIMANNA = alag)',
+    'RAMAVTAR PRADEEP KUMAR (JAIPUR aur KOTA = alag)',
+    'SHIV TRADING COMPANY (KOTA aur BANSUR = alag)',
+    'SS TRADING COMPANY (DAUSA aur JODHPUR = alag)'
+  ];
+
+  var stText='=== STATION ADDRESS NORMALISATION RULES ===
+
+'+
+    '--- GLOBAL TYPO CORRECTIONS (kisi bhi party ke liye apply karo) ---
+'+
+    globalAliases.map(function(a,i){return (i+1)+'. '+a;}).join('
+')+
+    '
+
+--- PARTY-SPECIFIC: JAIPUR/GENERIC CITY → ACTUAL LOCALITY ---
+'+
+    '(Jab station JAIPUR ya generic likha ho, is party ke liye actual locality use karo)
+'+
+    partySpecific.map(function(a,i){return (i+1)+'. '+a;}).join('
+')+
+    '
+
+--- YE PARTIES ALAG-ALAG LOCATIONS PAR HAIN (merge mat karo) ---
+'+
+    '(Same name hone ke bawajood ye genuinely alag parties hain — station se pehchano)
+'+
+    separateList.map(function(a,i){return (i+1)+'. '+a;}).join('
+')+
+    '
+
+--- IMPORTANT RULE ---
+'+
+    'Jab Bill Import file banana ho to:
+'+
+    '1. Station mein hamesha CORRECT spelling use karo (upar ke rules follow karo)
+'+
+    '2. JAIPUR sirf tab likho jab party ka koi specific locality nahi pata
+'+
+    '3. Agar party ke liye specific rule hai (upar dekho) to wahi station likho
+'+
+    '4. "Separate location" parties ke liye station se party differentiate hoti hai — sahi station zaroori hai
+';
+
+  var stPre=document.createElement('pre');
+  stPre.style.cssText='white-space:pre-wrap;font-size:11px;font-family:monospace;line-height:1.6;color:#374151;background:#f9fafb;padding:12px;border-radius:6px;border:1px solid #e5e7eb;max-height:320px;overflow-y:auto;margin:0 0 10px 0';
+  stPre.textContent=stText;
+
+  var stCopyBtn=el('button',{cls:'btn btn-green btn-sm',text:'\U0001f4cb Copy Station Rules'});
+  stCopyBtn.addEventListener('click',function(){
+    try{
+      navigator.clipboard.writeText(stText).then(function(){toast('\u2705 Station rules copied! AI conversation mein paste karo.');});
+    }catch(e){
+      var ta=document.createElement('textarea');ta.value=stText;
+      document.body.appendChild(ta);ta.select();document.execCommand('copy');
+      document.body.removeChild(ta);toast('\u2705 Copied!');
+    }
+  });
+
+  stB.appendChild(stPre);stB.appendChild(stCopyBtn);
+  stCard.appendChild(stB);wrap.appendChild(stCard);
+
 
   function makeSection(title, storageKey, content, isFormat) {
     var card = document.createElement('div');
