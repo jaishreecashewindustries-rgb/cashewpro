@@ -3111,12 +3111,7 @@ function pgDashboard() {
     var fyTo   = fyParts[1]+'-03-31';
     fyBills = bills.filter(function(b){ var d=b.date||''; return d>=fyFrom&&d<=fyTo; });
   }
-  // Total Received = Gross payments + Single + Partial (actual cash received, not per-bill capped)
-  var grossRecvAmt = (grossPayments||[]).reduce(function(s,g){return s+(g.grossAmt||0);},0);
-  var singlePmts = payments.filter(function(p){return p.rowType!=='DETAIL';});
-  var singleRecvAmt = singlePmts.filter(function(p){return !p.rowType||p.rowType==='SINGLE';}).reduce(function(s,p){return s+(p.amount||0);},0);
-  var partialRecvAmt = singlePmts.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
-  var recvAmt = grossRecvAmt + singleRecvAmt + partialRecvAmt;
+  var recvAmt  = fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var dueBills = fyBills.filter(function(b){return getBillStatus(b).status!=='paid';});
   var totalAmt = fyBills.reduce(function(s,b){return s+b.netAmt;},0);
 
@@ -10231,8 +10226,7 @@ function pgDuplicates() {
     dupReceiptNo: [],    // Same receipt number in payments
     dupChequeRec: [],    // Same cheque# in cheques table
     orphanPayments: [],  // Payments with no matching bill
-    billsNoAmt: [],      // Bills with netAmt=0 or missing
-    suspectParties: []   // Same party name, different broker or station
+    billsNoAmt: []       // Bills with netAmt=0 or missing
   };
 
   // 1. Duplicate Bills (same billNo)
