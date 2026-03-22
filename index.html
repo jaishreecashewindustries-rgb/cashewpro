@@ -18222,7 +18222,7 @@ function pgReceiptLedger() {
     var partTotal=singleData.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
     var intTotal=singleData.reduce(function(s,p){return s+(p.interest||0);},0);
     var rebTotal=singleData.reduce(function(s,p){return s+(p.rebate||0);},0);
-    var totalRecv=grossTotal+singleTotal+partTotal+intTotal;
+    var totalRecv=grossTotal+singleTotal+partTotal;
 
     sumGrid.innerHTML='';
     [{l:'Gross Payments',v:grossVisible.length,c:'#1d4ed8'},
@@ -18362,7 +18362,7 @@ function printReceiptLedger(){
   var pt=singleData.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
   var it=payments.reduce(function(s,p){return s+(p.interest||0);},0);
   var rt=payments.reduce(function(s,p){return s+(p.rebate||0);},0);
-  var totalRecv=grossTotal+st+pt+it;
+  var totalRecv=grossTotal+st+pt;
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receipt Ledger</title>'
     +'<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
     +'h2{color:#166534;margin-bottom:4px}'
