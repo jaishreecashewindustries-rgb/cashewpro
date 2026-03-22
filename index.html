@@ -2230,8 +2230,9 @@ function getGradeRows() {
     var grade  = ((document.getElementById('gg-' + id) || {}).value || '').trim().toUpperCase();
     var weight = parseFloat((document.getElementById('gw-' + id) || {}).value) || 0;
     var rate   = parseFloat((document.getElementById('gr-' + id) || {}).value) || 0;
-    if (grade && weight > 0 && rate > 0) {
-      var qty = parseFloat((document.getElementById('gq-'+id)||{}).value)||0;
+    var qty    = parseFloat((document.getElementById('gq-'+id)||{}).value)||0;
+    // Include row if grade is present (weight/rate can be 0 in some cases)
+    if (grade) {
       rows.push({ grade:grade, qty:qty, weight:weight, rate:rate, taxable:Math.round(weight*rate*100)/100 });
     }
   });
