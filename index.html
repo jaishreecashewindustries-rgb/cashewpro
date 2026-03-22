@@ -2546,12 +2546,6 @@ function openPayModal(billId) {
       var date=gv('pay-date');
       if(!amt&&!reb){toast('Amount required!','err');return;}
       if(!date){toast('Date required!','err');return;}
-      // Overpayment warning
-      var netSettle = amt + reb;
-      if(netSettle > s.bal + 0.5) {
-        var overAmt = netSettle - s.bal;
-        if(!confirm('\u26a0\ufe0f Overpayment Warning!\n\nBill Balance: \u20b9'+fmt(s.bal)+'\nYou are paying: \u20b9'+fmt(netSettle)+'\nOverpaid by: \u20b9'+fmt(overAmt)+'\n\nKya aap sure hain? Ye Overpayments tab mein dikhega.')) return;
-      }
       var newPay={id:uid(),billId:billId,amount:amt,rebate:reb,interest:int_,date:date,
         mode:gv('pay-mode'),chequeNo:gv('pay-chq'),receiptNo:gv('pay-rcpt'),remarks:gv('pay-rmk')};
       histSave('Payment: ' + b.party + ' \u20b9' + fmt(amt), 'payment');
@@ -3006,7 +3000,12 @@ function pgDashboard() {
     var fyTo   = fyParts[1]+'-03-31';
     fyBills = bills.filter(function(b){ var d=b.date||''; return d>=fyFrom&&d<=fyTo; });
   }
-  var recvAmt  = fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+  // Total Received = Gross + Single + Partial (actual cash received)
+  var grossRecvAmt = (grossPayments||[]).reduce(function(s,g){return s+(g.grossAmt||0);},0);
+  var singlePmts = payments.filter(function(p){return p.rowType!=='DETAIL';});
+  var singleRecvAmt = singlePmts.filter(function(p){return !p.rowType||p.rowType==='SINGLE';}).reduce(function(s,p){return s+(p.amount||0);},0);
+  var partialRecvAmt = singlePmts.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
+  var recvAmt = grossRecvAmt + singleRecvAmt + partialRecvAmt;
   var dueBills = fyBills.filter(function(b){return getBillStatus(b).status!=='paid';});
   var totalAmt = fyBills.reduce(function(s,b){return s+b.netAmt;},0);
 
@@ -5858,28 +5857,19 @@ function openBulkPayModal(party) {
   var selBills=selected.map(function(id){return bills.find(function(b){return b.id===id;});}).filter(Boolean);
   var totalDue2=selBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var body=document.createElement('div');
-
-  // ── Summary of selected bills ──
   var sumDiv=document.createElement('div');
   sumDiv.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px';
   sumDiv.innerHTML='<strong style="color:#166534">'+selBills.length+' bills selected</strong><br>'+
-    selBills.map(function(b){var s=getBillStatus(b);return'<div style="padding:2px 0;color:#374151">Bill #'+b.billNo+' &nbsp;('+fmtDate(b.date)+') &nbsp;—&nbsp; Balance: <strong>\u20b9'+fmt(s.bal)+'</strong></div>';}).join('')+
-    '<hr style="border:none;border-top:1px solid #bbf7d0;margin:8px 0">'+
-    '<div style="font-size:13px">Total Due: <strong style="color:#dc2626;font-size:15px">\u20b9'+fmt(totalDue2)+'</strong></div>';
+    selBills.map(function(b){var s=getBillStatus(b);return'<span style="color:#374151">#'+b.billNo+' ('+fmtDate(b.date)+') — Bal: <strong>\u20b9'+fmt(s.bal)+'</strong></span>';}).join('<br>')+
+    '<hr style="border:none;border-top:1px solid #bbf7d0;margin:8px 0">Total: <strong style="color:#dc2626;font-size:14px">\u20b9'+fmt(totalDue2)+'</strong>';
   body.appendChild(sumDiv);
-
-  // ── Payment Type ──
   var modeDiv=document.createElement('div');
   modeDiv.style.cssText='background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px';
-  modeDiv.innerHTML='<strong style="color:#c2410c;font-size:12px">Payment Type:</strong><br>'+
-    '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:12px"><input type="radio" name="bpm" value="full" checked style="accent-color:#166534"> <span><strong>Full Settle</strong> — Har bill ka poora balance clear karo</span></label>'+
-    '<label style="display:flex;align-items:center;gap:8px;margin-top:6px;cursor:pointer;font-size:12px"><input type="radio" name="bpm" value="single" style="accent-color:#166534"> <span><strong>FIFO Distribute</strong> — Ek total amount daalo, purane bills mein pehle distribute hoga</span></label>'+
-    '<label style="display:flex;align-items:center;gap:8px;margin-top:6px;cursor:pointer;font-size:12px"><input type="radio" name="bpm" value="split" style="accent-color:#166534"> <span><strong>Split Custom</strong> — Har bill ke liye alag alag amount set karo</span></label>'+
-    '<div id="bpm-single-div" style="display:none;margin-top:10px"><label style="font-size:11px;font-weight:600;color:#374151">Total Amount (\u20b9)</label><input class="inp" type="number" id="bpm-total" placeholder="0" style="max-width:200px;margin-top:4px;display:block"></div>'+
-    '<div id="bpm-split-div" style="display:none;margin-top:10px"></div>';
+  modeDiv.innerHTML='<strong style="color:#c2410c">Payment Mode:</strong><br>'+
+    '<label style="display:flex;align-items:center;gap:8px;margin-top:6px;cursor:pointer"><input type="radio" name="bpm" value="full" checked style="accent-color:#166534"> Full settle each bill</label>'+
+    '<label style="display:flex;align-items:center;gap:8px;margin-top:4px;cursor:pointer"><input type="radio" name="bpm" value="single" style="accent-color:#166534"> Single amount (FIFO distribute)</label>'+
+    '<div id="bpm-single-div" style="display:none;margin-top:8px"><div class="fg"><label>Total Amount (\u20b9)</label><input class="inp" type="number" id="bpm-total" placeholder="0" style="max-width:180px"></div></div>';
   body.appendChild(modeDiv);
-
-  // ── Date / Mode / Cheque / Receipt ──
   var grid2=document.createElement('div');grid2.className='grid g2';
   function mF(lbl,id,type,val,ph){var d=document.createElement('div');d.className='fg';var l=document.createElement('label');l.textContent=lbl;var i=el('input',{cls:'inp',type:type||'text',id:id});if(val)i.value=val;if(ph)i.placeholder=ph;d.appendChild(l);d.appendChild(i);return d;}
   function mFS(lbl,id,opts,val){var d=document.createElement('div');d.className='fg';var l=document.createElement('label');l.textContent=lbl;var s2=document.createElement('select');s2.className='inp';s2.id=id;opts.forEach(function(o){var opt=document.createElement('option');opt.value=o;opt.textContent=o;if(o===val)opt.selected=true;s2.appendChild(opt);});d.appendChild(l);d.appendChild(s2);return d;}
@@ -5887,99 +5877,28 @@ function openBulkPayModal(party) {
    mF('Cheque No','bpm-chq','text','','Optional'),mF('Receipt No','bpm-rcpt','text','','Optional')].forEach(function(f){grid2.appendChild(f);});
   var rmkF=mF('Remarks','bpm-rmk','text','','Optional');rmkF.style.gridColumn='span 2';grid2.appendChild(rmkF);
   body.appendChild(grid2);
-
   setTimeout(function(){
-    // Split div builder
-    function buildSplitDiv(){
-      var sd=document.getElementById('bpm-split-div'); if(!sd)return;
-      sd.innerHTML='<div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:6px">Har bill ke liye amount daalo:</div>';
-      selBills.forEach(function(b){
-        var s=getBillStatus(b);
-        var row=document.createElement('div');
-        row.style.cssText='display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap';
-        row.innerHTML='<span style="font-size:11px;color:#374151;min-width:120px">Bill #'+b.billNo+' (Bal:\u20b9'+fmt(s.bal)+')</span>';
-        var inp=document.createElement('input');
-        inp.type='number'; inp.className='inp'; inp.dataset.billId=b.id;
-        inp.style.cssText='max-width:140px;font-size:12px';
-        inp.placeholder='0'; inp.value=s.bal;
-        inp.dataset.maxBal=s.bal;
-        inp.addEventListener('input',function(){
-          var v=parseFloat(this.value)||0;
-          if(v>s.bal){this.style.borderColor='#dc2626';}
-          else{this.style.borderColor='';}
-        });
-        row.appendChild(inp);
-        var balBadge=document.createElement('span');
-        balBadge.style.cssText='font-size:10px;color:#6b7280';
-        balBadge.textContent='max \u20b9'+fmt(s.bal);
-        row.appendChild(balBadge);
-        sd.appendChild(row);
-      });
-    }
-
     document.querySelectorAll('input[name="bpm"]').forEach(function(r){
-      r.addEventListener('change',function(){
-        var sd=document.getElementById('bpm-single-div');
-        var spd=document.getElementById('bpm-split-div');
-        if(sd)sd.style.display=this.value==='single'?'block':'none';
-        if(spd){spd.style.display=this.value==='split'?'block':'none'; if(this.value==='split')buildSplitDiv();}
-      });
+      r.addEventListener('change',function(){var d=document.getElementById('bpm-single-div');if(d)d.style.display=this.value==='single'?'block':'none';});
     });
   },0);
-
-  openModal('💰 Bulk Payment — '+party,body,[{label:'✅ Confirm & Save',fn:function(){
+  openModal('Bulk Payment — '+party,body,[{label:'Save Payments',fn:function(){
     var date=gv('bpm-date');if(!date){toast('Date required!','err');return;}
     var dm=document.querySelector('input[name="bpm"]:checked');var mode=dm?dm.value:'full';
-    var payMode=gv('bpm-mode'); var chq=gv('bpm-chq'); var rcpt=gv('bpm-rcpt'); var rmk=gv('bpm-rmk');
-
-    // ── CONFIRMATION ──
-    var confirmLines=selBills.map(function(b){var s=getBillStatus(b);return'Bill #'+b.billNo+': \u20b9'+fmt(s.bal);}).join('\n');
-    var confirmMsg='\u26a0\ufe0f Confirm Payment:\n\n'+confirmLines+'\n\nTotal: \u20b9'+fmt(totalDue2)+'\n\nKya aap sure hain?';
-    if(!confirm(confirmMsg)) return;
-
-    histSave('Bulk Payment: '+party+' \u20b9'+fmt(totalDue2),'payment');
-
     if(mode==='full'){
-      var savedCount=0;
-      selBills.forEach(function(b){
-        var s=getBillStatus(b);if(s.bal<=0)return;
-        payments.push({id:uid(),billId:b.id,amount:s.bal,rebate:0,date:date,mode:payMode,chequeNo:chq,receiptNo:rcpt,remarks:rmk||('Manual Bulk Pay '+fmtDate(date))});
-        savedCount++;
-      });
-      invalidateBillStatusCache();DB.set('payments',payments);
-      closeModal();
-      toast('\u2705 '+savedCount+' bills settled! \u20b9'+fmt(totalDue2));
-
-    } else if(mode==='single'){
+      selBills.forEach(function(b){var s=getBillStatus(b);if(s.bal<=0)return;payments.push({id:uid(),billId:b.id,amount:s.bal,rebate:0,date:date,mode:gv('bpm-mode'),chequeNo:gv('bpm-chq'),receiptNo:gv('bpm-rcpt'),remarks:gv('bpm-rmk')||('Manual Bulk Pay '+fmtDate(date))});});
+      invalidateBillStatusCache();DB.set('payments',payments);toast('✅ '+selBills.length+' bills settled!');
+    } else {
       var amt=parseFloat(gv('bpm-total'))||0;if(!amt){toast('Amount enter karo!','err');return;}
       var rem=amt;
       selBills.slice().sort(function(a,b2){return a.date<b2.date?-1:1;}).forEach(function(b){
         if(rem<=0)return;var s=getBillStatus(b);if(s.bal<=0)return;
         var pay=Math.min(rem,s.bal);
-        payments.push({id:uid(),billId:b.id,amount:pay,rebate:0,date:date,mode:payMode,chequeNo:chq,receiptNo:rcpt,remarks:rmk||('Manual Bulk Pay '+fmtDate(date))});
+        payments.push({id:uid(),billId:b.id,amount:pay,rebate:0,date:date,mode:gv('bpm-mode'),chequeNo:gv('bpm-chq'),receiptNo:gv('bpm-rcpt'),remarks:gv('bpm-rmk')||('Manual Bulk Pay '+fmtDate(date))});
         rem-=pay;
       });
-      invalidateBillStatusCache();DB.set('payments',payments);
-      toast('\u2705 \u20b9'+fmt(amt-rem)+' distribute kiya!'+(rem>0?' Bacha: \u20b9'+fmt(rem):''));
-
-    } else if(mode==='split'){
-      var splitInputs=document.querySelectorAll('#bpm-split-div input[data-bill-id]');
-      var splitSaved=0; var splitTotal=0;
-      var hasOverpay=false;
-      splitInputs.forEach(function(inp){
-        var bid=inp.dataset.billId; var b=bills.find(function(x){return x.id===bid;}); if(!b)return;
-        var s=getBillStatus(b); var v=parseFloat(inp.value)||0; if(v<=0)return;
-        if(v>s.bal+0.5){hasOverpay=true;}
-        payments.push({id:uid(),billId:bid,amount:v,rebate:0,date:date,mode:payMode,chequeNo:chq,receiptNo:rcpt,remarks:rmk||'Split Payment'});
-        splitSaved++;splitTotal+=v;
-      });
-      if(hasOverpay){
-        if(!confirm('\u26a0\ufe0f Kuch bills mein overpayment ho rahi hai (amount > balance). Phir bhi save karein?')) return;
-      }
-      invalidateBillStatusCache();DB.set('payments',payments);
-      toast('\u2705 '+splitSaved+' bills mein \u20b9'+fmt(splitTotal)+' save kiya!');
+      invalidateBillStatusCache();DB.set('payments',payments);toast('✅ \u20b9'+fmt(amt-rem)+' distributed!'+(rem>0?' Remaining: \u20b9'+fmt(rem):''));
     }
-
     closeModal();pageState.ledgerParty=party;refresh();
   }}]);
 }
@@ -8423,16 +8342,15 @@ function pgBankUpload() {
           var partyIssue = !resolvedParty;
           var partySuggestions = partyMatch.close;
 
-          // Bill matching — normalize to String for safe comparison
+          // Bill matching — String normalize for safe comparison
           var billNoStr = String(billNoRaw||'').trim();
           var billId = '';
           var billIssue = false;
           if(billNoStr && resolvedParty) {
             var matchBill = bills.find(function(b){return String(b.billNo||'').trim()===billNoStr&&b.party===resolvedParty;});
-            if(!matchBill) { billIssue=true; } // Do NOT fallback to billNo-only match — wrong party bill aa sakta hai
+            if(!matchBill){ billIssue=true; }
             else { billId=matchBill.id; }
           } else if(billNoStr && !resolvedParty) {
-            // No party resolved — try billNo only match
             var matchBill2 = bills.find(function(b){return String(b.billNo||'').trim()===billNoStr;});
             if(matchBill2){ billId=matchBill2.id; resolvedParty=matchBill2.party; partyIssue=false; }
             else billIssue=true;
@@ -8804,15 +8722,15 @@ function pgBankUpload() {
               row.partyIssue=!pm.exact&&pm.close.length!==1;
               // Re-match bill if billNo already set
               if(row.billNo&&row.party) {
-                var mb=bills.find(function(b){return String(b.billNo||'').trim()===String(row.billNo||'').trim()&&b.party===row.party;});
-                if(!mb) mb=bills.find(function(b){return String(b.billNo||'').trim()===String(row.billNo||'').trim();});
+                var mb=bills.find(function(b){return b.billNo===row.billNo&&b.party===row.party;});
+                if(!mb) mb=bills.find(function(b){return b.billNo===row.billNo;});
                 row.billId=mb?mb.id:''; row.billIssue=!mb&&!!row.billNo;
               }
               updateStatus();
             }
             if(key==='billNo') {
-              var mb2=bills.find(function(b){return String(b.billNo||'').trim()===String(this.value||'').trim()&&b.party===row.party;}.bind(this));
-              if(!mb2) mb2=bills.find(function(b){return String(b.billNo||'').trim()===String(this.value||'').trim();}.bind(this));
+              var mb2=bills.find(function(b){return b.billNo===this.value&&b.party===row.party;}.bind(this));
+              if(!mb2) mb2=bills.find(function(b){return b.billNo===this.value;}.bind(this));
               row.billId=mb2?mb2.id:''; row.billIssue=!mb2&&!!this.value;
               if(mb2&&!row.party){row.party=mb2.party;inp2.value=mb2.party;}
               updateStatus();
@@ -8847,8 +8765,8 @@ function pgBankUpload() {
       buildBillOpts();
       billSel.addEventListener('change',function(){
         row.billNo=this.value;
-        var mb3=bills.find(function(b){return String(b.billNo||'').trim()===String(billSel.value||'').trim()&&b.party===row.party;});
-        if(!mb3) mb3=bills.find(function(b){return String(b.billNo||'').trim()===String(billSel.value||'').trim();});
+        var mb3=bills.find(function(b){return b.billNo===billSel.value&&b.party===row.party;});
+        if(!mb3) mb3=bills.find(function(b){return b.billNo===billSel.value;});
         row.billId=mb3?mb3.id:''; row.billIssue=!!this.value&&!mb3; row._edited=true; updateStatus();
       });
       billF.appendChild(billSel);
@@ -9408,97 +9326,33 @@ function pgBankUpload() {
     if(!rowsFiltered.length&&!headerRows.length){
       toast('No matched rows to save. Fix issues first!','err'); return;
     }
-
-    // ── DUPLICATE WARNING: check before saving ──
-    var dupRows = rowsFiltered.filter(function(row){
-      if(!row.billId) return false;
-      return payments.some(function(p){
-        return p.billId===row.billId &&
-               Math.abs((p.amount||0)-(row.netAmt||0))<1 &&
-               (p.date||'')===(row.date||'');
+    // Duplicate warning
+    var dupRows=rowsFiltered.filter(function(row){if(!row.billId)return false;return payments.some(function(p){return p.billId===row.billId&&Math.abs((p.amount||0)-(row.netAmt||0))<1&&(p.date||'')===(row.date||'');});});
+    if(dupRows.length>0){
+      var overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+      var modal=document.createElement('div');modal.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:640px;width:95%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)';
+      modal.innerHTML='<h3 style="color:#dc2626;margin:0 0 6px;font-size:16px">⚠️ Duplicate Payments Detected</h3><p style="font-size:12px;color:#6b7280;margin:0 0 14px">Yeh payments already exist karti hain. Accept karo agar genuinely 2 alag payments hain.</p>';
+      var tbl2=document.createElement('table');tbl2.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+      tbl2.innerHTML='<thead><tr style="background:#f3f4f6"><th style="padding:6px 8px;text-align:left">Party</th><th style="padding:6px 8px;text-align:left">Bill#</th><th style="padding:6px 8px;text-align:left">Date</th><th style="padding:6px 8px;text-align:right">Amount</th><th style="padding:6px 8px;text-align:center">Action</th></tr></thead>';
+      var tbody2=document.createElement('tbody');var decisions={};
+      dupRows.forEach(function(row,i){var b=bills.find(function(x){return x.id===row.billId;})||{};decisions[i]='reject';var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #e5e7eb;background:#fffbeb';
+        tr.innerHTML='<td style="padding:6px 8px;font-weight:600">'+(row.party||b.party||'?')+'</td><td style="padding:6px 8px">#'+(b.billNo||row.billNo||'?')+'</td><td style="padding:6px 8px">'+(row.date||'')+'</td><td style="padding:6px 8px;text-align:right;font-weight:700">₹'+fmt(row.netAmt)+'</td>';
+        var atd=document.createElement('td');atd.style.cssText='padding:6px 8px;text-align:center;white-space:nowrap';
+        var ab=document.createElement('button');ab.style.cssText='background:#dcfce7;color:#166534;border:1px solid #bbf7d0;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px';ab.textContent='✅ Accept';
+        var rb=document.createElement('button');rb.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:600;outline:2px solid #dc2626';rb.textContent='❌ Reject';
+        (function(idx,a,r,tr2){a.addEventListener('click',function(){decisions[idx]='accept';a.style.outline='2px solid #166534';r.style.outline='none';tr2.style.background='#f0fdf4';});r.addEventListener('click',function(){decisions[idx]='reject';r.style.outline='2px solid #dc2626';a.style.outline='none';tr2.style.background='#fffbeb';});})(i,ab,rb,tr);
+        atd.appendChild(ab);atd.appendChild(rb);tr.appendChild(atd);tbody2.appendChild(tr);
       });
-    });
-    if(dupRows.length > 0) {
-      // Show modal with duplicate rows — user decides Accept/Reject each
-      var overlay=document.createElement('div');
-      overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
-      var modal=document.createElement('div');
-      modal.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:680px;width:95%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)';
-      modal.innerHTML='<h3 style="color:#dc2626;margin:0 0 6px;font-size:16px">⚠️ Duplicate Payments Detected</h3>'+
-        '<p style="font-size:12px;color:#6b7280;margin:0 0 14px">Yeh payments already exist karti hain. Accept karo agar genuinely 2 alag payments hain, Reject karo agar duplicate hai.</p>';
-      var tbl=document.createElement('table');
-      tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
-      tbl.innerHTML='<thead><tr style="background:#f3f4f6"><th style="padding:6px 8px;text-align:left">Party</th><th style="padding:6px 8px;text-align:left">Bill#</th><th style="padding:6px 8px;text-align:left">Date</th><th style="padding:6px 8px;text-align:right">Amount</th><th style="padding:6px 8px;text-align:center">Action</th></tr></thead>';
-      var tbody=document.createElement('tbody');
-      var rowDecisions={};
-      dupRows.forEach(function(row,i){
-        var b=bills.find(function(x){return x.id===row.billId;})||{};
-        rowDecisions[i]='reject'; // default: reject
-        var tr=document.createElement('tr');
-        tr.style.cssText='border-bottom:1px solid #e5e7eb;background:#fffbeb';
-        var fmt=function(n){return n?Number(n).toLocaleString('en-IN'):'0';};
-        tr.innerHTML='<td style="padding:6px 8px;font-weight:600;color:#374151">'+(row.party||b.party||'?')+'</td>'+
-          '<td style="padding:6px 8px">#'+(b.billNo||row.billNo||'?')+'</td>'+
-          '<td style="padding:6px 8px">'+(row.date||'')+'</td>'+
-          '<td style="padding:6px 8px;text-align:right;font-weight:700">₹'+fmt(row.netAmt)+'</td>';
-        var actionTd=document.createElement('td');
-        actionTd.style.cssText='padding:6px 8px;text-align:center;white-space:nowrap';
-        var acceptBtn=document.createElement('button');
-        acceptBtn.style.cssText='background:#dcfce7;color:#166534;border:1px solid #bbf7d0;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px';
-        acceptBtn.textContent='✅ Accept';
-        var rejectBtn=document.createElement('button');
-        rejectBtn.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:600';
-        rejectBtn.textContent='❌ Reject';
-        // Default highlight reject
-        rejectBtn.style.outline='2px solid #dc2626';
-        (function(idx, ab, rb, r){
-          ab.addEventListener('click',function(){
-            rowDecisions[idx]='accept';
-            ab.style.outline='2px solid #166534';
-            rb.style.outline='none';
-            r.style.background='#f0fdf4';
-          });
-          rb.addEventListener('click',function(){
-            rowDecisions[idx]='reject';
-            rb.style.outline='2px solid #dc2626';
-            ab.style.outline='none';
-            r.style.background='#fffbeb';
-          });
-        })(i, acceptBtn, rejectBtn, tr);
-        actionTd.appendChild(acceptBtn);
-        actionTd.appendChild(rejectBtn);
-        tr.appendChild(actionTd);
-        tbody.appendChild(tr);
-      });
-      tbl.appendChild(tbody);
-      modal.appendChild(tbl);
-      var btnRow=document.createElement('div');
-      btnRow.style.cssText='display:flex;gap:10px;justify-content:flex-end;margin-top:16px';
-      var proceedBtn=document.createElement('button');
-      proceedBtn.style.cssText='background:#166534;color:#fff;border:none;border-radius:7px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer';
-      proceedBtn.textContent='Proceed with Selection';
-      var cancelBtn=document.createElement('button');
-      cancelBtn.style.cssText='background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer';
-      cancelBtn.textContent='Cancel';
-      cancelBtn.addEventListener('click',function(){ document.body.removeChild(overlay); });
-      proceedBtn.addEventListener('click',function(){
-        document.body.removeChild(overlay);
-        // Mark rejected duplicates as _dupRejected so saveLoop skips them
-        dupRows.forEach(function(row,i){
-          if(rowDecisions[i]==='reject') row._dupRejected=true;
-        });
-        _doSaveAllRows(rowsToSave, showRefresh);
-      });
-      btnRow.appendChild(cancelBtn);
-      btnRow.appendChild(proceedBtn);
-      modal.appendChild(btnRow);
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-      return; // Wait for user decision
+      tbl2.appendChild(tbody2);modal.appendChild(tbl2);
+      var br=document.createElement('div');br.style.cssText='display:flex;gap:10px;justify-content:flex-end;margin-top:16px';
+      var pb=document.createElement('button');pb.style.cssText='background:#166534;color:#fff;border:none;border-radius:7px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer';pb.textContent='Proceed';
+      var cb=document.createElement('button');cb.style.cssText='background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:7px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer';cb.textContent='Cancel';
+      cb.addEventListener('click',function(){document.body.removeChild(overlay);});
+      pb.addEventListener('click',function(){document.body.removeChild(overlay);dupRows.forEach(function(row,i){if(decisions[i]==='reject')row._dupRejected=true;});_doSaveAllRows(rowsToSave,showRefresh);});
+      br.appendChild(cb);br.appendChild(pb);modal.appendChild(br);overlay.appendChild(modal);document.body.appendChild(overlay);return;
     }
-    _doSaveAllRows(rowsToSave, showRefresh);
+    _doSaveAllRows(rowsToSave,showRefresh);
   }
-
   function _doSaveAllRows(rowsToSave, showRefresh) {
     var cnt=0, advCnt=0, payErr=0;
     var rowsFiltered = rowsToSave.filter(function(r){
@@ -10415,421 +10269,126 @@ function pgOverpayments() {
   hdr.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#dc2626;margin:0">⚠️ Overpayments</h3>'+
     '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Woh bills jahan received amount > bill amount hai</p>';
   wrap.appendChild(hdr);
-
-  // Find overpaid bills
-  var overpaidBills = bills.filter(function(b){
-    var s = getBillStatus(b);
-    return s.recv > (b.netAmt||0) + 0.5;
-  });
-
-  // Summary card
-  var totalOverpaid = overpaidBills.reduce(function(s,b){
-    var st=getBillStatus(b);
-    return s + (st.recv - (b.netAmt||0));
-  },0);
-
-  var sumCard = document.createElement('div');
+  var overpaidBills = bills.filter(function(b){var s=getBillStatus(b);return s.recv>(b.netAmt||0)+0.5;});
+  var totalOverpaid = overpaidBills.reduce(function(s,b){var st=getBillStatus(b);return s+(st.recv-(b.netAmt||0));},0);
+  var sumCard=document.createElement('div');
   sumCard.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px';
-  [
-    {l:'Overpaid Bills', v:overpaidBills.length, c:'#dc2626', bg:'#fff1f2'},
-    {l:'Total Overpaid Amount', v:'₹'+fmt(totalOverpaid), c:'#dc2626', bg:'#fff1f2'},
-    {l:'Parties Affected', v:Array.from(new Set(overpaidBills.map(function(b){return b.party;}))).length, c:'#d97706', bg:'#fffbeb'}
-  ].forEach(function(s){
-    var d=document.createElement('div');
-    d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+';border-radius:10px;padding:14px';
-    d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+s.l+'</div>'+
-      '<div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';
-    sumCard.appendChild(d);
-  });
+  [{l:'Overpaid Bills',v:overpaidBills.length,c:'#dc2626',bg:'#fff1f2'},
+   {l:'Total Overpaid Amount',v:'₹'+fmt(totalOverpaid),c:'#dc2626',bg:'#fff1f2'},
+   {l:'Parties Affected',v:Array.from(new Set(overpaidBills.map(function(b){return b.party;}))).length,c:'#d97706',bg:'#fffbeb'}
+  ].forEach(function(s){var d=document.createElement('div');d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+';border-radius:10px;padding:14px';d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+s.l+'</div><div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';sumCard.appendChild(d);});
   wrap.appendChild(sumCard);
-
-  if(!overpaidBills.length){
-    var ok=document.createElement('div');
-    ok.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:40px;text-align:center;color:#166534';
-    ok.innerHTML='<div style="font-size:40px;margin-bottom:10px">✅</div><div style="font-size:16px;font-weight:700">Koi overpayment nahi!</div><div style="font-size:13px;margin-top:4px;opacity:.7">Sab bills sahi hain.</div>';
-    wrap.appendChild(ok);
-    return wrap;
-  }
-
-  // Table
-  var tblCard = document.createElement('div'); tblCard.className='card';
-  var tbl = document.createElement('table');
-  tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
-  var thead = document.createElement('thead');
-  thead.innerHTML='<tr style="background:#fef2f2"><th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Bill#</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Date</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Party</th>'+
-    '<th style="padding:8px 10px;text-align:right;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Bill Amt</th>'+
-    '<th style="padding:8px 10px;text-align:right;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Total Received</th>'+
-    '<th style="padding:8px 10px;text-align:right;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Overpaid By</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Payments</th>'+
-    '<th style="padding:8px 10px;text-align:center;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Action</th></tr>';
-  tbl.appendChild(thead);
-
-  var tbody = document.createElement('tbody');
-  overpaidBills.sort(function(a,b2){
-    var sa=getBillStatus(a), sb=getBillStatus(b2);
-    return (sb.recv-(b2.netAmt||0)) - (sa.recv-(a.netAmt||0));
-  }).forEach(function(b, i){
-    var s = getBillStatus(b);
-    var overpaidAmt = s.recv - (b.netAmt||0);
-    var billPays = payments.filter(function(p){return p.billId===b.id&&p.rowType!=='DETAIL';});
-    var tr = document.createElement('tr');
-    tr.style.cssText='border-bottom:1px solid #fee2e2;background:'+(i%2===0?'#fff':'#fff5f5');
-
-    var paysHtml = billPays.map(function(p){
-      return '<div style="font-size:10px;color:#374151;padding:1px 0">₹'+fmt(p.amount)+' &nbsp;'+fmtDate(p.date)+'&nbsp;<span style="color:#6b7280">('+p.mode+')</span></div>';
-    }).join('');
-
-    tr.innerHTML='<td style="padding:7px 10px;font-weight:700;color:#1d4ed8">#'+b.billNo+'</td>'+
-      '<td style="padding:7px 10px">'+fmtDate(b.date)+'</td>'+
-      '<td style="padding:7px 10px;font-weight:600;color:#166534">'+b.party+'</td>'+
-      '<td style="padding:7px 10px;text-align:right">₹'+fmt(b.netAmt||0)+'</td>'+
-      '<td style="padding:7px 10px;text-align:right;font-weight:700">₹'+fmt(s.recv)+'</td>'+
-      '<td style="padding:7px 10px;text-align:right;font-weight:700;color:#dc2626">₹'+fmt(overpaidAmt)+'</td>'+
-      '<td style="padding:7px 10px">'+paysHtml+'</td>';
-
-    var actionTd = document.createElement('td');
-    actionTd.style.cssText='padding:7px 10px;text-align:center';
-    var viewBtn = el('button',{cls:'btn btn-xs btn-outline',text:'View Ledger'});
-    viewBtn.addEventListener('click',function(){ pageState.ledgerParty=b.party; go('ledger'); });
-    actionTd.appendChild(viewBtn);
-    tr.appendChild(actionTd);
-    tbody.appendChild(tr);
+  if(!overpaidBills.length){var ok=document.createElement('div');ok.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:40px;text-align:center;color:#166534';ok.innerHTML='<div style="font-size:40px;margin-bottom:10px">✅</div><div style="font-size:16px;font-weight:700">Koi overpayment nahi!</div>';wrap.appendChild(ok);return wrap;}
+  var tblCard=document.createElement('div');tblCard.className='card';
+  var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+  tbl.innerHTML='<thead><tr style="background:#fef2f2"><th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Bill#</th><th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Date</th><th style="padding:8px 10px;text-align:left;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Party</th><th style="padding:8px 10px;text-align:right;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Bill Amt</th><th style="padding:8px 10px;text-align:right;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Received</th><th style="padding:8px 10px;text-align:right;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Excess</th><th style="padding:8px 10px;text-align:center;color:#dc2626;font-size:11px;border-bottom:2px solid #fecaca">Action</th></tr></thead>';
+  var tbody=document.createElement('tbody');
+  overpaidBills.sort(function(a,b2){var sa=getBillStatus(a),sb=getBillStatus(b2);return(sb.recv-(b2.netAmt||0))-(sa.recv-(a.netAmt||0));}).forEach(function(b,i){
+    var s=getBillStatus(b);var oa=s.recv-(b.netAmt||0);
+    var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #fee2e2;background:'+(i%2===0?'#fff':'#fff5f5');
+    tr.innerHTML='<td style="padding:7px 10px;font-weight:700;color:#1d4ed8">#'+b.billNo+'</td><td style="padding:7px 10px">'+fmtDate(b.date)+'</td><td style="padding:7px 10px;font-weight:600;color:#166534">'+b.party+'</td><td style="padding:7px 10px;text-align:right">₹'+fmt(b.netAmt||0)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700">₹'+fmt(s.recv)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700;color:#dc2626">₹'+fmt(oa)+'</td>';
+    var atd=document.createElement('td');atd.style.cssText='padding:7px 10px;text-align:center';
+    var vb=el('button',{cls:'btn btn-xs btn-outline',text:'View Ledger'});vb.addEventListener('click',function(){pageState.ledgerParty=b.party;go('ledger');});atd.appendChild(vb);tr.appendChild(atd);tbody.appendChild(tr);
   });
-  tbl.appendChild(tbody);
-  tblCard.appendChild(tbl);
-  wrap.appendChild(tblCard);
-  return wrap;
+  tbl.appendChild(tbody);tblCard.appendChild(tbl);wrap.appendChild(tblCard);return wrap;
 }
 
-
-// ══════════════════════════════════════════════════════════
-// BULK RECEIPTS PAGE
-// ══════════════════════════════════════════════════════════
 function pgBulkReceipts() {
-  var wrap = document.createElement('div');
-
-  // Header
-  var hdr = document.createElement('div');
-  hdr.style.cssText='margin-bottom:16px';
-  hdr.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0">📋 Bulk Payment Receipts</h3>'+
-    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Party Ledger se kiye gaye saare Bulk Payments ki list</p>';
-  wrap.appendChild(hdr);
-
-  // Filter bulk payments — those with remarks containing 'Manual Bulk Pay' or 'Bulk Payment' or 'Bulk FIFO'
-  var bulkPays = payments.filter(function(p){
-    var r=(p.remarks||'').toLowerCase();
-    return r.indexOf('bulk')!==-1 || r.indexOf('manual bulk')!==-1;
-  });
-
-  // Group by date+party
-  var grouped = {};
-  bulkPays.forEach(function(p){
-    var b=bills.find(function(x){return x.id===p.billId;})||{};
-    var key=(p.date||'')+'|'+(b.party||'?');
-    if(!grouped[key]) grouped[key]={date:p.date,party:b.party||'?',payments:[],total:0};
-    grouped[key].payments.push(p);
-    grouped[key].total+=(p.amount||0);
-  });
-
-  var groups = Object.values(grouped).sort(function(a,b2){return (b2.date||'').localeCompare(a.date||'');});
-
-  // Summary cards
-  var sumGrid=document.createElement('div');
-  sumGrid.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px';
-  var totalBulkAmt=bulkPays.reduce(function(s,p){return s+(p.amount||0);},0);
-  [{l:'Total Bulk Transactions',v:bulkPays.length,c:'#166534',bg:'#f0fdf4'},
-   {l:'Total Amount',v:'₹'+fmt(totalBulkAmt),c:'#166534',bg:'#f0fdf4'},
-   {l:'Parties',v:Array.from(new Set(groups.map(function(g){return g.party;}))).length,c:'#1d4ed8',bg:'#eff6ff'}
-  ].forEach(function(s){
-    var d=document.createElement('div');
-    d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+';border-radius:10px;padding:14px';
-    d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+s.l+'</div>'+
-      '<div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';
-    sumGrid.appendChild(d);
-  });
-  wrap.appendChild(sumGrid);
-
-  if(!groups.length){
-    var ok=document.createElement('div');
-    ok.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:40px;text-align:center;color:#166534';
-    ok.innerHTML='<div style="font-size:36px;margin-bottom:10px">📋</div><div style="font-size:15px;font-weight:700">Koi Bulk Payment nahi mila</div><div style="font-size:12px;margin-top:4px;opacity:.7">Party Ledger se Bulk Pay karne par yahan dikhega.</div>';
-    wrap.appendChild(ok);
-    return wrap;
-  }
-
-  // Table
-  var card=document.createElement('div'); card.className='card'; card.style.overflow='auto';
-  var tbl=document.createElement('table'); tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
-  tbl.innerHTML='<thead><tr style="background:#f0fdf4">'+
-    '<th style="padding:8px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">#</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Date</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Party</th>'+
-    '<th style="padding:8px 10px;text-align:right;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Total Amount</th>'+
-    '<th style="padding:8px 10px;text-align:center;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Bills Covered</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Mode</th>'+
-    '<th style="padding:8px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Remarks</th>'+
-    '<th style="padding:8px 10px;text-align:center;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Action</th>'+
-    '</tr></thead>';
+  var wrap=document.createElement('div');
+  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0 0 6px">📋 Bulk Payment Receipts</h3><p style="font-size:12px;color:#6b7280;margin:0 0 16px">Party Ledger se kiye gaye saare Bulk Payments</p>';
+  var bulkPays=payments.filter(function(p){var r=(p.remarks||'').toLowerCase();return r.indexOf('bulk')!==-1||r.indexOf('manual bulk')!==-1;});
+  var grouped={};
+  bulkPays.forEach(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};var key=(p.date||'')+'|'+(b.party||'?');if(!grouped[key])grouped[key]={date:p.date,party:b.party||'?',payments:[],total:0};grouped[key].payments.push(p);grouped[key].total+=(p.amount||0);});
+  var groups=Object.values(grouped).sort(function(a,b2){return(b2.date||'').localeCompare(a.date||'');});
+  var totalAmt=bulkPays.reduce(function(s,p){return s+(p.amount||0);},0);
+  var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px';
+  [{l:'Total Transactions',v:bulkPays.length,c:'#166534',bg:'#f0fdf4'},{l:'Total Amount',v:'₹'+fmt(totalAmt),c:'#166534',bg:'#f0fdf4'},{l:'Parties',v:Array.from(new Set(groups.map(function(g){return g.party;}))).length,c:'#1d4ed8',bg:'#eff6ff'}].forEach(function(s){var d=document.createElement('div');d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+';border-radius:10px;padding:14px';d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+s.l+'</div><div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';sg.appendChild(d);});
+  wrap.appendChild(sg);
+  if(!groups.length){var nd=document.createElement('div');nd.style.cssText='background:#f9fafb;border-radius:10px;padding:40px;text-align:center;color:#9ca3af';nd.innerHTML='<div style="font-size:36px;margin-bottom:8px">📋</div>Koi Bulk Payment nahi mila';wrap.appendChild(nd);return wrap;}
+  var card=document.createElement('div');card.className='card';card.style.overflow='auto';
+  var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+  tbl.innerHTML='<thead><tr style="background:#f0fdf4"><th style="padding:8px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:left">#</th><th style="padding:8px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:left">Date</th><th style="padding:8px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:left">Party</th><th style="padding:8px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:right">Amount</th><th style="padding:8px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:left">Bills</th><th style="padding:8px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:center">Action</th></tr></thead>';
   var tbody=document.createElement('tbody');
   groups.forEach(function(g,i){
-    var tr=document.createElement('tr');
-    tr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');
-    var billsDiv=document.createElement('div');
-    g.payments.forEach(function(p){
-      var b=bills.find(function(x){return x.id===p.billId;})||{};
-      var row=document.createElement('div');
-      row.style.cssText='font-size:10px;color:#374151;padding:1px 0';
-      row.textContent='Bill #'+(b.billNo||'?')+' — ₹'+fmt(p.amount||0);
-      billsDiv.appendChild(row);
-    });
+    var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');
+    var billsHtml=g.payments.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return'<div style="font-size:10px;color:#374151">Bill #'+(b.billNo||'?')+' — ₹'+fmt(p.amount||0)+'</div>';}).join('');
     var modes=Array.from(new Set(g.payments.map(function(p){return p.mode||'-';}))).join(', ');
-    var remarks=Array.from(new Set(g.payments.map(function(p){return p.remarks||'';}).filter(Boolean))).join('; ');
-    var td1=document.createElement('td'); td1.style.cssText='padding:7px 10px;color:#9ca3af'; td1.textContent=i+1;
-    var td2=document.createElement('td'); td2.style.cssText='padding:7px 10px'; td2.textContent=fmtDate(g.date);
-    var td3=document.createElement('td'); td3.style.cssText='padding:7px 10px;font-weight:600;color:#166534;cursor:pointer'; td3.textContent=g.party;
-    td3.addEventListener('click',function(){pageState.ledgerParty=g.party;go('ledger');});
-    var td4=document.createElement('td'); td4.style.cssText='padding:7px 10px;text-align:right;font-weight:700;color:#166534'; td4.textContent='₹'+fmt(g.total);
-    var td5=document.createElement('td'); td5.style.cssText='padding:7px 10px;text-align:center'; td5.appendChild(billsDiv);
-    var td6=document.createElement('td'); td6.style.cssText='padding:7px 10px'; td6.innerHTML='<span style="background:#e0f2fe;color:#0369a1;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">'+modes+'</span>';
-    var td7=document.createElement('td'); td7.style.cssText='padding:7px 10px;color:#6b7280;font-size:11px'; td7.textContent=remarks;
-    var td8=document.createElement('td'); td8.style.cssText='padding:7px 10px;text-align:center';
-    var vBtn=el('button',{cls:'btn btn-xs btn-outline',text:'View Ledger'});
-    vBtn.addEventListener('click',(function(party){return function(){pageState.ledgerParty=party;go('ledger');};})(g.party));
-    td8.appendChild(vBtn);
-    [td1,td2,td3,td4,td5,td6,td7,td8].forEach(function(td){tr.appendChild(td);});
-    tbody.appendChild(tr);
+    var td1=document.createElement('td');td1.style.cssText='padding:7px 10px;color:#9ca3af';td1.textContent=i+1;
+    var td2=document.createElement('td');td2.style.cssText='padding:7px 10px';td2.textContent=fmtDate(g.date);
+    var td3=document.createElement('td');td3.style.cssText='padding:7px 10px;font-weight:600;color:#166534;cursor:pointer';td3.textContent=g.party;td3.addEventListener('click',function(){pageState.ledgerParty=g.party;go('ledger');});
+    var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;text-align:right;font-weight:700;color:#166534';td4.textContent='₹'+fmt(g.total);
+    var td5=document.createElement('td');td5.style.cssText='padding:7px 10px';td5.innerHTML=billsHtml+'<div style="font-size:10px;color:#6b7280">'+modes+'</div>';
+    var td6=document.createElement('td');td6.style.cssText='padding:7px 10px;text-align:center';
+    var vb=el('button',{cls:'btn btn-xs btn-outline',text:'Ledger'});vb.addEventListener('click',(function(party){return function(){pageState.ledgerParty=party;go('ledger');};})(g.party));td6.appendChild(vb);
+    [td1,td2,td3,td4,td5,td6].forEach(function(td){tr.appendChild(td);});tbody.appendChild(tr);
   });
-  tbl.appendChild(tbody);
-  card.appendChild(tbl);
-  wrap.appendChild(card);
-  return wrap;
+  tbl.appendChild(tbody);card.appendChild(tbl);wrap.appendChild(card);return wrap;
 }
 
-// ══════════════════════════════════════════════════════════
-// CASH SPLIT PAGE
-// ══════════════════════════════════════════════════════════
 function pgCashSplit() {
-  var wrap = document.createElement('div');
-
-  // Header
-  var hdr = document.createElement('div');
-  hdr.style.cssText='margin-bottom:16px';
-  hdr.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0">✂️ Cash Split</h3>'+
-    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Ek cash amount ko multiple parties aur dates mein split karo</p>';
-  wrap.appendChild(hdr);
-
-  // ── FORM ──
-  var formCard=document.createElement('div'); formCard.className='card'; formCard.style.marginBottom='16px';
-  var formHead=document.createElement('div'); formHead.className='card-head';
-  formHead.innerHTML='<h4>💰 Naya Cash Split</h4><span style="font-size:11px;color:#6b7280">Total cash amount enter karo, phir parties mein split karo</span>';
-  formCard.appendChild(formHead);
-
-  var formBody=document.createElement('div'); formBody.style.cssText='padding:16px';
-
-  // Total cash amount input
-  var topRow=document.createElement('div'); topRow.style.cssText='display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap';
-  var amtWrap=document.createElement('div');
-  amtWrap.innerHTML='<label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:4px">Total Cash Amount (₹)</label>';
-  var amtInp=document.createElement('input'); amtInp.className='inp'; amtInp.type='number'; amtInp.placeholder='0'; amtInp.id='cs-total';
-  amtInp.style.cssText='max-width:200px;font-size:15px;font-weight:700';
-  amtWrap.appendChild(amtInp);
-  topRow.appendChild(amtWrap);
-
-  var addBtn=el('button',{cls:'btn btn-green',text:'+ Add Party Row'});
-  topRow.appendChild(addBtn);
-
-  var saveBtn=el('button',{cls:'btn btn-green',text:'✅ Save Split'});
-  saveBtn.style.marginLeft='auto';
-  topRow.appendChild(saveBtn);
-
-  formBody.appendChild(topRow);
-
-  // Balance indicator
-  var balBar=document.createElement('div');
-  balBar.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:600;display:flex;gap:20px;flex-wrap:wrap';
-  balBar.id='cs-balbar';
-  balBar.innerHTML='<span>Total: <strong id="cs-bal-total">₹0</strong></span>'+
-    '<span>Split: <strong id="cs-bal-split" style="color:#166534">₹0</strong></span>'+
-    '<span id="cs-bal-remain-wrap">Remaining: <strong id="cs-bal-remain" style="color:#dc2626">₹0</strong></span>';
-  formBody.appendChild(balBar);
-
-  // Rows container
-  var rowsCont=document.createElement('div'); rowsCont.id='cs-rows';
-  formBody.appendChild(rowsCont);
-
-  formCard.appendChild(formBody);
-  wrap.appendChild(formCard);
-
-  // ── PAST SPLITS TABLE ──
-  var pastCard=document.createElement('div'); pastCard.className='card';
-  var pastHead=document.createElement('div'); pastHead.className='card-head';
-  pastHead.innerHTML='<h4>📅 Past Cash Splits</h4>';
-  pastCard.appendChild(pastHead);
-
-  var splitPays=payments.filter(function(p){
-    return (p.mode||'').toUpperCase()==='CASH' && (p.remarks||'').toLowerCase().indexOf('cash split')!==-1;
-  });
-
-  if(!splitPays.length){
-    var noneDiv=document.createElement('div');
-    noneDiv.style.cssText='padding:30px;text-align:center;color:#9ca3af;font-size:13px';
-    noneDiv.textContent='Koi Cash Split nahi mila abhi tak.';
-    pastCard.appendChild(noneDiv);
-  } else {
-    var ptbl=document.createElement('table'); ptbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
-    ptbl.innerHTML='<thead><tr style="background:#f0fdf4">'+
-      '<th style="padding:7px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Date</th>'+
-      '<th style="padding:7px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Party</th>'+
-      '<th style="padding:7px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Bill#</th>'+
-      '<th style="padding:7px 10px;text-align:right;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Amount</th>'+
-      '<th style="padding:7px 10px;text-align:left;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Remarks</th>'+
-      '</tr></thead>';
-    var ptbody=document.createElement('tbody');
-    splitPays.sort(function(a,b2){return (b2.date||'').localeCompare(a.date||'');}).forEach(function(p,i){
-      var b=bills.find(function(x){return x.id===p.billId;})||{};
-      var ptr=document.createElement('tr'); ptr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');
-      ptr.innerHTML='<td style="padding:6px 10px">'+fmtDate(p.date)+'</td>'+
-        '<td style="padding:6px 10px;font-weight:600;color:#166534">'+( b.party||'?')+'</td>'+
-        '<td style="padding:6px 10px;color:#1d4ed8">#'+(b.billNo||'?')+'</td>'+
-        '<td style="padding:6px 10px;text-align:right;font-weight:700">₹'+fmt(p.amount||0)+'</td>'+
-        '<td style="padding:6px 10px;color:#6b7280;font-size:11px">'+(p.remarks||'-')+'</td>';
-      ptbody.appendChild(ptr);
-    });
-    ptbl.appendChild(ptbody);
-    pastCard.appendChild(ptbl);
+  var wrap=document.createElement('div');
+  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0 0 6px">✂️ Cash Split</h3><p style="font-size:12px;color:#6b7280;margin:0 0 16px">Ek cash amount ko multiple parties aur dates mein split karo</p>';
+  var formCard=document.createElement('div');formCard.className='card';formCard.style.marginBottom='16px';
+  var fh=document.createElement('div');fh.className='card-head';fh.innerHTML='<h4>💰 Naya Cash Split</h4><span style="font-size:11px;color:#6b7280">Total cash enter karo, parties mein baanto</span>';formCard.appendChild(fh);
+  var fb=document.createElement('div');fb.style.cssText='padding:16px';
+  var topRow=document.createElement('div');topRow.style.cssText='display:flex;gap:10px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap';
+  var aw=document.createElement('div');aw.innerHTML='<label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:4px">Total Cash (₹)</label>';
+  var ai=document.createElement('input');ai.className='inp';ai.type='number';ai.placeholder='0';ai.id='cs-total';ai.style='max-width:180px';aw.appendChild(ai);
+  var addB=el('button',{cls:'btn btn-green btn-sm',text:'+ Row'});
+  var saveB=el('button',{cls:'btn btn-green btn-sm',text:'✅ Save'});saveB.style.marginLeft='auto';
+  topRow.appendChild(aw);topRow.appendChild(addB);topRow.appendChild(saveB);fb.appendChild(topRow);
+  var bb=document.createElement('div');bb.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:7px;padding:8px 12px;margin-bottom:12px;font-size:12px;font-weight:600;display:flex;gap:16px;flex-wrap:wrap';
+  bb.innerHTML='Total: <strong id="cs-t">₹0</strong> | Split: <strong id="cs-s" style="color:#166534">₹0</strong> | <strong id="cs-r" style="color:#d97706">Remaining: ₹0</strong>';
+  fb.appendChild(bb);
+  var rc=document.createElement('div');rc.id='cs-rows';fb.appendChild(rc);formCard.appendChild(fb);wrap.appendChild(formCard);
+  var pastCard=document.createElement('div');pastCard.className='card';
+  var ph=document.createElement('div');ph.className='card-head';ph.innerHTML='<h4>📅 Past Cash Splits</h4>';pastCard.appendChild(ph);
+  var splitPays=payments.filter(function(p){return(p.mode||'').toUpperCase()==='CASH'&&(p.remarks||'').toLowerCase().indexOf('cash split')!==-1;});
+  if(!splitPays.length){var nd=document.createElement('div');nd.style.cssText='padding:24px;text-align:center;color:#9ca3af;font-size:13px';nd.textContent='Koi Cash Split nahi abhi tak';pastCard.appendChild(nd);}
+  else{
+    var pt=document.createElement('table');pt.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+    pt.innerHTML='<thead><tr style="background:#f0fdf4"><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Date</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Party</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Bill#</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:right">Amount</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Remarks</th></tr></thead>';
+    var ptb=document.createElement('tbody');
+    splitPays.sort(function(a,b){return(b.date||'').localeCompare(a.date||'');}).forEach(function(p,i){var b=bills.find(function(x){return x.id===p.billId;})||{};var ptr=document.createElement('tr');ptr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');ptr.innerHTML='<td style="padding:6px 10px">'+fmtDate(p.date)+'</td><td style="padding:6px 10px;font-weight:600;color:#166534">'+(b.party||'?')+'</td><td style="padding:6px 10px;color:#1d4ed8">#'+(b.billNo||'?')+'</td><td style="padding:6px 10px;text-align:right;font-weight:700">₹'+fmt(p.amount||0)+'</td><td style="padding:6px 10px;color:#6b7280;font-size:11px">'+(p.remarks||'-')+'</td>';ptb.appendChild(ptr);});
+    pt.appendChild(ptb);pastCard.appendChild(pt);
   }
   wrap.appendChild(pastCard);
-
-  // ── LOGIC ──
-  var rowCount=0;
-
-  function updateBalance(){
+  function upd(){var t=parseFloat(document.getElementById('cs-total').value)||0;var sp=0;document.querySelectorAll('#cs-rows .cs-amt').forEach(function(x){sp+=parseFloat(x.value)||0;});var r=t-sp;document.getElementById('cs-t').textContent='₹'+fmt(t);document.getElementById('cs-s').textContent='₹'+fmt(sp);var re=document.getElementById('cs-r');re.textContent=(r<-0.5?'Over: ₹'+fmt(Math.abs(r)):r>0.5?'Remaining: ₹'+fmt(r):'✅ Balanced');re.style.color=r<-0.5?'#dc2626':r>0.5?'#d97706':'#166534';}
+  ai.addEventListener('input',upd);
+  var rowN=0;
+  function addRow(){rowN++;var row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr 1fr 130px 130px 34px;gap:8px;align-items:center;margin-bottom:8px;padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px';
+    var pi=document.createElement('input');pi.className='inp cs-party';pi.placeholder='Party name';pi.style.fontSize='12px';
+    var bs=document.createElement('select');bs.className='inp cs-bill';bs.style.fontSize='12px';bs.innerHTML='<option value="">— Bill —</option>';
+    var di=document.createElement('input');di.className='inp';di.type='date';di.value=today();di.style.fontSize='12px';
+    var amt=document.createElement('input');amt.className='inp cs-amt';amt.type='number';amt.placeholder='₹';amt.style.fontSize='12px';amt.addEventListener('input',upd);
+    var db=document.createElement('button');db.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;width:30px;height:30px;cursor:pointer;font-size:16px';db.textContent='×';db.addEventListener('click',function(){row.parentNode.removeChild(row);upd();});
+    pi.addEventListener('input',function(){var q=this.value.toUpperCase().trim();bs.innerHTML='<option value="">— Bill —</option>';if(!q)return;bills.filter(function(b){return b.party&&b.party.toUpperCase().indexOf(q)!==-1&&getBillStatus(b).bal>0;}).slice(0,20).forEach(function(b){var s=getBillStatus(b);var o=document.createElement('option');o.value=b.id;o.textContent='#'+b.billNo+' ₹'+fmt(s.bal);bs.appendChild(o);});});
+    [pi,bs,di,amt,db].forEach(function(e){row.appendChild(e);});rc.appendChild(row);}
+  addRow();addRow();
+  addB.addEventListener('click',function(){addRow();upd();});
+  saveB.addEventListener('click',function(){
     var total=parseFloat(document.getElementById('cs-total').value)||0;
-    var splitRows=document.querySelectorAll('#cs-rows .cs-row-amt');
-    var splitTotal=0;
-    splitRows.forEach(function(inp){splitTotal+=parseFloat(inp.value)||0;});
-    var remain=total-splitTotal;
-    document.getElementById('cs-bal-total').textContent='₹'+fmt(total);
-    document.getElementById('cs-bal-split').textContent='₹'+fmt(splitTotal);
-    var remEl=document.getElementById('cs-bal-remain');
-    remEl.textContent='₹'+fmt(Math.abs(remain));
-    remEl.style.color=remain<-0.5?'#dc2626':remain>0.5?'#d97706':'#166534';
-    document.getElementById('cs-bal-remain-wrap').firstChild.textContent=remain<-0.5?'Over by: ':remain>0.5?'Remaining: ':'✅ Balanced: ';
-  }
-
-  amtInp.addEventListener('input',updateBalance);
-
-  function addRow(){
-    rowCount++;
-    var row=document.createElement('div');
-    row.className='cs-row'; row.dataset.idx=rowCount;
-    row.style.cssText='display:grid;grid-template-columns:1fr 1fr 140px 140px 36px;gap:8px;align-items:center;margin-bottom:8px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px';
-
-    // Party search
-    var partyInp=document.createElement('input'); partyInp.className='inp cs-row-party'; partyInp.placeholder='Party name';
-    partyInp.style.fontSize='12px';
-
-    // Bill# dropdown (populated on party input)
-    var billSel=document.createElement('select'); billSel.className='inp cs-row-bill'; billSel.style.fontSize='12px';
-    billSel.innerHTML='<option value="">— Bill select karo —</option>';
-
-    // Date
-    var dateInp=document.createElement('input'); dateInp.className='inp cs-row-date'; dateInp.type='date'; dateInp.value=today();
-    dateInp.style.fontSize='12px';
-
-    // Amount
-    var amtR=document.createElement('input'); amtR.className='inp cs-row-amt'; amtR.type='number'; amtR.placeholder='₹ Amount';
-    amtR.style.fontSize='12px';
-    amtR.addEventListener('input',updateBalance);
-
-    // Delete button
-    var delBtn=document.createElement('button');
-    delBtn.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;width:32px;height:32px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center';
-    delBtn.textContent='×';
-    delBtn.addEventListener('click',function(){row.parentNode.removeChild(row);updateBalance();});
-
-    // Party input → populate bills
-    partyInp.addEventListener('input',function(){
-      var q=this.value.toUpperCase().trim();
-      billSel.innerHTML='<option value="">— Bill select karo —</option>';
-      if(!q)return;
-      var matched=bills.filter(function(b){return b.party&&b.party.toUpperCase().indexOf(q)!==-1&&getBillStatus(b).bal>0;});
-      matched.slice(0,30).forEach(function(b){
-        var s=getBillStatus(b);
-        var opt=document.createElement('option'); opt.value=b.id;
-        opt.textContent='#'+b.billNo+' ₹'+fmt(s.bal)+' ('+fmtDate(b.date)+')';
-        billSel.appendChild(opt);
-      });
+    if(!total){toast('Total cash enter karo!','err');return;}
+    var toSave=[];var ok=true;
+    document.querySelectorAll('#cs-rows > div').forEach(function(row){
+      var billId=row.querySelector('.cs-bill').value;
+      var date=row.querySelector('input[type=date]').value;
+      var amt=parseFloat(row.querySelector('.cs-amt').value)||0;
+      var party=row.querySelector('.cs-party').value.trim();
+      if(!billId&&!party)return;
+      if(!billId){toast('Bill select karo: '+party,'err');ok=false;return;}
+      if(!amt){toast('Amount enter karo!','err');ok=false;return;}
+      toSave.push({billId:billId,date:date,amount:amt});
     });
-
-    [partyInp,billSel,dateInp,amtR,delBtn].forEach(function(el2){row.appendChild(el2);});
-    rowsCont.appendChild(row);
-  }
-
-  // Start with 2 rows
-  addRow(); addRow();
-
-  addBtn.addEventListener('click',function(){addRow();updateBalance();});
-
-  // Save
-  saveBtn.addEventListener('click',function(){
-    var totalCash=parseFloat(document.getElementById('cs-total').value)||0;
-    if(!totalCash){toast('Total cash amount enter karo!','err');return;}
-
-    var rows2=document.querySelectorAll('#cs-rows .cs-row');
-    var toSave=[];
-    var valid=true;
-    rows2.forEach(function(row){
-      var billId=row.querySelector('.cs-row-bill').value;
-      var date=row.querySelector('.cs-row-date').value;
-      var amt=parseFloat(row.querySelector('.cs-row-amt').value)||0;
-      var party=row.querySelector('.cs-row-party').value.trim();
-      if(!billId&&!party) return; // skip empty rows
-      if(!billId){toast('Bill select karo: '+party,'err');valid=false;return;}
-      if(!date){toast('Date enter karo!','err');valid=false;return;}
-      if(!amt||amt<=0){toast('Amount enter karo!','err');valid=false;return;}
-      toSave.push({billId:billId,date:date,amount:amt,party:party});
-    });
-    if(!valid)return;
-    if(!toSave.length){toast('Koi row nahi hai!','err');return;}
-
-    // Check total matches
-    var splitSum=toSave.reduce(function(s,r){return s+r.amount;},0);
-    if(Math.abs(splitSum-totalCash)>0.5){
-      if(!confirm('⚠️ Total cash ₹'+fmt(totalCash)+' aur split total ₹'+fmt(splitSum)+' match nahi karta!
-
-Fir bhi save karein?'))return;
-    }
-
-    // Check overpayment
-    var overWarnings=[];
-    toSave.forEach(function(r){
-      var b=bills.find(function(x){return x.id===r.billId;})||{};
-      var s=getBillStatus(b);
-      if(r.amount>s.bal+0.5) overWarnings.push(b.party+' Bill #'+b.billNo+': Balance ₹'+fmt(s.bal)+' se zyada ₹'+fmt(r.amount));
-    });
-    if(overWarnings.length){
-      if(!confirm('⚠️ Overpayment hogi:
-'+overWarnings.join('
-')+'
-
-Fir bhi save karein?'))return;
-    }
-
-    histSave('Cash Split: ₹'+fmt(totalCash)+' → '+toSave.length+' parties','payment');
-    toSave.forEach(function(r){
-      payments.push({id:uid(),billId:r.billId,amount:r.amount,rebate:0,interest:0,
-        date:r.date,mode:'CASH',chequeNo:'',receiptNo:'',
-        remarks:'Cash Split (Total ₹'+fmt(totalCash)+')'});
-    });
-    invalidateBillStatusCache();
-    DB.set('payments',payments);
-    toast('✅ Cash Split saved! '+toSave.length+' payments — ₹'+fmt(splitSum));
+    if(!ok||!toSave.length)return;
+    var sp=toSave.reduce(function(s,r){return s+r.amount;},0);
+    if(Math.abs(sp-total)>0.5){if(!confirm('⚠️ Total ₹'+fmt(total)+' aur split ₹'+fmt(sp)+' match nahi. Phir bhi save karein?'))return;}
+    histSave('Cash Split ₹'+fmt(total),'payment');
+    toSave.forEach(function(r){payments.push({id:uid(),billId:r.billId,amount:r.amount,rebate:0,interest:0,date:r.date,mode:'CASH',chequeNo:'',receiptNo:'',remarks:'Cash Split (Total ₹'+fmt(total)+')'});});
+    invalidateBillStatusCache();DB.set('payments',payments);
+    toast('✅ Cash Split saved! ₹'+fmt(sp)+' — '+toSave.length+' payments');
     refresh();
   });
-
   return wrap;
 }
 
@@ -10851,7 +10410,8 @@ function pgDuplicates() {
     dupReceiptNo: [],    // Same receipt number in payments
     dupChequeRec: [],    // Same cheque# in cheques table
     orphanPayments: [],  // Payments with no matching bill
-    billsNoAmt: []       // Bills with netAmt=0 or missing
+    billsNoAmt: [],      // Bills with netAmt=0 or missing
+    suspectParties: []   // Same party name, different broker or station
   };
 
   // 1. Duplicate Bills (same billNo)
@@ -18832,7 +18392,7 @@ function pgReceiptLedger() {
     var partTotal=singleData.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
     var intTotal=singleData.reduce(function(s,p){return s+(p.interest||0);},0);
     var rebTotal=singleData.reduce(function(s,p){return s+(p.rebate||0);},0);
-    var totalRecv=grossTotal+singleTotal+partTotal+intTotal;
+    var totalRecv=grossTotal+singleTotal+partTotal;
 
     sumGrid.innerHTML='';
     [{l:'Gross Payments',v:grossVisible.length,c:'#1d4ed8'},
@@ -18972,7 +18532,7 @@ function printReceiptLedger(){
   var pt=singleData.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
   var it=payments.reduce(function(s,p){return s+(p.interest||0);},0);
   var rt=payments.reduce(function(s,p){return s+(p.rebate||0);},0);
-  var totalRecv=grossTotal+st+pt+it;
+  var totalRecv=grossTotal+st+pt;
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receipt Ledger</title>'
     +'<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
     +'h2{color:#166534;margin-bottom:4px}'
