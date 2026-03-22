@@ -10023,10 +10023,14 @@ function pgBillImport() {
           var importStation=(gv2(cols.station)||'').toUpperCase();
           var importBroker=(gv2(cols.broker)||'').toUpperCase();
           var partyResolved=resolveImportedParty(party,importStation,importBroker);
+          // station_mismatch: use name+station to create unique party name
+          var resolvedPartyName = partyResolved.match==='station_mismatch'
+            ? (party+(importStation?' - '+importStation:''))
+            : (partyResolved.party||party);
           rows.push({
             billNo:String(billNo),
             date:parseBillDate(gv2(cols.date)),
-            party:partyResolved.party,
+            party:resolvedPartyName,
             _partyMatch:partyResolved.match,
             _partyReason:partyResolved.reason,
             station:importStation,
@@ -10159,7 +10163,45 @@ function pgBillImport() {
   }
 
   function buildBillTable() {
-    var tCard=document.createElement('div');tCard.className='card';
+    // ── TOOLBAR: search + filter ──
+    var tbWrap=document.createElement('div');
+    tbWrap.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;margin-bottom:0';
+
+    var srch=document.createElement('input');srch.className='inp';srch.placeholder='🔍 Search party / bill# / station / broker...';
+    srch.style.cssText='max-width:260px;font-size:12px';
+    srch.value=state.biSearch||'';
+
+    // Filter: Status
+    var stFil=document.createElement('select');stFil.className='inp';stFil.style.cssText='max-width:140px;font-size:12px';
+    [['','All Status'],['new','✓ New'],['dup','⚠ Duplicate'],['warn','⚠ Check'],['fuzzy','~ Fuzzy'],['skip','Skip']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.biStatus||'')=== o[0])op.selected=true;stFil.appendChild(op);});
+
+    // Filter: Broker
+    var brokers=[''].concat(Array.from(new Set(state.rows.map(function(r){return r.broker||'';}).filter(Boolean))).sort());
+    var brFil=document.createElement('select');brFil.className='inp';brFil.style.cssText='max-width:160px;font-size:12px';
+    brokers.forEach(function(b){var op=document.createElement('option');op.value=b;op.textContent=b||'All Brokers';if((state.biBroker||'')=== b)op.selected=true;brFil.appendChild(op);});
+
+    // Filter: Station
+    var stations=[''].concat(Array.from(new Set(state.rows.map(function(r){return r.station||'';}).filter(Boolean))).sort());
+    var stnFil=document.createElement('select');stnFil.className='inp';stnFil.style.cssText='max-width:140px;font-size:12px';
+    stations.forEach(function(s){var op=document.createElement('option');op.value=s;op.textContent=s||'All Stations';if((state.biStation||'')=== s)op.selected=true;stnFil.appendChild(op);});
+
+    // Sort
+    var sortSel=document.createElement('select');sortSel.className='inp';sortSel.style.cssText='max-width:160px;font-size:12px';
+    [['date_desc','Date ↓'],['date_asc','Date ↑'],['billNo_asc','Bill# ↑'],['billNo_desc','Bill# ↓'],['party_asc','Party A-Z'],['party_desc','Party Z-A'],['amount_desc','Amount ↓'],['amount_asc','Amount ↑'],['broker_asc','Broker A-Z'],['station_asc','Station A-Z']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.biSort||'date_desc')===o[0])op.selected=true;sortSel.appendChild(op);});
+
+    var clrBtn2=el('button',{cls:'btn btn-outline btn-sm',text:'Clear Filters'});
+
+    [srch,stFil,brFil,stnFil,sortSel,clrBtn2].forEach(function(e){tbWrap.appendChild(e);});
+
+    function applyBiFilters(){
+      state.biSearch=srch.value;state.biStatus=stFil.value;state.biBroker=brFil.value;state.biStation=stnFil.value;state.biSort=sortSel.value;
+      refresh();
+    }
+    srch.addEventListener('input',function(){clearTimeout(state._biT);state._biT=setTimeout(applyBiFilters,150);});
+    stFil.addEventListener('change',applyBiFilters);brFil.addEventListener('change',applyBiFilters);stnFil.addEventListener('change',applyBiFilters);sortSel.addEventListener('change',applyBiFilters);
+    clrBtn2.addEventListener('click',function(){state.biSearch='';state.biStatus='';state.biBroker='';state.biStation='';state.biSort='date_desc';srch.value='';stFil.value='';brFil.value='';stnFil.value='';sortSel.value='date_desc';refresh();});
+
+    var tCard=document.createElement('div');tCard.className='card';tCard.appendChild(tbWrap);
     var tH=document.createElement('div');tH.className='card-head';
     var sel=state.rows.filter(function(r){return r._include;}).length;
     var dup=state.rows.filter(function(r){return r._dup;}).length;
@@ -10195,7 +10237,34 @@ function pgBillImport() {
     th3.appendChild(hr3);tbl3.appendChild(th3);
     var tb3=document.createElement('tbody');
 
-    state.rows.forEach(function(bill,bi){
+    // Apply search + filters + sort
+    var visRows=state.rows.slice();
+    var bq=(state.biSearch||'').toLowerCase();
+    if(bq) visRows=visRows.filter(function(r){return (r.party||'').toLowerCase().indexOf(bq)>=0||(r.billNo||'').toString().indexOf(bq)>=0||(r.station||'').toLowerCase().indexOf(bq)>=0||(r.broker||'').toLowerCase().indexOf(bq)>=0;});
+    if(state.biStatus==='dup') visRows=visRows.filter(function(r){return r._dup;});
+    else if(state.biStatus==='new') visRows=visRows.filter(function(r){return !r._dup&&r._include;});
+    else if(state.biStatus==='warn') visRows=visRows.filter(function(r){return r._partyMatch==='warn'||r._partyMatch==='station_mismatch';});
+    else if(state.biStatus==='fuzzy') visRows=visRows.filter(function(r){return r._partyMatch==='fuzzy';});
+    else if(state.biStatus==='skip') visRows=visRows.filter(function(r){return !r._include;});
+    if(state.biBroker) visRows=visRows.filter(function(r){return (r.broker||'')=== state.biBroker;});
+    if(state.biStation) visRows=visRows.filter(function(r){return (r.station||'')=== state.biStation;});
+    // Sort
+    var sk=state.biSort||'date_desc';
+    visRows.sort(function(a,b2){
+      if(sk==='date_desc') return (b2.date||'').localeCompare(a.date||'');
+      if(sk==='date_asc') return (a.date||'').localeCompare(b2.date||'');
+      if(sk==='billNo_asc') return (parseInt(a.billNo)||0)-(parseInt(b2.billNo)||0);
+      if(sk==='billNo_desc') return (parseInt(b2.billNo)||0)-(parseInt(a.billNo)||0);
+      if(sk==='party_asc') return (a.party||'').localeCompare(b2.party||'');
+      if(sk==='party_desc') return (b2.party||'').localeCompare(a.party||'');
+      if(sk==='amount_desc') return (b2.netAmt||0)-(a.netAmt||0);
+      if(sk==='amount_asc') return (a.netAmt||0)-(b2.netAmt||0);
+      if(sk==='broker_asc') return (a.broker||'').localeCompare(b2.broker||'');
+      if(sk==='station_asc') return (a.station||'').localeCompare(b2.station||'');
+      return 0;
+    });
+
+    visRows.forEach(function(bill,bi){
       var tr3=document.createElement('tr');
       var bg3=!bill._include?'#fafafa':bill._dup?'#fffbeb':'#fff';
       tr3.style.cssText='border-bottom:1px solid #f3f4f6;background:'+bg3+';opacity:'+(bill._include?'1':'0.6');
