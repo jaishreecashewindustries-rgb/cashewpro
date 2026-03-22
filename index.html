@@ -1073,8 +1073,17 @@ var DB = {
 
   loadAll: function(uid, cb){
     DB._sync('saving','Loading...');
+    var cbCalled = false;
+    function safeCb(){ if(!cbCalled){ cbCalled=true; cb(); } }
+    // Timeout fallback: if Firestore hangs for >8s, proceed with local data
+    var timeoutId = setTimeout(function(){
+      console.warn('Firestore load timed out — using local cache');
+      DB._sync('offline','Offline');
+      safeCb();
+    }, 8000);
     _fdb.collection('users').doc(uid).collection('data').get()
       .then(function(snap){
+        clearTimeout(timeoutId);
         var chunkMap={};
         snap.forEach(function(doc){
           var id=doc.id, val=doc.data().v;
@@ -1088,9 +1097,9 @@ var DB = {
           DB._w(k,arr);
         });
         DB._sync('saved','✓ Ready');
-        cb();
+        safeCb();
       })
-      .catch(function(e){ console.error('Load error',e); DB._sync('offline','Offline'); cb(); });
+      .catch(function(e){ clearTimeout(timeoutId); console.error('Load error',e); DB._sync('offline','Offline'); safeCb(); });
   },
 
   // sync status badge
@@ -1490,6 +1499,77 @@ function invalidateBillStatusCache() {
 function prewarmBillStatusCache() {
   if(!bills||!bills.length)return;
   bills.forEach(function(b){ if(!_billStatusCache[b.id]) getBillStatus(b); });
+}
+
+// Build party profile index: name → {brokers:[], stations:[], gstin:''}
+function buildPartyIndex() {
+  var idx = {};
+  bills.forEach(function(b) {
+    var p = (b.party||'').trim().toUpperCase();
+    if(!p) return;
+    if(!idx[p]) idx[p] = {brokers:new Set(), stations:new Set(), gstin:''};
+    if(b.broker && b.broker.trim()) idx[p].brokers.add(b.broker.trim().toUpperCase());
+    if(b.station && b.station.trim()) idx[p].stations.add(b.station.trim().toUpperCase());
+    if(b.partyGstin && b.partyGstin.trim() && !idx[p].gstin) idx[p].gstin = b.partyGstin.trim().toUpperCase();
+  });
+  // Convert Sets to arrays
+  Object.keys(idx).forEach(function(k){
+    idx[k].brokers = Array.from(idx[k].brokers);
+    idx[k].stations = Array.from(idx[k].stations);
+  });
+  return idx;
+}
+
+// Resolve imported party name using name + station + broker logic
+// Returns: {match: 'exact'/'warn'/'new', party: string, reason: string}
+function resolveImportedParty(importedName, importedStation, importedBroker) {
+  var name = (importedName||'').trim().toUpperCase();
+  var station = (importedStation||'').trim().toUpperCase();
+  var broker = (importedBroker||'').trim().toUpperCase();
+  var partyIdx = buildPartyIndex();
+
+  // 1. Exact name match
+  if(partyIdx[name]) {
+    var profile = partyIdx[name];
+
+    // If broker given + broker matches → confident same party
+    if(broker && profile.brokers.length && profile.brokers.indexOf(broker) >= 0) {
+      return {match:'exact', party:name, reason:'Name + Broker match'};
+    }
+
+    // If broker given + broker DOESN'T match → warn
+    if(broker && profile.brokers.length && profile.brokers.indexOf(broker) < 0) {
+      return {match:'warn', party:name,
+        reason:'Same name but different broker. Existing brokers: '+profile.brokers.join(', ')+'. Imported broker: '+broker};
+    }
+
+    // No broker in either → check station
+    if(!broker || !profile.brokers.length) {
+      if(station && profile.stations.length && profile.stations.indexOf(station) < 0) {
+        return {match:'warn', party:name,
+          reason:'Same name but different station. Existing: '+profile.stations.join(', ')+'. Imported: '+station};
+      }
+      return {match:'exact', party:name, reason:'Name match (no broker to compare)'};
+    }
+
+    return {match:'exact', party:name, reason:'Name match'};
+  }
+
+  // 2. No exact match — fuzzy search
+  var allNames = Object.keys(partyIdx);
+  var words = name.split(/\s+/).filter(function(w){return w.length>2;});
+  var scored = allNames.map(function(p){
+    var hits = words.filter(function(w){return p.indexOf(w)>=0;}).length;
+    return {p:p, s:hits/Math.max(words.length,1)};
+  }).filter(function(x){return x.s>=0.6;}).sort(function(a,b){return b.s-a.s;});
+
+  if(scored.length) {
+    return {match:'fuzzy', party:scored[0].p,
+      reason:'Close match found: '+scored[0].p+' ('+Math.round(scored[0].s*100)+'% similar)'};
+  }
+
+  // 3. New party
+  return {match:'new', party:name, reason:'New party — not in existing data'};
 }
 
 function getBillStatus(bill) {
@@ -2254,6 +2334,51 @@ function buildBillForm(bill) {
     }, 0);
   }
 
+  // ── Live party match hint ──
+  setTimeout(function(){
+    var partyInp = document.getElementById('bf-party');
+    var brokerInp = document.getElementById('bf-broker');
+    var stationInp = document.getElementById('bf-station');
+    // Create hint div after party input
+    var hintDiv = document.createElement('div');
+    hintDiv.id = 'bf-party-hint';
+    hintDiv.style.cssText = 'font-size:10px;margin-top:3px;padding:3px 6px;border-radius:4px;display:none;line-height:1.4';
+    if(partyInp && partyInp.parentNode) partyInp.parentNode.appendChild(hintDiv);
+
+    function updatePartyHint() {
+      var name = (partyInp ? partyInp.value : '').trim().toUpperCase();
+      var broker = (brokerInp ? brokerInp.value : '').trim().toUpperCase();
+      var station = (stationInp ? stationInp.value : '').trim().toUpperCase();
+      if(!name || !hintDiv) return;
+      var res = resolveImportedParty(name, station, broker);
+      if(res.match === 'exact') {
+        hintDiv.style.display = 'block';
+        hintDiv.style.background = '#f0fdf4'; hintDiv.style.color = '#166534';
+        hintDiv.textContent = '\u2713 ' + res.reason;
+      } else if(res.match === 'warn') {
+        hintDiv.style.display = 'block';
+        hintDiv.style.background = '#fffbeb'; hintDiv.style.color = '#92400e';
+        hintDiv.textContent = '\u26a0 ' + res.reason;
+      } else if(res.match === 'fuzzy') {
+        hintDiv.style.display = 'block';
+        hintDiv.style.background = '#eff6ff'; hintDiv.style.color = '#1d4ed8';
+        hintDiv.textContent = '~ ' + res.reason;
+      } else if(res.match === 'new') {
+        hintDiv.style.display = 'block';
+        hintDiv.style.background = '#f9fafb'; hintDiv.style.color = '#6b7280';
+        hintDiv.textContent = '+ New party';
+      } else {
+        hintDiv.style.display = 'none';
+      }
+    }
+
+    if(partyInp) partyInp.addEventListener('input', updatePartyHint);
+    if(brokerInp) brokerInp.addEventListener('input', updatePartyHint);
+    if(stationInp) stationInp.addEventListener('input', updatePartyHint);
+    // Trigger for existing value
+    if(partyInp && partyInp.value) updatePartyHint();
+  }, 50);
+
   return form;
 }
 
@@ -2271,6 +2396,25 @@ function collectBillData(existingBill) {
     var dupCheck = bills.find(function(b){ return b.billNo === String(billNoVal) && b.party === party; });
     if (dupCheck) {
       if (!confirm('Bill #' + billNoVal + ' for ' + party + ' already exists! Phir bhi save karein?')) return null;
+    }
+  }
+
+  // ── Party name warning: same name but different broker ──
+  if(!existingBill && party) {
+    var broker = gv('bf-broker').trim().toUpperCase();
+    var station = gv('bf-station').trim().toUpperCase();
+    var partyIdx2 = buildPartyIndex();
+    if(partyIdx2[party]) {
+      var profile2 = partyIdx2[party];
+      // Same name, different broker — warn
+      if(broker && profile2.brokers.length && profile2.brokers.indexOf(broker) < 0) {
+        var warnMsg = 'Same party name "'+party+'" existing bills mein milti hai, lekin broker alag hai!\n\n'+
+          'Existing broker(s): '+profile2.brokers.join(', ')+'\n'+
+          'Aap enter kar rahe ho: '+broker+'\n\n'+
+          'Kya yeh SAME party hai aur broker change hua hai?\n'+
+          '"Cancel" karo agar yeh ALAG party hai aur naam change karo.';
+        if(!confirm(warnMsg)) return null;
+      }
     }
   }
 
@@ -8610,7 +8754,7 @@ function pgBankUpload() {
 
     // ── Stats bar ─────────────────────────────────────────────────────────────
     var statBar=document.createElement('div');
-    statBar.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px';
+    statBar.style.cssText='display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px';
     [{label:'Total Rows',val:allRows.length,color:'#374151',bg:'#f3f4f6'},
      {label:'Pending Save',val:pendingRows.length,color:'#1d4ed8',bg:'#eff6ff'},
      {label:'Issues',val:issueRows2.length,color:'#dc2626',bg:'#fee2e2'},
@@ -9518,7 +9662,15 @@ function pgBillImport() {
         currentHeader={
           billNo:gcv(row,'BILL_NO'),
           date:parseBillDate(gcv(row,'DATE')),
-          party:(gcv(row,'PARTY')||gcv(row,'PARTY_NAME')||gcv(row,'BUYER NAME')||'').toUpperCase().trim(),
+          party:(function(){
+            var pn=(gcv(row,'PARTY')||gcv(row,'PARTY_NAME')||gcv(row,'BUYER NAME')||'').toUpperCase().trim();
+            var st=(gcv(row,'STATION')||gcv(row,'DELIVERY STATION')||'').toUpperCase().trim();
+            var br=(gcv(row,'BROKER')||'').toUpperCase().trim();
+            var res=resolveImportedParty(pn,st,br);
+            currentHeader._partyMatch=res.match;
+            currentHeader._partyReason=res.reason;
+            return res.party;
+          })(),
           partyGstin:(gcv(row,'PARTY_GSTIN')||gcv(row,'GSTIN')||'').toUpperCase().trim(),
           station:(gcv(row,'STATION')||gcv(row,'DELIVERY STATION')||'').toUpperCase().trim(),
           broker:(gcv(row,'BROKER')||'').toUpperCase().trim(),
@@ -9555,12 +9707,17 @@ function pgBillImport() {
         if(currentHeader.party&&currentHeader.netAmt>0)rows.push(currentHeader);
         // Start new header if rt===HEADER
         if(rt==='HEADER'){
+          var _st2=(gcv(row,'STATION')||gcv(row,'DELIVERY STATION')||'').toUpperCase().trim();
+          var _br2=(gcv(row,'BROKER')||'').toUpperCase().trim();
+          var _pn2=(gcv(row,'PARTY')||gcv(row,'PARTY_NAME')||gcv(row,'BUYER NAME')||'').toUpperCase().trim();
+          var _res2=resolveImportedParty(_pn2,_st2,_br2);
           currentHeader={
             billNo:gcv(row,'BILL_NO'),date:parseBillDate(gcv(row,'DATE')),
-            party:(gcv(row,'PARTY')||gcv(row,'PARTY_NAME')||'').toUpperCase().trim(),
+            party:_res2.party,
+            _partyMatch:_res2.match,_partyReason:_res2.reason,
             partyGstin:(gcv(row,'PARTY_GSTIN')||'').toUpperCase().trim(),
-            station:(gcv(row,'STATION')||'').toUpperCase().trim(),
-            broker:(gcv(row,'BROKER')||'').toUpperCase().trim(),
+            station:_st2,
+            broker:_br2,
             transport:(gcv(row,'TRANSPORT')||'').toUpperCase().trim(),
             billType:'credit',packing:gcn(row,'PACKING')||0,round:gcn(row,'ROUND_OFF')||0,
             remarks:gcv(row,'REMARKS'),rows:[],taxable:0,cgst:0,sgst:0,igst:0,netAmt:0,
@@ -9672,12 +9829,17 @@ function pgBillImport() {
           var igst=gn2(cols.igst);
           if(!cgst&&!sgst&&!igst){var gstTotal=netAmt-taxable-(gn2(cols.bardhana)||0);cgst=Math.round(gstTotal/2*100)/100;sgst=cgst;}
 
+          var importStation=(gv2(cols.station)||'').toUpperCase();
+          var importBroker=(gv2(cols.broker)||'').toUpperCase();
+          var partyResolved=resolveImportedParty(party,importStation,importBroker);
           rows.push({
             billNo:String(billNo),
             date:parseBillDate(gv2(cols.date)),
-            party:party,
-            station:(gv2(cols.station)||'').toUpperCase(),
-            broker:(gv2(cols.broker)||'').toUpperCase(),
+            party:partyResolved.party,
+            _partyMatch:partyResolved.match,
+            _partyReason:partyResolved.reason,
+            station:importStation,
+            broker:importBroker,
             transport:(gv2(cols.transport)||'').toUpperCase(),
             billType:(gv2(cols.pymt)||'credit').toLowerCase()==='cash'?'cash':'credit',
             rows:[{grade:gradeStr,qty:0,weight:wt,rate:rate,taxable:taxable}],
@@ -9810,7 +9972,15 @@ function pgBillImport() {
     var tH=document.createElement('div');tH.className='card-head';
     var sel=state.rows.filter(function(r){return r._include;}).length;
     var dup=state.rows.filter(function(r){return r._dup;}).length;
-    tH.innerHTML='<h4>'+state.rows.length+' Bills — <span style="color:#166534">'+sel+' selected</span>'+(dup?' <span style="color:#d97706">('+dup+' duplicates auto-unchecked)</span>':'')+'</h4>';
+    var warn=state.rows.filter(function(r){return r._partyMatch==='warn';}).length;
+    var fuzzy=state.rows.filter(function(r){return r._partyMatch==='fuzzy';}).length;
+    var newP=state.rows.filter(function(r){return r._partyMatch==='new';}).length;
+    tH.innerHTML='<h4>'+state.rows.length+' Bills — <span style="color:#166534">'+sel+' selected</span>'+
+      (dup?' <span style="color:#d97706">('+dup+' duplicate)</span>':'')+
+      (warn?' <span style="color:#d97706">⚠ '+warn+' party check needed</span>':'')+
+      (fuzzy?' <span style="color:#1d4ed8">~ '+fuzzy+' fuzzy match</span>':'')+
+      (newP?' <span style="color:#166534">+ '+newP+' new party</span>':'')+
+      '</h4>';
     var btnD=document.createElement('div');btnD.style.cssText='display:flex;gap:6px';
     var impBtn=el('button',{cls:'btn btn-green btn-sm',text:'✅ Import Selected'});
     impBtn.addEventListener('click',importBills);
@@ -9856,7 +10026,30 @@ function pgBillImport() {
       [bill.billNo,bill.date,bill.party,bill.station||'-',gradeStr,totalWt?totalWt+'kg':'-','\u20b9'+fmt(bill.netAmt),bill.billType,bill.broker||'-'].forEach(function(v,vi){
         var td=document.createElement('td');
         td.style.cssText='padding:6px 10px;font-size:'+(vi===4?'11px':'12px')+';'+(vi===2?'font-weight:600;':'')+(vi===6?'color:#166534;font-weight:700;':'');
-        td.textContent=String(v);tr3.appendChild(td);
+        if(vi===2){
+          // Party cell — show match status
+          var matchIcon='';
+          var matchTitle='';
+          if(bill._partyMatch==='warn'){
+            matchIcon='<span title="'+((bill._partyReason||'').replace(/"/g,"'"))+'" style="cursor:help;margin-left:4px;background:#fef9c3;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">⚠ CHECK</span>';
+            td.style.background='#fffbeb';
+          } else if(bill._partyMatch==='fuzzy'){
+            matchIcon='<span title="'+((bill._partyReason||'').replace(/"/g,"'"))+'" style="cursor:help;margin-left:4px;background:#eff6ff;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">~ FUZZY</span>';
+            td.style.background='#eff6ff';
+          } else if(bill._partyMatch==='new'){
+            matchIcon='<span style="margin-left:4px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">+ NEW</span>';
+          }
+          td.innerHTML='<span style="font-weight:600">'+v+'</span>'+matchIcon;
+          if(bill._partyMatch==='warn'||bill._partyMatch==='fuzzy'){
+            var reasonDiv=document.createElement('div');
+            reasonDiv.style.cssText='font-size:10px;color:#92400e;margin-top:2px;max-width:220px;line-height:1.3';
+            reasonDiv.textContent=bill._partyReason||'';
+            td.appendChild(reasonDiv);
+          }
+        } else {
+          td.textContent=String(v);
+        }
+        tr3.appendChild(td);
       });
 
       var tdSt3=document.createElement('td');tdSt3.style.padding='6px 10px';
@@ -10001,9 +10194,46 @@ function pgDuplicates() {
     if(!b.netAmt || b.netAmt<=0) issues.billsNoAmt.push(b);
   });
 
+  // ── Suspect Parties: same name, different broker OR different station ──
+  var partyMap = {};
+  bills.forEach(function(b){
+    var p=(b.party||'').trim().toUpperCase(); if(!p)return;
+    if(!partyMap[p]) partyMap[p]=[];
+    partyMap[p].push(b);
+  });
+  Object.keys(partyMap).forEach(function(pname){
+    var pBills = partyMap[pname];
+    var brokers = Array.from(new Set(pBills.map(function(b){return (b.broker||'').trim().toUpperCase();}).filter(Boolean)));
+    var stations = Array.from(new Set(pBills.map(function(b){return (b.station||'').trim().toUpperCase();}).filter(Boolean)));
+    // Flag if same party name has 2+ different brokers
+    if(brokers.length>=2){
+      issues.suspectParties.push({
+        party: pname,
+        reason: 'Same name, '+brokers.length+' different brokers: '+brokers.join(' / '),
+        brokers: brokers,
+        stations: stations,
+        billCount: pBills.length,
+        _include: true,
+        id: 'SP-'+pname
+      });
+    } else if(brokers.length===0 && stations.length>=2){
+      // No broker data but different stations
+      issues.suspectParties.push({
+        party: pname,
+        reason: 'Same name, no broker, '+stations.length+' different stations: '+stations.join(' / '),
+        brokers: [],
+        stations: stations,
+        billCount: pBills.length,
+        _include: true,
+        id: 'SP-'+pname
+      });
+    }
+  });
+
   // ── Summary cards ──
   var total = issues.dupBills.length + issues.dupPayments.length + issues.dupChequeNo.length +
-    issues.dupReceiptNo.length + issues.dupChequeRec.length + issues.orphanPayments.length + issues.billsNoAmt.length;
+    issues.dupReceiptNo.length + issues.dupChequeRec.length + issues.orphanPayments.length + issues.billsNoAmt.length +
+    issues.suspectParties.length;
 
   var sumGrid = document.createElement('div');
   sumGrid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px';
@@ -10012,6 +10242,7 @@ function pgDuplicates() {
     {l:'Duplicate Bills', v:issues.dupBills.length, c:'#dc2626', bg:'#fff1f2'},
     {l:'Duplicate Payments', v:issues.dupPayments.length, c:'#d97706', bg:'#fffbeb'},
     {l:'Cheque/Receipt Dup', v:issues.dupChequeNo.length+issues.dupChequeRec.length+issues.dupReceiptNo.length, c:'#7c3aed', bg:'#f5f3ff'},
+    {l:'Suspect Parties', v:issues.suspectParties.length, c:'#0369a1', bg:'#e0f2fe'},
   ].forEach(function(s){
     var d=document.createElement('div');
     d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+';border-radius:10px;padding:14px;';
@@ -10293,6 +10524,30 @@ function pgDuplicates() {
     function(b){openEditBill(b);}
   );
   if(zeroAmtSec) wrap.appendChild(zeroAmtSec);
+
+  // ── 8. SUSPECT PARTIES (same name, different broker/station) ──
+  var suspectSec = mkSection(
+    'Suspect Parties (Same Name, Different Broker/Station)', '\U0001f50d', '#0369a1', '#e0f2fe',
+    issues.suspectParties,
+    [
+      {l:'Party Name', html:function(s){return '<strong style="color:#0369a1">'+s.party+'</strong>';}},
+      {l:'Bill Count', val:function(s){return s.billCount+' bills';}},
+      {l:'Brokers Found', html:function(s){
+        return s.brokers.length
+          ? s.brokers.map(function(b){return '<span style="background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin:1px">'+b+'</span>';}).join(' ')
+          : '<span style="color:#9ca3af">No broker data</span>';
+      }},
+      {l:'Stations Found', html:function(s){
+        return s.stations.length
+          ? s.stations.map(function(st){return '<span style="background:#f0fdf4;color:#166534;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin:1px">'+st+'</span>';}).join(' ')
+          : '<span style="color:#9ca3af">No station data</span>';
+      }},
+      {l:'Issue', html:function(s){return '<span style="font-size:11px;color:#0369a1">'+s.reason+'</span>';}},
+    ],
+    null, // no delete — these are party-level warnings, not records
+    null  // no edit
+  );
+  if(suspectSec) wrap.appendChild(suspectSec);
 
   return wrap;
 }
