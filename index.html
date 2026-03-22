@@ -1538,8 +1538,9 @@ function resolveImportedParty(importedName, importedStation, importedBroker) {
     // No broker in either → check station
     if(!broker || !profile.brokers.length) {
       if(station && profile.stations.length && profile.stations.indexOf(station) < 0) {
-        return {match:'warn', party:name,
-          reason:'Same name but different station. Existing: '+profile.stations.join(', ')+'. Imported: '+station};
+        // Different station = likely different party — mark as issue for user to resolve
+        return {match:'station_mismatch', party:null,
+          reason:'Same name "'+name+'" but alag station. Existing: '+profile.stations.join(', ')+' | Imported: '+station+'. Kya yeh alag party hai? Bill Import mein party name mein station add karo (e.g. "'+name+' '+station+'")'};
       }
       return {match:'exact', party:name, reason:'Name match (no broker to compare)'};
     }
@@ -9855,6 +9856,10 @@ function pgBillImport() {
             var res=resolveImportedParty(pn,st,br);
             currentHeader._partyMatch=res.match;
             currentHeader._partyReason=res.reason;
+            currentHeader._importedPartyName=pn;
+            currentHeader._importedStation=st;
+            // station_mismatch: use name+station as party to differentiate
+            if(res.match==='station_mismatch') return pn+(st?' - '+st:'');
             return res.party;
           })(),
           partyGstin:(gcv(row,'PARTY_GSTIN')||gcv(row,'GSTIN')||'').toUpperCase().trim(),
@@ -10158,7 +10163,7 @@ function pgBillImport() {
     var tH=document.createElement('div');tH.className='card-head';
     var sel=state.rows.filter(function(r){return r._include;}).length;
     var dup=state.rows.filter(function(r){return r._dup;}).length;
-    var warn=state.rows.filter(function(r){return r._partyMatch==='warn';}).length;
+    var warn=state.rows.filter(function(r){return r._partyMatch==='warn'||r._partyMatch==='station_mismatch';}).length;
     var fuzzy=state.rows.filter(function(r){return r._partyMatch==='fuzzy';}).length;
     var newP=state.rows.filter(function(r){return r._partyMatch==='new';}).length;
     tH.innerHTML='<h4>'+state.rows.length+' Bills — <span style="color:#166534">'+sel+' selected</span>'+
@@ -10216,7 +10221,9 @@ function pgBillImport() {
           // Party cell — show match status
           var matchIcon='';
           var matchTitle='';
-          if(bill._partyMatch==='warn'){
+          if(bill._partyMatch==='station_mismatch'){
+            matchIcon='<span title="'+((bill._partyReason||'').replace(/"/g,"'"))+'" style="cursor:help;margin-left:4px;background:#fee2e2;color:#dc2626;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">⛔ ALAG PARTY?</span>';
+          } else if(bill._partyMatch==='warn'){
             matchIcon='<span title="'+((bill._partyReason||'').replace(/"/g,"'"))+'" style="cursor:help;margin-left:4px;background:#fef9c3;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">⚠ CHECK</span>';
             td.style.background='#fffbeb';
           } else if(bill._partyMatch==='fuzzy'){
@@ -10226,7 +10233,7 @@ function pgBillImport() {
             matchIcon='<span style="margin-left:4px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">+ NEW</span>';
           }
           td.innerHTML='<span style="font-weight:600">'+v+'</span>'+matchIcon;
-          if(bill._partyMatch==='warn'||bill._partyMatch==='fuzzy'){
+          if(bill._partyMatch==='station_mismatch'||bill._partyMatch==='warn'||bill._partyMatch==='fuzzy'){
             var reasonDiv=document.createElement('div');
             reasonDiv.style.cssText='font-size:10px;color:#92400e;margin-top:2px;max-width:220px;line-height:1.3';
             reasonDiv.textContent=bill._partyReason||'';
