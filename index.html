@@ -3612,13 +3612,14 @@ function pgAllBills() {
     {l:'Grade',k:'rows',fk:'grade',num:false,noSort:true},
     {l:'Type',k:'billType',fk:'billType',num:false},
     {l:'Net Amt',k:'netAmt',fk:'netAmt',num:true},
+    {l:'STP Rate',k:'stp',fk:'stp',num:true},
+    {l:'Price Remarks',k:'remarks',fk:'remarks',num:false},
     {l:'Received',k:'recv',fk:'recv',num:true},
     {l:'Balance',k:'bal',fk:'bal',num:true},
     {l:'Status',k:'status',fk:'status',num:false},
     {l:'Last Mode',k:'lastMode',fk:null,num:false,noSort:true},
     {l:'Cheque No',k:'lastChq',fk:null,num:false,noSort:true},
-    {l:'Receipt No',k:'lastRcpt',fk:null,num:false,noSort:true},
-    {l:'Remarks',k:'remarks',fk:'remarks',num:false}
+    {l:'Receipt No',k:'lastRcpt',fk:null,num:false,noSort:true}
   ];
   var payCols=[
     {l:'Pay Date',k:'pd',fk:null,uv:null,num:false,pay:true},
@@ -3733,6 +3734,10 @@ function pgAllBills() {
       var lastRcpt=lastPay2?(lastPay2.receiptNo||''):'-';
       addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd(displayPartyName(row.party,row.station)+(row.partyGstin?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));addTd(row.broker||'-');addTd(grade);addTd(row.billType||'credit');
       addTd('\u20b9'+fmt(row.netAmt),true);
+      // STP Rate column
+      addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
+      // Price Remarks
+      addTd(row.remarks||'-');
       // Received column — with Gross badge if applicable
       var recvEl=document.createElement('span');
       recvEl.style.cssText='color:#166534;font-weight:600';
@@ -3761,7 +3766,7 @@ function pgAllBills() {
       // Cheque No cell (separate)
       var chqCell=document.createElement('td');chqCell.style.cssText='padding:7px 10px;font-size:11px;color:#374151;font-family:monospace';chqCell.textContent=lastChq||'-';tr.appendChild(chqCell);
       // Receipt No cell (separate)
-      var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);addTd(row.remarks||'-');
+      var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);
       if(state.showPay){
         addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'\u20b9'+fmt(lpy.amount||0):'-',true,true);
         addTd(lpy?'\u20b9'+fmt(lpy.rebate||0):'-',true,true);addTd(lpy?lpy.mode||'-':'-',false,true);
@@ -3934,14 +3939,16 @@ function openCustomExportDialog(filteredBills) {
     {id:'autoFilter',    label:'Excel mein AutoFilter lagao', def:true},
   ];
 
+  // FIX: Use body.querySelector instead of document.getElementById
+  // because body is not yet in the DOM when mkChk is called
   function mkChk(containerId, defs) {
-    var cont = document.getElementById(containerId);
+    var cont = body.querySelector('#'+containerId);
     if(!cont) return;
     defs.forEach(function(d){
       var wrap = document.createElement('label');
       wrap.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#fff;user-select:none';
       var chk = document.createElement('input');
-      chk.type='checkbox'; chk.id='_exp_'+d.id; chk.checked=d.def;
+      chk.type='checkbox'; chk.setAttribute('data-expid','_exp_'+d.id); chk.checked=d.def;
       chk.style.cssText='width:14px;height:14px;accent-color:#166534;cursor:pointer;flex-shrink:0';
       var lbl = document.createElement('span'); lbl.textContent=d.label;
       wrap.appendChild(chk); wrap.appendChild(lbl);
@@ -3952,12 +3959,12 @@ function openCustomExportDialog(filteredBills) {
   mkChk('_expBillCols', billColDefs);
   mkChk('_expPayCols', payColDefs);
 
-  var optCont = document.getElementById('_expOpts');
+  var optCont = body.querySelector('#_expOpts');
   if(optCont) optDefs.forEach(function(d){
     var wrap = document.createElement('label');
     wrap.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#f9fafb;border:1px solid #e5e7eb;user-select:none';
     var chk = document.createElement('input');
-    chk.type='checkbox'; chk.id='_exp_'+d.id; chk.checked=d.def;
+    chk.type='checkbox'; chk.setAttribute('data-expid','_exp_'+d.id); chk.checked=d.def;
     chk.style.cssText='width:14px;height:14px;accent-color:#166534;cursor:pointer;flex-shrink:0';
     var lbl = document.createElement('span'); lbl.textContent=d.label;
     wrap.appendChild(chk); wrap.appendChild(lbl);
@@ -3965,14 +3972,18 @@ function openCustomExportDialog(filteredBills) {
     optCont.appendChild(wrap);
   });
 
-  function gc(id){ var el=document.getElementById('_exp_'+id); return el&&el.checked; }
+  // FIX: gc uses body.querySelector with data-expid attribute (body not yet in DOM)
+  function gc(id){
+    var chk = body.querySelector('[data-expid="_exp_'+id+'"]');
+    return chk && chk.checked;
+  }
 
+  // FIX: Removed duplicate { label:'Cancel', fn: closeModal } — openModal adds its own Cancel
   openModal('📊 Custom Excel Export', body, [
     { label:'⬇ Download Excel', cls:'btn-green', fn: function(){
       closeModal();
       doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc);
-    }},
-    { label:'Cancel', fn: closeModal }
+    }}
   ]);
 }
 
