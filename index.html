@@ -3463,58 +3463,11 @@ function pgAllBills() {
   }
   function getData(){return doSort(bills.filter(passFilter));}
 
-  // Filter dropdown builder
+  // Filter dropdown builder — uses mkColFilter for Enter+Select All support
   function mkFDrop(key,vals){
-    var isOn=hasF(key);
-    var fb=document.createElement('button');
-    fb.style.cssText='background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle;line-height:1;color:'+(isOn?'#166534':'#9ca3af');
-    fb.textContent=isOn?'\u25BC':'\u25BD';fb.title='Filter';
-    fb.addEventListener('click',function(e){
-      e.stopPropagation();
-      document.querySelectorAll('[id^="cfd-"]').forEach(function(d){d.remove();});
-      var drop=document.createElement('div');drop.id='cfd-'+key;
-      drop.style.cssText='position:fixed;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:9999;min-width:200px;overflow:hidden';
-      var rect=fb.getBoundingClientRect();
-      drop.style.top=(rect.bottom+2)+'px';drop.style.left=Math.min(rect.left,window.innerWidth-215)+'px';
-      var si=document.createElement('input');si.type='text';si.placeholder='Search...';
-      si.style.cssText='width:100%;padding:7px 10px;border:none;border-bottom:1px solid #e5e7eb;font-size:12px;outline:none;box-sizing:border-box';
-      var listEl=document.createElement('div');listEl.style.cssText='max-height:200px;overflow-y:auto';
-      var cur=state.filters[key]?new Set(state.filters[key]):new Set(vals);
-      function renderDrop(q){
-        listEl.innerHTML='';
-        var fv=q?vals.filter(function(v){return String(v).toLowerCase().includes(q.toLowerCase());}):vals;
-        var ai=document.createElement('div');ai.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:12px';
-        var ac=document.createElement('input');ac.type='checkbox';ac.style.accentColor='#166534';
-        ac.checked=cur.size===vals.length;ac.indeterminate=cur.size>0&&cur.size<vals.length;
-        ac.addEventListener('change',function(){if(this.checked)vals.forEach(function(v){cur.add(v);});else cur.clear();renderDrop(si.value);});
-        ai.appendChild(ac);ai.appendChild(document.createTextNode('(Select All)'));
-        ai.addEventListener('click',function(e){if(e.target!==ac){ac.checked=!ac.checked;ac.dispatchEvent(new Event('change'));}});
-        listEl.appendChild(ai);
-        fv.forEach(function(v){
-          var item=document.createElement('div');
-          item.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12px';
-          item.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});
-          item.addEventListener('mouseleave',function(){this.style.background='';});
-          var chk=document.createElement('input');chk.type='checkbox';chk.style.accentColor='#166534';chk.checked=cur.has(v);
-          var lbl=document.createElement('span');lbl.textContent=(v!==''&&v!=null)?String(v):'(Blank)';
-          chk.addEventListener('change',function(){if(this.checked)cur.add(v);else cur.delete(v);});
-          item.appendChild(chk);item.appendChild(lbl);
-          item.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;chk.dispatchEvent(new Event('change'));}});
-          listEl.appendChild(item);
-        });
-      }
-      si.addEventListener('input',function(){renderDrop(this.value);});renderDrop('');
-      var foot=document.createElement('div');foot.style.cssText='padding:7px 10px;border-top:1px solid #e5e7eb;display:flex;gap:6px;justify-content:flex-end;background:#fafafa';
-      var clr=document.createElement('button');clr.className='btn btn-outline btn-sm';clr.textContent='Clear';
-      var ok=document.createElement('button');ok.className='btn btn-green btn-sm';ok.textContent='OK';
-      clr.addEventListener('click',function(){state.filters[key]=null;drop.remove();rebuildAll();});
-      ok.addEventListener('click',function(){state.filters[key]=cur.size===vals.length?null:cur;drop.remove();rebuildAll();});
-      foot.appendChild(clr);foot.appendChild(ok);drop.appendChild(si);drop.appendChild(listEl);drop.appendChild(foot);
-      document.body.appendChild(drop);setTimeout(function(){si.focus();},50);
-      var ch=function(e){if(!drop.contains(e.target)&&e.target!==fb){drop.remove();document.removeEventListener('click',ch);}};
-      setTimeout(function(){document.addEventListener('click',ch);},0);
-    });
-    return fb;
+    var wrapper=document.createElement('span');wrapper.style.display='inline-flex';
+    mkColFilter(wrapper,function(){return vals;},state.filters,key,function(){rebuildAll();});
+    return wrapper.querySelector('button');
   }
 
   // Toolbar
@@ -3571,6 +3524,13 @@ function pgAllBills() {
   amtMin.addEventListener('change',amtChanged);amtMax.addEventListener('change',amtChanged);
   amtDiv.appendChild(amtMin);amtDiv.appendChild(document.createTextNode('–'));amtDiv.appendChild(amtMax);
   toolbar.appendChild(amtDiv);
+  // ── Customize View (column toggle) button ──
+  var _colToggleBtn=el('button',{cls:'btn btn-outline btn-sm',text:'⚙ Columns'});
+  _colToggleBtn.title='Customize which columns to show';
+  _colToggleBtn.style.cssText+='background:#f5f3ff;border-color:#c4b5fd;color:#7c3aed;font-weight:700';
+  _colToggleBtn.addEventListener('click',function(){ openColCustomizeDialog(); });
+  toolbar.appendChild(_colToggleBtn);
+
   var _custExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'📊 Export Excel'});
   _custExportBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
   _custExportBtn.addEventListener('click',function(){ openCustomExportDialog(getData()); });
@@ -3598,29 +3558,46 @@ function pgAllBills() {
   }
 
   // Table
-  var tblOuter=document.createElement('div');tblOuter.style.overflow='auto';
+  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
   var tblWrap=document.createElement('div');tblWrap.id='abt';tblWrap.style.cssText='transition:transform .15s;transform-origin:top left';
-  var tbl=document.createElement('table');
-  var thead=document.createElement('thead');var tbody=document.createElement('tbody');
+  var tbl=document.createElement('table');tbl.style.cssText='border-collapse:collapse;width:100%';
+  var thead=document.createElement('thead');thead.style.cssText='position:sticky;top:46px;z-index:4';
+  var tbody=document.createElement('tbody');
   tbl.appendChild(thead);tbl.appendChild(tbody);tblWrap.appendChild(tbl);tblOuter.appendChild(tblWrap);
 
-  var baseCols=[
-    {l:'Bill#',k:'billNo',fk:'billNo',num:false},
-    {l:'Date',k:'date',fk:'date',num:false},
-    {l:'Party',k:'party',fk:'party',num:false},
-    {l:'Broker',k:'broker',fk:'broker',num:false},
-    {l:'Grade',k:'rows',fk:'grade',num:false,noSort:true},
-    {l:'Type',k:'billType',fk:'billType',num:false},
-    {l:'Net Amt',k:'netAmt',fk:'netAmt',num:true},
-    {l:'STP Rate',k:'stp',fk:'stp',num:true},
-    {l:'Price Remarks',k:'remarks',fk:'remarks',num:false},
-    {l:'Received',k:'recv',fk:'recv',num:true},
-    {l:'Balance',k:'bal',fk:'bal',num:true},
-    {l:'Status',k:'status',fk:'status',num:false},
-    {l:'Last Mode',k:'lastMode',fk:null,num:false,noSort:true},
-    {l:'Cheque No',k:'lastChq',fk:null,num:false,noSort:true},
-    {l:'Receipt No',k:'lastRcpt',fk:null,num:false,noSort:true}
+  // Load column prefs from localStorage
+  var _abColPrefs2 = null;
+  try { _abColPrefs2 = JSON.parse(localStorage.getItem('_abColPrefs') || 'null'); } catch(e){}
+  var _cp = _abColPrefs2 || {};
+  function _colOn(id, def){ return _cp[id] !== undefined ? _cp[id] : def; }
+
+  // All possible base columns — filtered by prefs
+  var _allPossibleCols = [
+    {l:'Bill#',      k:'billNo',    fk:'billNo',   num:false,                id:'billNo',   def:true},
+    {l:'Date',       k:'date',      fk:'date',     num:false,                id:'date',     def:true},
+    {l:'Party',      k:'party',     fk:'party',    num:false,                id:'party',    def:true},
+    {l:'Broker',     k:'broker',    fk:'broker',   num:false,                id:'broker',   def:true},
+    {l:'Grade',      k:'rows',      fk:'grade',    num:false, noSort:true,   id:'grade',    def:true},
+    {l:'Type',       k:'billType',  fk:'billType', num:false,                id:'billType', def:true},
+    {l:'Transport',  k:'transport', fk:'transport',num:false,                id:'transport',def:false},
+    {l:'Station',    k:'station',   fk:'station',  num:false,                id:'station',  def:false},
+    {l:'Net Amt',    k:'netAmt',    fk:'netAmt',   num:true,                 id:'netAmt',   def:true},
+    {l:'STP Rate',   k:'stp',       fk:'stp',      num:true,                 id:'stp',      def:true},
+    {l:'Remarks',    k:'remarks',   fk:'remarks',  num:false,                id:'remarks',  def:true},
+    {l:'Received',   k:'recv',      fk:'recv',     num:true,                 id:'recv',     def:true},
+    {l:'Balance',    k:'bal',       fk:'bal',      num:true,                 id:'bal',      def:true},
+    {l:'Status',     k:'status',    fk:'status',   num:false,                id:'status',   def:true},
+    {l:'Last Mode',  k:'lastMode',  fk:null,       num:false, noSort:true,   id:'lastMode', def:true},
+    {l:'Cheque No',  k:'lastChq',   fk:null,       num:false, noSort:true,   id:'lastChq',  def:true},
+    {l:'Receipt No', k:'lastRcpt',  fk:null,       num:false, noSort:true,   id:'lastRcpt', def:true},
+    {l:'GSTIN',      k:'partyGstin',fk:'partyGstin',num:false,               id:'partyGstin',def:false},
+    {l:'Weight(kg)', k:'weight',    fk:null,       num:true,  noSort:true,   id:'weight',   def:false},
+    {l:'Taxable',    k:'taxable',   fk:'taxable',  num:true,                 id:'taxable',  def:false},
+    {l:'CGST',       k:'cgst',      fk:'cgst',     num:true,                 id:'cgst',     def:false},
+    {l:'SGST',       k:'sgst',      fk:'sgst',     num:true,                 id:'sgst',     def:false},
+    {l:'Bardhana',   k:'packing',   fk:'packing',  num:true,                 id:'packing',  def:false}
   ];
+  var baseCols = _allPossibleCols.filter(function(c){ return _colOn(c.id, c.def); });
   var payCols=[
     {l:'Pay Date',k:'pd',fk:null,uv:null,num:false,pay:true},
     {l:'Paid',k:'pa',fk:null,uv:null,num:true,pay:true},
@@ -3643,7 +3620,7 @@ function pgAllBills() {
     }
     getCols().forEach(function(c){
       var th=document.createElement('th');th.className=c.num?'num':'';
-      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:0;z-index:2'+(c.pay?';background:#d1fae5;color:#166534':'');
+      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:46px;z-index:3;background:'+(c.pay?'#d1fae5':'var(--surface)')+(c.pay?';color:#166534':'');
       var ns=document.createElement('span');ns.textContent=c.l;th.appendChild(ns);
       if(!c.noSort){
         th.style.cursor='pointer';
@@ -3732,12 +3709,28 @@ function pgAllBills() {
       var lastMode=lastPay2?(lastPay2.mode||'-'):'-';
       var lastChq=lastPay2?(lastPay2.chequeNo||''):'-';
       var lastRcpt=lastPay2?(lastPay2.receiptNo||''):'-';
-      addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd(displayPartyName(row.party,row.station)+(row.partyGstin?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));addTd(row.broker||'-');addTd(grade);addTd(row.billType||'credit');
-      addTd('\u20b9'+fmt(row.netAmt),true);
-      // STP Rate column
-      addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
-      // Price Remarks
-      addTd(row.remarks||'-');
+      // Dynamic column rendering based on active baseCols
+      baseCols.forEach(function(c){
+        // Special cells handled separately: recv, bal, status, lastMode, lastChq, lastRcpt
+        if(['recv','bal','status','lastMode','lastChq','lastRcpt'].indexOf(c.k)!==-1) return;
+        if(c.k==='billNo') addTd(row.billNo||'-');
+        else if(c.k==='date') addTd(fmtDate(row.date)||'-');
+        else if(c.k==='party') addTd(displayPartyName(row.party,row.station)+(row.partyGstin&&_colOn('partyGstin',false)?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));
+        else if(c.k==='broker') addTd(row.broker||'-');
+        else if(c.k==='rows') addTd(grade);
+        else if(c.k==='billType') addTd(row.billType||'credit');
+        else if(c.k==='transport') addTd(row.transport||'-');
+        else if(c.k==='station') addTd(row.station||'-');
+        else if(c.k==='netAmt') addTd('\u20b9'+fmt(row.netAmt),true);
+        else if(c.k==='stp') addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
+        else if(c.k==='remarks') addTd(row.remarks||'-');
+        else if(c.k==='weight') addTd(fmt((row.rows||[]).reduce(function(s,r){return s+(r.weight||0);},0))+'kg',true);
+        else if(c.k==='taxable') addTd(row.taxable?'\u20b9'+fmt(row.taxable):'-',true);
+        else if(c.k==='cgst') addTd(row.cgst?'\u20b9'+fmt(row.cgst):'-',true);
+        else if(c.k==='sgst') addTd(row.sgst?'\u20b9'+fmt(row.sgst):'-',true);
+        else if(c.k==='packing') addTd(row.packing?'\u20b9'+fmt(row.packing):'-',true);
+        else if(c.k==='partyGstin') addTd('<span style="font-size:10px;font-family:monospace">'+( row.partyGstin||'-')+'</span>');
+      });
       // Received column — with Gross badge if applicable
       var recvEl=document.createElement('span');
       recvEl.style.cssText='color:#166534;font-weight:600';
@@ -3757,16 +3750,15 @@ function pgAllBills() {
           recvWrapper.appendChild(gpBadge);
         }
       }
-      var recvTd=document.createElement('td');recvTd.className='num';recvTd.style.maxWidth='180px';recvTd.appendChild(recvWrapper);tr.appendChild(recvTd);
-      addTd(s.bal>0?el('span',{text:'\u20b9'+fmt(s.bal),style:'color:#dc2626;font-weight:700'}):el('span',{text:'\u20b90',style:'color:#166534'}),true);
-      addTd(badge(s.status));
+      if(_colOn('recv',true)){var recvTd=document.createElement('td');recvTd.className='num';recvTd.style.maxWidth='180px';recvTd.appendChild(recvWrapper);tr.appendChild(recvTd);}
+      if(_colOn('bal',true)){addTd(s.bal>0?el('span',{text:'\u20b9'+fmt(s.bal),style:'color:#dc2626;font-weight:700'}):el('span',{text:'\u20b90',style:'color:#166534'}),true);}
+      if(_colOn('status',true)){addTd(badge(s.status));}
       // Last Mode cell
-      var modCell=document.createElement('td');modCell.style.padding='7px 10px';
-      if(lastMode&&lastMode!=='-'){var ms=document.createElement('span');ms.style.cssText='font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e0f2fe;color:#0369a1';ms.textContent=lastMode;modCell.appendChild(ms);}else{modCell.textContent='-';}tr.appendChild(modCell);
+      if(_colOn('lastMode',true)){var modCell=document.createElement('td');modCell.style.padding='7px 10px';if(lastMode&&lastMode!=='-'){var ms=document.createElement('span');ms.style.cssText='font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e0f2fe;color:#0369a1';ms.textContent=lastMode;modCell.appendChild(ms);}else{modCell.textContent='-';}tr.appendChild(modCell);}
       // Cheque No cell (separate)
-      var chqCell=document.createElement('td');chqCell.style.cssText='padding:7px 10px;font-size:11px;color:#374151;font-family:monospace';chqCell.textContent=lastChq||'-';tr.appendChild(chqCell);
+      if(_colOn('lastChq',true)){var chqCell=document.createElement('td');chqCell.style.cssText='padding:7px 10px;font-size:11px;color:#374151;font-family:monospace';chqCell.textContent=lastChq||'-';tr.appendChild(chqCell);}
       // Receipt No cell (separate)
-      var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);
+      if(_colOn('lastRcpt',true)){var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);}
       if(state.showPay){
         addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'\u20b9'+fmt(lpy.amount||0):'-',true,true);
         addTd(lpy?'\u20b9'+fmt(lpy.rebate||0):'-',true,true);addTd(lpy?lpy.mode||'-':'-',false,true);
@@ -3858,7 +3850,8 @@ function pgAllBills() {
     if(state.q){var sinp=document.querySelector('input[placeholder*="Search party"]');if(sinp){var l=sinp.value.length;sinp.focus();try{sinp.setSelectionRange(l,l);}catch(e){}}}
   },15);
 
-  var card=document.createElement('div');card.className='card';
+  var card=document.createElement('div');card.className='card';card.style.cssText='display:flex;flex-direction:column;min-height:0';
+  toolbar.style.cssText+=';position:sticky;top:0;z-index:10;background:#fafafa';
   card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);
   return card;
 }
@@ -3876,6 +3869,96 @@ function deleteBill(id) {
 // ══════════════════════════════════════════════════════
 // CUSTOMIZABLE EXCEL EXPORT
 // ══════════════════════════════════════════════════════
+
+// ── Column Customize Dialog for All Bills ──
+function openColCustomizeDialog() {
+  // All possible columns in order
+  var allColDefs = [
+    {id:'billNo',    label:'Bill #',          key:'billNo',     default:true},
+    {id:'date',      label:'Date',            key:'date',       default:true},
+    {id:'party',     label:'Party',           key:'party',      default:true},
+    {id:'broker',    label:'Broker',          key:'broker',     default:true},
+    {id:'grade',     label:'Grade',           key:'rows',       default:true},
+    {id:'billType',  label:'Type (Credit/Cash)',key:'billType', default:true},
+    {id:'transport', label:'Transport',       key:'transport',  default:false},
+    {id:'station',   label:'Station',         key:'station',    default:false},
+    {id:'netAmt',    label:'Net Amount',      key:'netAmt',     default:true},
+    {id:'stp',       label:'STP Rate',        key:'stp',        default:true},
+    {id:'remarks',   label:'Price Remarks',   key:'remarks',    default:true},
+    {id:'recv',      label:'Received',        key:'recv',       default:true},
+    {id:'bal',       label:'Balance',         key:'bal',        default:true},
+    {id:'status',    label:'Status',          key:'status',     default:true},
+    {id:'lastMode',  label:'Last Pay Mode',   key:'lastMode',   default:true},
+    {id:'lastChq',   label:'Cheque No',       key:'lastChq',    default:true},
+    {id:'lastRcpt',  label:'Receipt No',      key:'lastRcpt',   default:true},
+    {id:'partyGstin',label:'Party GSTIN',     key:'partyGstin', default:false},
+    {id:'weight',    label:'Weight (kg)',      key:'weight',     default:false},
+    {id:'taxable',   label:'Taxable Value',   key:'taxable',    default:false},
+    {id:'cgst',      label:'CGST',            key:'cgst',       default:false},
+    {id:'sgst',      label:'SGST',            key:'sgst',       default:false},
+    {id:'packing',   label:'Bardhana/Packing',key:'packing',    default:false}
+  ];
+
+  // Load saved prefs or use defaults
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem('_abColPrefs') || 'null'); } catch(e){}
+  var prefs = saved || {};
+
+  var body = document.createElement('div');
+  body.style.cssText = 'font-family:var(--font);min-width:360px;max-width:500px';
+
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:12px;color:#6b7280;margin-bottom:10px';
+  hint.textContent = 'Columns select karo jo All Bills table mein dikhni chahiye:';
+  body.appendChild(hint);
+
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px';
+
+  allColDefs.forEach(function(d) {
+    var checked = prefs[d.id] !== undefined ? prefs[d.id] : d.default;
+    var wrap = document.createElement('label');
+    wrap.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#fff;user-select:none';
+    var chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.setAttribute('data-colid', d.id);
+    chk.checked = checked;
+    chk.style.cssText = 'width:14px;height:14px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0';
+    var lbl = document.createElement('span'); lbl.textContent = d.label;
+    wrap.appendChild(chk); wrap.appendChild(lbl);
+    wrap.addEventListener('click', function(e){ if(e.target!==chk){chk.checked=!chk.checked;} });
+    grid.appendChild(wrap);
+  });
+  body.appendChild(grid);
+
+  var resetBtn = document.createElement('div');
+  resetBtn.style.cssText = 'text-align:right;margin-bottom:4px';
+  var rb = el('button',{cls:'btn btn-outline btn-sm',text:'Reset to Default'});
+  rb.style.fontSize='11px';
+  rb.addEventListener('click',function(){
+    body.querySelectorAll('[data-colid]').forEach(function(chk){
+      var def = allColDefs.find(function(d){return d.id===chk.getAttribute('data-colid');});
+      if(def) chk.checked = def.default;
+    });
+  });
+  resetBtn.appendChild(rb);
+  body.appendChild(resetBtn);
+
+  openModal('⚙ Customize Columns — All Bills', body, [
+    { label:'✅ Apply', cls:'btn-green', fn: function(){
+      // Save prefs
+      var newPrefs = {};
+      body.querySelectorAll('[data-colid]').forEach(function(chk){
+        newPrefs[chk.getAttribute('data-colid')] = chk.checked;
+      });
+      try { localStorage.setItem('_abColPrefs', JSON.stringify(newPrefs)); } catch(e){}
+      closeModal();
+      // Rebuild All Bills page
+      go('all-bills');
+    }}
+  ], false);
+}
+
 function openCustomExportDialog(filteredBills) {
   var body = document.createElement('div');
   body.style.cssText = 'font-family:var(--font);min-width:340px';
@@ -3999,7 +4082,7 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
 
   if(!sourceBills.length){ toast('Koi bills nahi hain!','err'); return; }
 
-  // ── Build data rows ──
+  // ── Column headers ──
   var billHeaders = [];
   billColDefs.forEach(function(c){ if(gc(c.id)) billHeaders.push(c.label); });
 
@@ -4018,103 +4101,21 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
     payColDefs.forEach(function(c){ if(gc(c.id)) payHeaders.push(c.label); });
   }
   var headers = billHeaders.concat(payHeaders);
+  var nCols = headers.length;
 
-  // Colour scheme
-  var CLR_HDR_BG  = 'FF1A6B3C'; // dark green
-  var CLR_HDR_FG  = 'FFFFFFFF'; // white
-  var CLR_SUB_BG  = 'FFE8F5EE'; // light green
-  var CLR_PAY_BG  = 'FFEFF6FF'; // light blue
-  var CLR_PAY_HDR = 'FF1D4ED8'; // blue header
-  var CLR_DUE     = 'FFDC2626'; // red for outstanding
-  var CLR_PAID    = 'FF166534'; // green for paid
-  var CLR_ALT     = 'FFF9FAFB'; // alternating row
+  // ── Amount column detection (pure number, no ₹ sign) ──
+  var amtCols = new Set();
+  headers.forEach(function(h){
+    if(h.includes('Amount')||h.includes('Net')||h.includes('Received')||
+       h.includes('Balance')||h.includes('Outstanding')||h==='Cash'||
+       h==='Cheque'||h.includes('NEFT')||h==='Rebate'||
+       h==='Taxable Value'||h==='CGST'||h==='SGST'||h==='Bardhana'||
+       h==='STP Rate'||h==='Weight (kg)'){
+      amtCols.add(h);
+    }
+  });
 
-  // Build XLSX workbook using XLSX + cell-level styling (using sheetjs pro approach)
-  // Since we use free XLSX, we use HTML → sheet approach for coloring
-  // Build HTML table and convert
-
-  function buildHTMLTable(rows, hdrs, isBill) {
-    var hdrBg   = isBill ? '#1a6b3c' : '#1d4ed8';
-    var subBg   = isBill ? '#e8f5ee' : '#eff6ff';
-    var html2 = '<table>';
-
-    // Company header row
-    var cfg3 = DB.getObj('settings',{});
-    var coName = cfg3.companyName || 'JAI SHREE CASHEW INDUSTRIES';
-    html2 += '<tr><td colspan="'+hdrs.length+'" style="background:#1a6b3c;color:#fff;font-size:14px;font-weight:bold;text-align:center;padding:8px">'+coName+'</td></tr>';
-    html2 += '<tr><td colspan="'+hdrs.length+'" style="background:#2d7d50;color:#fff;font-size:11px;text-align:center;padding:4px">Bills Report — Exported: '+fmtDate(today())+'</td></tr>';
-    html2 += '<tr><td colspan="'+hdrs.length+'" style="padding:4px"></td></tr>';
-
-    // Column headers
-    html2 += '<tr>';
-    hdrs.forEach(function(h, i){
-      var isPayCol = i >= billHeaders.length;
-      var bg = isPayCol ? '#1d4ed8' : '#1a6b3c';
-      html2 += '<th style="background:'+bg+';color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap">'+h+'</th>';
-    });
-    html2 += '</tr>';
-
-    // Data rows
-    rows.forEach(function(row, ri){
-      var isContinuation = row._cont;
-      var isPaid = row._status === 'paid';
-      var isDue  = row._status !== 'paid' && row._status;
-      var rowBg  = isContinuation ? '#f8faff' : (ri%2===0 ? '#fff' : '#f9fafb');
-      if(isContinuation) rowBg = '#f0f9ff';
-
-      html2 += '<tr>';
-      hdrs.forEach(function(h, ci){
-        var val = row[h] != null ? row[h] : '';
-        var isNum = typeof val === 'number';
-        var isAmt = h.includes('Amount') || h.includes('Net') || h.includes('Received') || h.includes('Balance') || h.includes('Outstanding') || h.includes('Cash') || h.includes('Cheque') || h.includes('NEFT') || h.includes('Rebate') || h === 'Taxable Value' || h === 'CGST' || h === 'SGST' || h === 'Bardhana';
-        var isStatus = h === 'Status';
-        var isPayCol = ci >= billHeaders.length;
-
-        var cellBg = isPayCol && !isContinuation ? '#f0f6ff' : (isContinuation ? '#f0f9ff' : rowBg);
-        var cellColor = '#111827';
-        var fontWeight = 'normal';
-        var textAlign = isNum ? 'right' : 'left';
-
-        if(isStatus){
-          if(val==='PAID')   { cellBg='#dcfce7'; cellColor='#166534'; fontWeight='bold'; }
-          else if(val==='PARTIAL') { cellBg='#fef9c3'; cellColor='#92400e'; fontWeight='bold'; }
-          else if(val)       { cellBg='#fee2e2'; cellColor='#dc2626'; fontWeight='bold'; }
-        }
-        if(h==='Outstanding' || h==='Balance'){
-          if(parseFloat(val)>0.5){ cellColor='#dc2626'; fontWeight='bold'; }
-          else if(parseFloat(val)<=0.5 && val!==''){ cellColor='#166534'; fontWeight='bold'; }
-        }
-        if(h==='Net Amount' || h==='Bill Amount'){ fontWeight='bold'; }
-        if(isContinuation && ci < billHeaders.length) { cellColor = '#d1d5db'; } // dim bill cols in continuation rows
-
-        var dispVal = val;
-        if(isAmt && typeof val==='number' && val > 0) dispVal = '₹'+val.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
-        else if(isAmt && typeof val==='number') dispVal = val===0?'—':dispVal;
-
-        html2 += '<td style="background:'+cellBg+';color:'+cellColor+';font-weight:'+fontWeight+';text-align:'+textAlign+';padding:6px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+dispVal+'</td>';
-      });
-      html2 += '</tr>';
-    });
-
-    // Totals row
-    html2 += '<tr>';
-    hdrs.forEach(function(h, ci){
-      var isAmt = h.includes('Amount') || h.includes('Net') || h==='Total Received' || h.includes('Balance') || h.includes('Outstanding') || h==='Cash' || h==='Cheque' || h==='NEFT/UPI' || h==='Rebate';
-      var val = '';
-      if(ci===0) val = 'TOTAL ('+sourceBills.length+' bills)';
-      if(isAmt){
-        var tot = rows.filter(function(r){return !r._cont;}).reduce(function(s,r){ return s+(parseFloat(r[h])||0); }, 0);
-        val = tot>0 ? '₹'+tot.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
-      }
-      html2 += '<td style="background:#1a6b3c;color:#fff;font-weight:bold;padding:7px 9px;font-size:11px;border:1px solid rgba(255,255,255,.2);text-align:'+(ci>0&&isAmt?'right':'left')+'">'+val+'</td>';
-    });
-    html2 += '</tr>';
-
-    html2 += '</table>';
-    return html2;
-  }
-
-  // Build data rows array
+  // ── bv: get raw cell value (numbers as numbers, no ₹) ──
   function bv(b, s, colId){
     var gradeStr = (b.rows||[]).map(function(r){ return r.grade; }).join(', ');
     var wt = (b.rows||[]).reduce(function(s2,r){ return s2+(r.weight||0); }, 0);
@@ -4145,6 +4146,7 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
     }
   }
 
+  // ── Build data rows (plain objects) ──
   var dataRows = [];
   sourceBills.forEach(function(b){
     var s = getBillStatus(b);
@@ -4161,31 +4163,30 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
     });
 
     if(oneRow || !bPays.length){
-      var row = {_status: s.status};
+      var row={_status:s.status, _cont:false};
       billColDefs.forEach(function(c){ if(gc(c.id)) row[c.label]=bv(b,s,c.id); });
       if(oneRow){
         if(gc('payDate'))    row['Last Pay Date']=lastPay?fmtDate(lastPay.date):'';
         if(gc('payAmt'))     row['Total Received']=s.recv;
-        if(gc('cash'))       row['Cash']=cashAmt||'';
-        if(gc('cheque'))     row['Cheque']=chequeAmt||'';
+        if(gc('cash'))       row['Cash']=cashAmt||0;
+        if(gc('cheque'))     row['Cheque']=chequeAmt||0;
         if(gc('chequeNo'))   row['Cheque No.']=chequeNo;
-        if(gc('neft'))       row['NEFT/UPI']=neftAmt||'';
+        if(gc('neft'))       row['NEFT/UPI']=neftAmt||0;
         if(gc('rebate'))     row['Rebate']=s.rebate||0;
         if(gc('receiptNo'))  row['R.No.']=receiptNo;
         if(gc('payRemarks')) row['Pay Remarks']=payRemarks;
       }
       dataRows.push(row);
     } else {
-      // One row per payment
-      var isFirst = true;
+      var isFirst=true;
       if(!bPays.length){
-        var row2 = {_status:s.status};
+        var row2={_status:s.status,_cont:false};
         billColDefs.forEach(function(c){ if(gc(c.id)) row2[c.label]=bv(b,s,c.id); });
         payColDefs.forEach(function(c){ if(gc(c.id)) row2[c.label]=''; });
         dataRows.push(row2);
       } else {
         bPays.forEach(function(p){
-          var row3 = {_status:s.status, _cont:!isFirst};
+          var row3={_status:s.status,_cont:!isFirst};
           billColDefs.forEach(function(c){ if(gc(c.id)) row3[c.label]=isFirst?bv(b,s,c.id):''; });
           payColDefs.forEach(function(c){
             if(gc(c.id)){
@@ -4193,10 +4194,10 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
               switch(c.id){
                 case 'payDate':    row3[c.label]=fmtDate(p.date); break;
                 case 'payAmt':     row3[c.label]=p.amount||0; break;
-                case 'cash':       row3[c.label]=mode==='cash'?p.amount||0:''; break;
-                case 'cheque':     row3[c.label]=mode.includes('cheque')?p.amount||0:''; break;
+                case 'cash':       row3[c.label]=mode==='cash'?p.amount||0:0; break;
+                case 'cheque':     row3[c.label]=mode.includes('cheque')?p.amount||0:0; break;
                 case 'chequeNo':   row3[c.label]=p.chequeNo||''; break;
-                case 'neft':       row3[c.label]=!mode.includes('cash')&&!mode.includes('cheque')?p.amount||0:''; break;
+                case 'neft':       row3[c.label]=(!mode.includes('cash')&&!mode.includes('cheque'))?p.amount||0:0; break;
                 case 'rebate':     row3[c.label]=p.rebate||0; break;
                 case 'receiptNo':  row3[c.label]=p.receiptNo||''; break;
                 case 'payRemarks': row3[c.label]=p.remarks||''; break;
@@ -4211,41 +4212,236 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
     }
   });
 
-  // Build HTML table → convert to sheet
-  var htmlTable = buildHTMLTable(dataRows, headers, true);
-  var wb = XLSX.utils.book_new();
-  var ws1 = XLSX.utils.table_to_sheet(
-    (function(){ var d=document.createElement('div');d.innerHTML=htmlTable;return d.querySelector('table'); })()
-  );
-  // Set col widths
-  ws1['!cols'] = headers.map(function(h){
-    if(h.includes('Party')||h.includes('Remarks')) return {wch:28};
-    if(h.includes('Amount')||h.includes('Received')||h.includes('Balance')||h.includes('Outstanding')) return {wch:16};
-    if(h.includes('Date')) return {wch:13};
-    if(h.includes('Grade')||h.includes('Broker')||h.includes('Station')) return {wch:18};
-    return {wch:Math.max(h.length+4,10)};
-  });
-  XLSX.utils.book_append_sheet(wb, ws1, 'Bills Report');
+  // ── Build AOA (Array of Arrays) for SheetJS — pure numbers, no ₹ ──
+  var cfg3=DB.getObj('settings',{});
+  var coName=cfg3.companyName||'JAI SHREE CASHEW INDUSTRIES';
 
-  // Separate payments sheet
+  // Row 1: Company name (merged across all cols)
+  // Row 2: Report subtitle
+  // Row 3: blank
+  // Row 4: Column headers
+  // Row 5..N: Data rows
+  // Row N+1: Totals
+
+  var aoa = [];
+  // R0: Company header
+  var r0=[coName]; for(var i=1;i<nCols;i++) r0.push('');
+  aoa.push(r0);
+  // R1: Subtitle
+  var r1=['Bills Report — Exported: '+fmtDate(today())]; for(var i=1;i<nCols;i++) r1.push('');
+  aoa.push(r1);
+  // R2: blank
+  var r2=[]; for(var i=0;i<nCols;i++) r2.push('');
+  aoa.push(r2);
+  // R3: Headers
+  aoa.push(headers.slice());
+  var HDR_ROW = 3; // 0-indexed
+
+  // Data rows
+  var DATA_START = 4;
+  dataRows.forEach(function(row){
+    var r=[];
+    headers.forEach(function(h){
+      var v = row[h]!=null ? row[h] : '';
+      // Keep numbers as numbers (no ₹, no formatting)
+      r.push(v);
+    });
+    aoa.push(r);
+  });
+
+  // Totals row
+  var totRow=['TOTAL ('+sourceBills.length+' bills)'];
+  headers.slice(1).forEach(function(h){
+    if(amtCols.has(h)){
+      var tot=dataRows.filter(function(r){return !r._cont;}).reduce(function(s,r){return s+(typeof r[h]==='number'?r[h]:0);},0);
+      totRow.push(tot);
+    } else {
+      totRow.push('');
+    }
+  });
+  aoa.push(totRow);
+  var TOT_ROW = aoa.length - 1; // 0-indexed
+
+  // ── Convert AOA to worksheet ──
+  var ws1 = XLSX.utils.aoa_to_sheet(aoa);
+
+  // ── Cell styling via cell objects ──
+  // Helper: encode cell address
+  function C(r,c){ return XLSX.utils.encode_cell({r:r,c:c}); }
+
+  // Style each cell we care about
+  // SheetJS community edition supports: s.fill, s.font, s.alignment, s.border
+  // But only when using writeFile with {bookType:'xlsx', cellStyles:true} — not all readers show it
+  // We'll use the HTML-to-sheet trick for styling but keep numbers as numbers via cell override
+
+  // Apply styling: create a styled HTML table but inject raw numeric values after
+  // Strategy: build HTML for visual style, then fix all numeric cells to be actual numbers
+
+  function encodeHtml(v){ return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  var html2='<table>';
+  // Row 0: company
+  html2+='<tr><td colspan="'+nCols+'" style="background:#1a6b3c;color:#fff;font-size:14px;font-weight:bold;text-align:center;padding:8px">'+encodeHtml(coName)+'</td></tr>';
+  // Row 1: subtitle
+  html2+='<tr><td colspan="'+nCols+'" style="background:#2d7d50;color:#fff;font-size:11px;text-align:center;padding:4px">Bills Report — Exported: '+fmtDate(today())+'</td></tr>';
+  // Row 2: blank
+  html2+='<tr><td colspan="'+nCols+'" style="padding:4px">&nbsp;</td></tr>';
+  // Row 3: headers
+  html2+='<tr>';
+  headers.forEach(function(h,i){
+    var bg=i>=billHeaders.length?'#1d4ed8':'#1a6b3c';
+    html2+='<th style="background:'+bg+';color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap;text-align:center">'+encodeHtml(h)+'</th>';
+  });
+  html2+='</tr>';
+  // Data rows
+  dataRows.forEach(function(row,ri){
+    var isCont=row._cont;
+    var rowBg=isCont?'#f0f9ff':(ri%2===0?'#ffffff':'#f3f4f6');
+    html2+='<tr>';
+    headers.forEach(function(h,ci){
+      var val=row[h]!=null?row[h]:'';
+      var isNum=typeof val==='number';
+      var isAmt=amtCols.has(h);
+      var isStatus=h==='Status';
+      var isPayCol=ci>=billHeaders.length;
+      var cellBg=isPayCol&&!isCont?'#dbeafe':(isCont?'#e0f2fe':rowBg);
+      var cellColor='#111827';
+      var fw='normal';
+      var ta=isNum?'right':'left';
+      if(isStatus){
+        if(val==='PAID'){cellBg='#dcfce7';cellColor='#166534';fw='bold';}
+        else if(val==='PARTIAL'){cellBg='#fef9c3';cellColor='#92400e';fw='bold';}
+        else if(val){cellBg='#fee2e2';cellColor='#dc2626';fw='bold';}
+      }
+      if(h==='Outstanding'||h==='Balance'){
+        if(isNum&&val>0.5){cellColor='#dc2626';fw='bold';}
+        else if(isNum&&val<=0.5){cellColor='#166534';}
+      }
+      if(h==='Net Amount'){fw='bold';}
+      if(isCont&&ci<billHeaders.length){cellColor='#9ca3af';}
+      // Display: numbers show as plain integer (no ₹, no decimals for whole numbers)
+      var dispVal='';
+      if(isNum){
+        // Round to nearest int for display if it's a whole number, else 2 dp
+        dispVal=Number.isInteger(val)?String(val):val.toFixed(2);
+      } else {
+        dispVal=encodeHtml(String(val));
+      }
+      if(dispVal===''||dispVal==='0')dispVal=isAmt&&val===0?'':dispVal;
+      html2+='<td style="background:'+cellBg+';color:'+cellColor+';font-weight:'+fw+';text-align:'+ta+';padding:6px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+dispVal+'</td>';
+    });
+    html2+='</tr>';
+  });
+  // Totals row
+  html2+='<tr>';
+  headers.forEach(function(h,ci){
+    var isAmt=amtCols.has(h);
+    var tot='';
+    if(ci===0){tot='TOTAL ('+sourceBills.length+' bills)';}
+    else if(isAmt){
+      var t=dataRows.filter(function(r){return !r._cont;}).reduce(function(s,r){return s+(typeof r[h]==='number'?r[h]:0);},0);
+      tot=t>0?String(Math.round(t)):'';
+    }
+    html2+='<td style="background:#1a6b3c;color:#fff;font-weight:bold;padding:7px 9px;font-size:11px;border:1px solid rgba(255,255,255,.2);text-align:'+(ci>0&&isAmt?'right':'left')+'">'+encodeHtml(String(tot||''))+'</td>';
+  });
+  html2+='</tr></table>';
+
+  // Convert styled HTML to sheet
+  var tmpDiv=document.createElement('div'); tmpDiv.innerHTML=html2;
+  var ws1=XLSX.utils.table_to_sheet(tmpDiv.querySelector('table'));
+
+  // ── CRITICAL FIX: Override all numeric cells with actual number type ──
+  // table_to_sheet reads everything as string from HTML; we fix it now
+  var dataStartXlRow=HDR_ROW+1; // row index in sheet where data begins (after company/sub/blank/hdr)
+  dataRows.forEach(function(row,ri){
+    var xlRow=dataStartXlRow+ri;
+    headers.forEach(function(h,ci){
+      var v=row[h];
+      if(typeof v==='number'){
+        var addr=C(xlRow,ci);
+        if(ws1[addr]){
+          ws1[addr].t='n';
+          ws1[addr].v=v;
+          // Net Amount: integer format (no decimals); others: auto
+          ws1[addr].z='#,##0'; // integer with thousand separator, NO ₹
+        }
+      }
+    });
+  });
+  // Fix totals row numeric cells
+  headers.forEach(function(h,ci){
+    if(amtCols.has(h)&&ci>0){
+      var t=dataRows.filter(function(r){return !r._cont;}).reduce(function(s,r){return s+(typeof r[h]==='number'?r[h]:0);},0);
+      var addr=C(TOT_ROW,ci);
+      if(ws1[addr]){ws1[addr].t='n';ws1[addr].v=t;ws1[addr].z='#,##0';}
+    }
+  });
+
+  // ── Column widths ──
+  ws1['!cols']=headers.map(function(h){
+    if(h==='Party Name'||h.includes('Party')) return {wch:28};
+    if(h.includes('Remarks')||h.includes('Grade')) return {wch:22};
+    if(amtCols.has(h)) return {wch:14};
+    if(h.includes('Date')) return {wch:12};
+    if(h.includes('Broker')||h.includes('Station')) return {wch:18};
+    if(h==='Bill No') return {wch:8};
+    return {wch:Math.max(h.length+3,10)};
+  });
+
+  // ── AutoFilter on header row ──
+  if(autoFilter){
+    var hdrRowIdx=HDR_ROW;
+    ws1['!autofilter']={ref:XLSX.utils.encode_range({s:{r:hdrRowIdx,c:0},e:{r:hdrRowIdx,c:nCols-1}})};
+  }
+
+  // ── Freeze panes: freeze top 4 rows + 0 cols ──
+  ws1['!freeze']={xSplit:0,ySplit:HDR_ROW+1};
+
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws1,'Bills Report');
+
+  // ── Separate Payments sheet ──
   if(sepSheet){
     var payRows2=[];
     sourceBills.forEach(function(b){
       payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
         var mode=(p.mode||'').toLowerCase();
-        payRows2.push({'Bill No':b.billNo||'','Date':fmtDate(b.date),'Party':b.party||'',
-          'Bill Amt':b.netAmt||0,'Pay Date':fmtDate(p.date),
-          'Cash':mode==='cash'?p.amount||0:'',
-          'Cheque':mode.includes('cheque')?p.amount||0:'',
-          'NEFT/UPI':!mode.includes('cash')&&!mode.includes('cheque')?p.amount||0:'',
-          'Cheque No.':p.chequeNo||'','R.No.':p.receiptNo||'',
-          'Rebate':p.rebate||0,'Mode':p.mode||'','Remarks':p.remarks||''});
+        payRows2.push({
+          'Bill No':b.billNo||'',
+          'Date':fmtDate(b.date),
+          'Party':b.party||'',
+          'Bill Amt':b.netAmt||0,
+          'Pay Date':fmtDate(p.date),
+          'Cash':mode==='cash'?p.amount||0:0,
+          'Cheque':mode.includes('cheque')?p.amount||0:0,
+          'NEFT/UPI':(!mode.includes('cash')&&!mode.includes('cheque'))?p.amount||0:0,
+          'Cheque No.':p.chequeNo||'',
+          'R.No.':p.receiptNo||'',
+          'Rebate':p.rebate||0,
+          'Mode':p.mode||'',
+          'Remarks':p.remarks||''
+        });
       });
     });
     if(payRows2.length){
-      var htmlPay='<table><tr>'+['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks'].map(function(h){return '<th style="background:#1d4ed8;color:#fff;font-weight:bold;padding:6px 10px;font-size:11px">'+h+'</th>';}).join('')+'</tr>'+
-        payRows2.map(function(r,i){return '<tr>'+Object.values(r).map(function(v,ci){var isNum=typeof v==='number';return '<td style="background:'+(i%2?'#f0f6ff':'#fff')+';padding:5px 9px;font-size:11px;text-align:'+(isNum?'right':'left')+'">'+v+'</td>';}).join('')+'</tr>';}).join('')+'</table>';
-      var wsPay=XLSX.utils.table_to_sheet((function(){var d=document.createElement('div');d.innerHTML=htmlPay;return d.querySelector('table');})());
+      var payAoa=[['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks']];
+      payRows2.forEach(function(r){payAoa.push(Object.values(r));});
+      var wsPay=XLSX.utils.aoa_to_sheet(payAoa);
+      // Style payment header row
+      var payHdrHtml='<table><tr>'+['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks'].map(function(h){return '<th style="background:#1d4ed8;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3)">'+h+'</th>';}).join('')+'</tr>'+
+        payRows2.map(function(r,i){return '<tr>'+Object.values(r).map(function(v){var isNum=typeof v==='number';return '<td style="background:'+(i%2?'#dbeafe':'#fff')+';padding:5px 9px;font-size:11px;text-align:'+(isNum?'right':'left')+'">'+encodeHtml(String(v))+'</td>';}).join('')+'</tr>';}).join('')+'</table>';
+      var tmpDiv2=document.createElement('div');tmpDiv2.innerHTML=payHdrHtml;
+      wsPay=XLSX.utils.table_to_sheet(tmpDiv2.querySelector('table'));
+      // Fix numeric cols in payments
+      var payNumCols=[3,5,6,7,10]; // Bill Amt,Cash,Cheque,NEFT,Rebate
+      payRows2.forEach(function(r,ri){
+        payNumCols.forEach(function(ci){
+          var addr=C(ri+1,ci);
+          var v=Object.values(r)[ci];
+          if(typeof v==='number'&&wsPay[addr]){wsPay[addr].t='n';wsPay[addr].v=v;wsPay[addr].z='#,##0';}
+        });
+      });
+      wsPay['!cols']=[{wch:8},{wch:12},{wch:26},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14},{wch:10},{wch:8},{wch:8},{wch:20}];
       XLSX.utils.book_append_sheet(wb,wsPay,'Payments');
     }
   }
@@ -4700,50 +4896,12 @@ function pgDueList() {
     });
   }
 
+  // FIX: mkFDrop now uses mkColFilter for proper Enter/search support
   function mkFDrop(key,vals){
-    var isOn=hasF(key);
-    var fb=document.createElement('button');
-    fb.style.cssText='background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle;line-height:1;color:'+(isOn?'#dc2626':'#9ca3af');
-    fb.textContent=isOn?'\u25BC':'\u25BD';fb.title='Filter';
-    fb.addEventListener('click',function(e){
-      e.stopPropagation();document.querySelectorAll('[id^="cfd-"]').forEach(function(d){d.remove();});
-      var drop=document.createElement('div');drop.id='cfd-'+key;
-      drop.style.cssText='position:fixed;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:9999;min-width:200px;overflow:hidden';
-      var rect=fb.getBoundingClientRect();drop.style.top=(rect.bottom+2)+'px';drop.style.left=Math.min(rect.left,window.innerWidth-215)+'px';
-      var si=document.createElement('input');si.type='text';si.placeholder='Search...';si.style.cssText='width:100%;padding:7px 10px;border:none;border-bottom:1px solid #e5e7eb;font-size:12px;outline:none;box-sizing:border-box';
-      var listEl=document.createElement('div');listEl.style.cssText='max-height:200px;overflow-y:auto';
-      var cur=state.filters[key]?new Set(state.filters[key]):new Set(vals);
-      function rd(q){
-        listEl.innerHTML='';var fv=q?vals.filter(function(v){return String(v).toLowerCase().includes(q.toLowerCase());}):vals;
-        var ai=document.createElement('div');ai.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:12px';
-        var ac=document.createElement('input');ac.type='checkbox';ac.style.accentColor='#166534';ac.checked=cur.size===vals.length;ac.indeterminate=cur.size>0&&cur.size<vals.length;
-        ac.addEventListener('change',function(){if(this.checked)vals.forEach(function(v){cur.add(v);});else cur.clear();rd(si.value);});
-        ai.appendChild(ac);ai.appendChild(document.createTextNode('(Select All)'));
-        ai.addEventListener('click',function(e){if(e.target!==ac){ac.checked=!ac.checked;ac.dispatchEvent(new Event('change'));}});
-        listEl.appendChild(ai);
-        fv.forEach(function(v){
-          var item=document.createElement('div');item.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12px';
-          item.addEventListener('mouseenter',function(){this.style.background='#fff1f2';});item.addEventListener('mouseleave',function(){this.style.background='';});
-          var chk=document.createElement('input');chk.type='checkbox';chk.style.accentColor='#166534';chk.checked=cur.has(v);
-          var lbl=document.createElement('span');lbl.textContent=(v!==''&&v!=null)?String(v):'(Blank)';
-          chk.addEventListener('change',function(){if(this.checked)cur.add(v);else cur.delete(v);});
-          item.appendChild(chk);item.appendChild(lbl);
-          item.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;chk.dispatchEvent(new Event('change'));}});
-          listEl.appendChild(item);
-        });
-      }
-      si.addEventListener('input',function(){rd(this.value);});rd('');
-      var foot=document.createElement('div');foot.style.cssText='padding:7px 10px;border-top:1px solid #e5e7eb;display:flex;gap:6px;justify-content:flex-end;background:#fafafa';
-      var clr=document.createElement('button');clr.className='btn btn-outline btn-sm';clr.textContent='Clear';
-      var ok=document.createElement('button');ok.className='btn btn-green btn-sm';ok.textContent='OK';
-      clr.addEventListener('click',function(){state.filters[key]=null;drop.remove();rebuildAll();});
-      ok.addEventListener('click',function(){state.filters[key]=cur.size===vals.length?null:cur;drop.remove();rebuildAll();});
-      foot.appendChild(clr);foot.appendChild(ok);drop.appendChild(si);drop.appendChild(listEl);drop.appendChild(foot);
-      document.body.appendChild(drop);setTimeout(function(){si.focus();},50);
-      var ch=function(e){if(!drop.contains(e.target)&&e.target!==fb){drop.remove();document.removeEventListener('click',ch);}};
-      setTimeout(function(){document.addEventListener('click',ch);},0);
-    });
-    return fb;
+    var fakeThWrapper=document.createElement('span');
+    fakeThWrapper.style.cssText='display:inline-flex;align-items:center';
+    mkColFilter(fakeThWrapper, function(){return vals;}, state.filters, key, function(){rebuildAll();});
+    return fakeThWrapper.querySelector('button');
   }
 
   var toolbar=document.createElement('div');toolbar.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid #e5e7eb;background:#fafafa';
@@ -4796,8 +4954,10 @@ function pgDueList() {
       (anyF?'<span style="color:#d97706;margin-left:8px">Filters active</span>':'');
   }
 
-  var tblOuter=document.createElement('div');tblOuter.style.overflow='auto';
-  var tbl=document.createElement('table');var thead=document.createElement('thead');var tbody=document.createElement('tbody');
+  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
+  var tbl=document.createElement('table');tbl.style.cssText='border-collapse:collapse;width:100%';
+  var thead=document.createElement('thead');thead.style.cssText='position:sticky;top:46px;z-index:4';
+  var tbody=document.createElement('tbody');
   tbl.appendChild(thead);tbl.appendChild(tbody);tblOuter.appendChild(tbl);
 
   var uBillNo=Array.from(new Set(dueBills.map(function(b){return b.billNo||'';})).values()).sort();
@@ -4821,7 +4981,7 @@ function pgDueList() {
     if(state.printMode){var thS=document.createElement('th');thS.style.cssText='width:28px;text-align:center;background:#fef9c3;position:sticky;top:0;z-index:2';var sa=document.createElement('input');sa.type='checkbox';sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();renderRows(d);});thS.appendChild(sa);htr.appendChild(thS);}
     cols.forEach(function(c){
       var th=document.createElement('th');th.className=c.num?'num':'';
-      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:0;z-index:2'+(c.noSort?'':';cursor:pointer');
+      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:46px;z-index:3;background:var(--surface)'+(c.noSort?'':';cursor:pointer');
       var ns=document.createElement('span');ns.textContent=c.l;th.appendChild(ns);
       if(!c.noSort){var si=document.createElement('span');si.style.cssText='margin-left:2px;font-size:9px;opacity:'+(state.sortKey===c.k?'1':'0.3');si.textContent=state.sortKey===c.k?(state.sortDir>0?'\u2191':'\u2193'):'\u21C5';if(state.sortKey===c.k)si.style.color='#166534';th.appendChild(si);(function(key){th.addEventListener('click',function(e){if(e.target.tagName==='BUTTON'||e.target.tagName==='INPUT')return;state.sortDir=state.sortKey===key?-state.sortDir:-1;state.sortKey=key;var nd=getData();buildHdr(nd);renderRows(nd);});})(c.k);}
       if(c.fk){
@@ -4927,7 +5087,9 @@ function pgDueList() {
   }
   function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);}
   rebuildAll();
-  var card=document.createElement('div');card.className='card';card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);
+  var card=document.createElement('div');card.className='card';card.style.cssText='display:flex;flex-direction:column;min-height:0';
+  toolbar.style.cssText+=';position:sticky;top:0;z-index:10;background:#fafafa';
+  card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);
   return card;
 }
 
@@ -5236,7 +5398,7 @@ function pgReceive() {
   recvSumBar.style.cssText='display:flex;gap:14px;flex-wrap:wrap;padding:7px 14px;background:#f0fdf4;border-bottom:1px solid #bbf7d0;font-size:12px';
   recvSumBar.id='recv-sumbar';
 
-  var tblOuter = document.createElement('div'); tblOuter.style.overflow='auto';
+  var tblOuter = document.createElement('div'); tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
   var tbl = document.createElement('table');
   var thead = document.createElement('thead'); var tbody = document.createElement('tbody');
   tbl.appendChild(thead); tbl.appendChild(tbody); tblOuter.appendChild(tbl);
@@ -5248,44 +5410,11 @@ function pgReceive() {
   var uStatusR=['due','partial'];
   var uBrokerR=Array.from(new Set(dueBills.map(function(b){return b.broker||'';}))).sort();
 
+  // FIX: mkFDR now uses mkColFilter for Enter+Select All support
   function mkFDR(key,vals){
-    var isOn=!!(recvState.filters[key]&&recvState.filters[key].size>0);
-    var fb=document.createElement('button');
-    fb.style.cssText='background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle;color:'+(isOn?'#166534':'#9ca3af');
-    fb.textContent=isOn?'▼':'▽';fb.title='Filter';
-    fb.addEventListener('click',function(e){
-      e.stopPropagation();document.querySelectorAll('[id^="cfd-"]').forEach(function(d){d.remove();});
-      var drop=document.createElement('div');drop.id='cfd-'+key;
-      drop.style.cssText='position:fixed;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:9999;min-width:180px;overflow:hidden';
-      var rect=fb.getBoundingClientRect();drop.style.top=(rect.bottom+2)+'px';drop.style.left=Math.min(rect.left,window.innerWidth-200)+'px';
-      var si=document.createElement('input');si.type='text';si.placeholder='Search...';si.style.cssText='width:100%;padding:7px 10px;border:none;border-bottom:1px solid #e5e7eb;font-size:12px;outline:none;box-sizing:border-box';
-      var listEl=document.createElement('div');listEl.style.cssText='max-height:180px;overflow-y:auto';
-      var cur=recvState.filters[key]?new Set(recvState.filters[key]):new Set(vals);
-      function rd(q){listEl.innerHTML='';var fv=q?vals.filter(function(v){return String(v).toLowerCase().includes(q.toLowerCase());}):vals;
-        var ai=document.createElement('div');ai.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:12px;cursor:pointer';
-        var ac=document.createElement('input');ac.type='checkbox';ac.style.accentColor='#166534';ac.checked=cur.size===vals.length;ac.indeterminate=cur.size>0&&cur.size<vals.length;
-        ac.addEventListener('change',function(){if(this.checked)vals.forEach(function(v){cur.add(v);});else cur.clear();rd(si.value);});
-        ai.appendChild(ac);ai.appendChild(document.createTextNode('(All)'));ai.addEventListener('click',function(e){if(e.target!==ac){ac.checked=!ac.checked;ac.dispatchEvent(new Event('change'));}});listEl.appendChild(ai);
-        fv.forEach(function(v){var item=document.createElement('div');item.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12px';
-          item.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});item.addEventListener('mouseleave',function(){this.style.background='';});
-          var chk=document.createElement('input');chk.type='checkbox';chk.style.accentColor='#166534';chk.checked=cur.has(v);
-          var lbl=document.createElement('span');lbl.textContent=v||'(Blank)';
-          chk.addEventListener('change',function(){if(this.checked)cur.add(v);else cur.delete(v);});
-          item.appendChild(chk);item.appendChild(lbl);item.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;chk.dispatchEvent(new Event('change'));}});
-          listEl.appendChild(item);});
-      }
-      si.addEventListener('input',function(){rd(this.value);});rd('');
-      var foot=document.createElement('div');foot.style.cssText='padding:7px 10px;border-top:1px solid #e5e7eb;display:flex;gap:6px;justify-content:flex-end;background:#fafafa';
-      var clr=document.createElement('button');clr.className='btn btn-outline btn-sm';clr.textContent='Clear';
-      var ok=document.createElement('button');ok.className='btn btn-green btn-sm';ok.textContent='OK';
-      clr.addEventListener('click',function(){recvState.filters[key]=null;drop.remove();renderTable();});
-      ok.addEventListener('click',function(){recvState.filters[key]=cur.size===vals.length?null:cur;drop.remove();renderTable();});
-      foot.appendChild(clr);foot.appendChild(ok);drop.appendChild(si);drop.appendChild(listEl);drop.appendChild(foot);
-      document.body.appendChild(drop);setTimeout(function(){si.focus();},50);
-      var ch=function(e){if(!drop.contains(e.target)&&e.target!==fb){drop.remove();document.removeEventListener('click',ch);}};
-      setTimeout(function(){document.addEventListener('click',ch);},0);
-    });
-    return fb;
+    var wrapper=document.createElement('span');wrapper.style.display='inline-flex';
+    mkColFilter(wrapper,function(){return vals;},recvState.filters,key,function(){renderTable();});
+    return wrapper.querySelector('button');
   }
 
   // Sortable + Filterable header columns
@@ -5511,45 +5640,11 @@ function pgAdvances() {
   var uMode=Array.from(new Set(advances.map(function(a){return a.mode||'';}))).sort();
   var uLinked=['linked','pending'];
 
+  // FIX: mkFD uses mkColFilter for Enter+Select All support
   function mkFD(key,vals,st){
-    var isOn=!!(st.filters[key]&&st.filters[key].size>0);
-    var fb=document.createElement('button');
-    fb.style.cssText='background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle;color:'+(isOn?'#166534':'#9ca3af');
-    fb.textContent=isOn?'\u25BC':'\u25BD';fb.title='Filter';
-    fb.addEventListener('click',function(e){
-      e.stopPropagation();document.querySelectorAll('[id^="cfd-"]').forEach(function(d){d.remove();});
-      var drop=document.createElement('div');drop.id='cfd-'+key;
-      drop.style.cssText='position:fixed;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:9999;min-width:180px;overflow:hidden';
-      var rect=fb.getBoundingClientRect();drop.style.top=(rect.bottom+2)+'px';drop.style.left=Math.min(rect.left,window.innerWidth-200)+'px';
-      var si=document.createElement('input');si.type='text';si.placeholder='Search...';si.style.cssText='width:100%;padding:7px 10px;border:none;border-bottom:1px solid #e5e7eb;font-size:12px;outline:none;box-sizing:border-box';
-      var listEl=document.createElement('div');listEl.style.cssText='max-height:180px;overflow-y:auto';
-      var cur=st.filters[key]?new Set(st.filters[key]):new Set(vals);
-      function rd(q){listEl.innerHTML='';var fv=q?vals.filter(function(v){return String(v).toLowerCase().includes(q.toLowerCase());}):vals;
-        var ai=document.createElement('div');ai.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:12px';
-        var ac=document.createElement('input');ac.type='checkbox';ac.style.accentColor='#166534';ac.checked=cur.size===vals.length;ac.indeterminate=cur.size>0&&cur.size<vals.length;
-        ac.addEventListener('change',function(){if(this.checked)vals.forEach(function(v){cur.add(v);});else cur.clear();rd(si.value);});
-        ai.appendChild(ac);ai.appendChild(document.createTextNode('(All)'));ai.addEventListener('click',function(e){if(e.target!==ac){ac.checked=!ac.checked;ac.dispatchEvent(new Event('change'));}});
-        listEl.appendChild(ai);
-        fv.forEach(function(v){var item=document.createElement('div');item.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12px';
-          item.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});item.addEventListener('mouseleave',function(){this.style.background='';});
-          var chk=document.createElement('input');chk.type='checkbox';chk.style.accentColor='#166534';chk.checked=cur.has(v);
-          var lbl=document.createElement('span');lbl.textContent=(v!==''&&v!=null)?String(v):'(Blank)';
-          chk.addEventListener('change',function(){if(this.checked)cur.add(v);else cur.delete(v);});
-          item.appendChild(chk);item.appendChild(lbl);item.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;chk.dispatchEvent(new Event('change'));}});
-          listEl.appendChild(item);});
-      }
-      si.addEventListener('input',function(){rd(this.value);});rd('');
-      var foot=document.createElement('div');foot.style.cssText='padding:7px 10px;border-top:1px solid #e5e7eb;display:flex;gap:6px;justify-content:flex-end;background:#fafafa';
-      var clr=document.createElement('button');clr.className='btn btn-outline btn-sm';clr.textContent='Clear';
-      var ok=document.createElement('button');ok.className='btn btn-green btn-sm';ok.textContent='OK';
-      clr.addEventListener('click',function(){st.filters[key]=null;drop.remove();refresh();});
-      ok.addEventListener('click',function(){st.filters[key]=cur.size===vals.length?null:cur;drop.remove();refresh();});
-      foot.appendChild(clr);foot.appendChild(ok);drop.appendChild(si);drop.appendChild(listEl);drop.appendChild(foot);
-      document.body.appendChild(drop);setTimeout(function(){si.focus();},50);
-      var ch=function(e){if(!drop.contains(e.target)&&e.target!==fb){drop.remove();document.removeEventListener('click',ch);}};
-      setTimeout(function(){document.addEventListener('click',ch);},0);
-    });
-    return fb;
+    var wrapper=document.createElement('span');wrapper.style.display='inline-flex';
+    mkColFilter(wrapper,function(){return vals;},st.filters,key,function(){refresh();});
+    return wrapper.querySelector('button');
   }
 
   function getData(){
@@ -5650,7 +5745,7 @@ function pgAdvances() {
       '<span>Pending: <strong style="color:#d97706">'+pending+'</strong></span>';
   }
 
-  var tblOuter=document.createElement('div');tblOuter.style.overflow='auto';
+  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
   var tbl2=document.createElement('table');tbl2.style.width='100%';
   var thead2=document.createElement('thead');var tbody2=document.createElement('tbody');
   tbl2.appendChild(thead2);tbl2.appendChild(tbody2);tblOuter.appendChild(tbl2);
@@ -5737,44 +5832,11 @@ function pgCheques() {
   var uStatus=['Received','Deposited','Cleared','Bounced'];
   var uMode=['NEFT','RTGS','IMPS','UPI','CASH','CHEQUE'];
 
+  // FIX: mkFD uses mkColFilter for Enter+Select All support
   function mkFD(key,vals){
-    var isOn=!!(state.filters[key]&&state.filters[key].size>0);
-    var fb=document.createElement('button');
-    fb.style.cssText='background:none;border:none;cursor:pointer;font-size:10px;padding:0 2px;vertical-align:middle;color:'+(isOn?'#166534':'#9ca3af');
-    fb.textContent=isOn?'\u25BC':'\u25BD';fb.title='Filter';
-    fb.addEventListener('click',function(e){
-      e.stopPropagation();document.querySelectorAll('[id^="cfd-"]').forEach(function(d){d.remove();});
-      var drop=document.createElement('div');drop.id='cfd-'+key;
-      drop.style.cssText='position:fixed;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:9999;min-width:180px;overflow:hidden';
-      var rect=fb.getBoundingClientRect();drop.style.top=(rect.bottom+2)+'px';drop.style.left=Math.min(rect.left,window.innerWidth-200)+'px';
-      var si=document.createElement('input');si.type='text';si.placeholder='Search...';si.style.cssText='width:100%;padding:7px 10px;border:none;border-bottom:1px solid #e5e7eb;font-size:12px;outline:none;box-sizing:border-box';
-      var listEl=document.createElement('div');listEl.style.cssText='max-height:180px;overflow-y:auto';
-      var cur=state.filters[key]?new Set(state.filters[key]):new Set(vals);
-      function rd(q){listEl.innerHTML='';var fv=q?vals.filter(function(v){return String(v).toLowerCase().includes(q.toLowerCase());}):vals;
-        var ai=document.createElement('div');ai.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-weight:600;border-bottom:1px solid #e5e7eb;font-size:12px';
-        var ac=document.createElement('input');ac.type='checkbox';ac.style.accentColor='#166534';ac.checked=cur.size===vals.length;ac.indeterminate=cur.size>0&&cur.size<vals.length;
-        ac.addEventListener('change',function(){if(this.checked)vals.forEach(function(v){cur.add(v);});else cur.clear();rd(si.value);});
-        ai.appendChild(ac);ai.appendChild(document.createTextNode('(All)'));ai.addEventListener('click',function(e){if(e.target!==ac){ac.checked=!ac.checked;ac.dispatchEvent(new Event('change'));}});listEl.appendChild(ai);
-        fv.forEach(function(v){var item=document.createElement('div');item.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:12px';
-          item.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});item.addEventListener('mouseleave',function(){this.style.background='';});
-          var chk=document.createElement('input');chk.type='checkbox';chk.style.accentColor='#166534';chk.checked=cur.has(v);
-          var lbl=document.createElement('span');lbl.textContent=v||'(Blank)';
-          chk.addEventListener('change',function(){if(this.checked)cur.add(v);else cur.delete(v);});
-          item.appendChild(chk);item.appendChild(lbl);item.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;chk.dispatchEvent(new Event('change'));}});
-          listEl.appendChild(item);});
-      }
-      si.addEventListener('input',function(){rd(this.value);});rd('');
-      var foot=document.createElement('div');foot.style.cssText='padding:7px 10px;border-top:1px solid #e5e7eb;display:flex;gap:6px;justify-content:flex-end;background:#fafafa';
-      var clr=document.createElement('button');clr.className='btn btn-outline btn-sm';clr.textContent='Clear';
-      var ok=document.createElement('button');ok.className='btn btn-green btn-sm';ok.textContent='OK';
-      clr.addEventListener('click',function(){state.filters[key]=null;drop.remove();refresh();});
-      ok.addEventListener('click',function(){state.filters[key]=cur.size===vals.length?null:cur;drop.remove();refresh();});
-      foot.appendChild(clr);foot.appendChild(ok);drop.appendChild(si);drop.appendChild(listEl);drop.appendChild(foot);
-      document.body.appendChild(drop);setTimeout(function(){si.focus();},50);
-      var ch=function(e){if(!drop.contains(e.target)&&e.target!==fb){drop.remove();document.removeEventListener('click',ch);}};
-      setTimeout(function(){document.addEventListener('click',ch);},0);
-    });
-    return fb;
+    var wrapper=document.createElement('span');wrapper.style.display='inline-flex';
+    mkColFilter(wrapper,function(){return vals;},state.filters,key,function(){refresh();});
+    return wrapper.querySelector('button');
   }
 
   function getData(){
@@ -5892,7 +5954,7 @@ function pgCheques() {
   var data2=getData();
   updateChqSum(data2);
 
-  var tblOuter=document.createElement('div');tblOuter.style.overflow='auto';
+  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
   var tbl2=document.createElement('table');tbl2.style.width='100%';
   var thead2=document.createElement('thead');var tbody2=document.createElement('tbody');
   tbl2.appendChild(thead2);tbl2.appendChild(tbody2);tblOuter.appendChild(tbl2);
@@ -8404,7 +8466,7 @@ function pgBankMatch() {
   mTitle.textContent = 'Match Credits ('+state.credits.length+' total, '+pending+' pending)';
   mHead.appendChild(mTitle); matchCard.appendChild(mHead);
 
-  var tblOuter = document.createElement('div'); tblOuter.style.overflow='auto';
+  var tblOuter = document.createElement('div'); tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
   var tbl = document.createElement('table');
   var thead = document.createElement('thead'); var htr = document.createElement('tr');
   ['Date','Amount','Mode','Reference / Party','Suggested Match','Assign Party','Type','Action'].forEach(function(h){
@@ -11114,27 +11176,92 @@ function pgCashSplit() {
   fb.appendChild(bb);
   var rc=document.createElement('div');rc.id='cs-rows';fb.appendChild(rc);fc.appendChild(fb);wrap.appendChild(fc);
   var pc=document.createElement('div');pc.className='card';
-  var ph=document.createElement('div');ph.className='card-head';ph.innerHTML='<h4>📅 Past Cash Splits</h4>';pc.appendChild(ph);
-  var sp=payments.filter(function(p){return(p.mode||'').toUpperCase()==='CASH'&&(p.remarks||'').toLowerCase().indexOf('cash split')!==-1;});
-  if(!sp.length){var nd=document.createElement('div');nd.style.cssText='padding:24px;text-align:center;color:#9ca3af;font-size:13px';nd.textContent='Koi Cash Split nahi abhi tak';pc.appendChild(nd);}
-  else{
+  var ph=document.createElement('div');ph.className='card-head';
+  ph.innerHTML='<h4>📅 Past Cash Splits</h4>';
+  // Toolbar for past splits
+  var csTbar=document.createElement('div');csTbar.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid #e5e7eb;background:#fafafa';
+  var csSi=el('input',{cls:'inp-sm',type:'text',placeholder:'Search party...',style:'width:160px'});
+  var csDF=el('input',{cls:'inp-sm',type:'date',title:'From date'});
+  var csDT=el('input',{cls:'inp-sm',type:'date',title:'To date'});
+  var csClr=el('button',{cls:'btn btn-outline btn-sm',text:'Clear'});
+  var csTot=document.createElement('span');csTot.style.cssText='font-size:12px;font-weight:600;color:#166534;margin-left:auto';
+  csTbar.appendChild(el('span',{text:'🔍',style:'font-size:13px'}));
+  csTbar.appendChild(csSi);
+  csTbar.appendChild(el('span',{text:'From:',style:'font-size:11px;color:#6b7280'}));
+  csTbar.appendChild(csDF);
+  csTbar.appendChild(el('span',{text:'To:',style:'font-size:11px;color:#6b7280'}));
+  csTbar.appendChild(csDT);
+  csTbar.appendChild(csClr);
+  csTbar.appendChild(csTot);
+  pc.appendChild(ph);pc.appendChild(csTbar);
+  var allSp=payments.filter(function(p){return(p.mode||'').toUpperCase()==='CASH'&&(p.remarks||'').toLowerCase().indexOf('cash split')!==-1;});
+  var csListDiv=document.createElement('div');
+  function renderCsList(){
+    var q=(csSi.value||'').toUpperCase().trim();
+    var df=csDF.value;var dt=csDT.value;
+    var sp=allSp.filter(function(p){
+      var b=bills.find(function(x){return x.id===p.billId;})||{};
+      if(q&&!(b.party||'').toUpperCase().includes(q))return false;
+      if(df&&(p.date||'')<df)return false;
+      if(dt&&(p.date||'')>dt)return false;
+      return true;
+    }).sort(function(a,b){return(b.date||'').localeCompare(a.date||'');});
+    var tot2=sp.reduce(function(s,p){return s+(p.amount||0);},0);
+    csTot.textContent=sp.length+' entries · ₹'+fmt(tot2);
+    csListDiv.innerHTML='';
+    if(!sp.length){csListDiv.innerHTML='<div style="padding:24px;text-align:center;color:#9ca3af;font-size:13px">Koi Cash Split nahi milya</div>';return;}
     var pt=document.createElement('table');pt.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
     pt.innerHTML='<thead><tr style="background:#f0fdf4"><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Date</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Party</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0">Bill#</th><th style="padding:7px 10px;color:#166534;font-size:11px;border-bottom:2px solid #bbf7d0;text-align:right">Amount</th></tr></thead>';
     var ptb=document.createElement('tbody');
-    sp.sort(function(a,b){return(b.date||'').localeCompare(a.date||'');}).forEach(function(p,i){var b=bills.find(function(x){return x.id===p.billId;})||{};var r=document.createElement('tr');r.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');r.innerHTML='<td style="padding:6px 10px">'+fmtDate(p.date)+'</td><td style="padding:6px 10px;font-weight:600;color:#166534">'+(b.party||'?')+'</td><td style="padding:6px 10px;color:#1d4ed8">#'+(b.billNo||'?')+'</td><td style="padding:6px 10px;text-align:right;font-weight:700">₹'+fmt(p.amount||0)+'</td>';ptb.appendChild(r);});
-    pt.appendChild(ptb);pc.appendChild(pt);
+    sp.forEach(function(p,i){var b=bills.find(function(x){return x.id===p.billId;})||{};var r=document.createElement('tr');r.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');r.innerHTML='<td style="padding:6px 10px">'+fmtDate(p.date)+'</td><td style="padding:6px 10px;font-weight:600;color:#166534">'+(b.party||'?')+'</td><td style="padding:6px 10px;color:#1d4ed8">#'+(b.billNo||'?')+'</td><td style="padding:6px 10px;text-align:right;font-weight:700">₹'+fmt(p.amount||0)+'</td>';ptb.appendChild(r);});
+    pt.appendChild(ptb);csListDiv.appendChild(pt);
   }
+  csSi.addEventListener('input',function(){renderCsList();});
+  csDF.addEventListener('change',function(){renderCsList();});
+  csDT.addEventListener('change',function(){renderCsList();});
+  csClr.addEventListener('click',function(){csSi.value='';csDF.value='';csDT.value='';renderCsList();});
+  renderCsList();
+  pc.appendChild(csListDiv);
   wrap.appendChild(pc);
   function upd(){var t=parseFloat(document.getElementById('cs-total').value)||0;var s2=0;document.querySelectorAll('#cs-rows .cs-amt').forEach(function(x){s2+=parseFloat(x.value)||0;});var r=t-s2;document.getElementById('cs-t').textContent='₹'+fmt(t);document.getElementById('cs-s').textContent='₹'+fmt(s2);var re=document.getElementById('cs-r');re.textContent=(r<-0.5?'Over: ₹'+fmt(Math.abs(r)):r>0.5?'Remaining: ₹'+fmt(r):'✅ Balanced');re.style.color=r<-0.5?'#dc2626':r>0.5?'#d97706':'#166534';}
   ai.addEventListener('input',upd);
-  function addRow(){var row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1fr 1fr 130px 130px 32px;gap:8px;align-items:center;margin-bottom:8px;padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px';
+  function addRow(){var row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:1.5fr 1.5fr 130px 120px 32px;gap:8px;align-items:start;margin-bottom:8px;padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px';
     var pi=document.createElement('input');pi.className='inp cs-party';pi.placeholder='Party';pi.style.fontSize='12px';
     var bs=document.createElement('select');bs.className='inp cs-bill';bs.style.fontSize='12px';bs.innerHTML='<option value="">— Bill —</option>';
     var di=document.createElement('input');di.className='inp';di.type='date';di.value=today();di.style.fontSize='12px';
     var ai2=document.createElement('input');ai2.className='inp cs-amt';ai2.type='number';ai2.placeholder='₹';ai2.style.fontSize='12px';ai2.addEventListener('input',upd);
     var db=document.createElement('button');db.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:5px;width:28px;height:28px;cursor:pointer;font-size:14px';db.textContent='×';db.addEventListener('click',function(){row.parentNode.removeChild(row);upd();});
-    pi.addEventListener('input',function(){var q=this.value.toUpperCase().trim();bs.innerHTML='<option value="">— Bill —</option>';if(!q)return;bills.filter(function(b){return b.party&&b.party.toUpperCase().indexOf(q)!==-1&&getBillStatus(b).bal>0;}).slice(0,20).forEach(function(b){var s=getBillStatus(b);var o=document.createElement('option');o.value=b.id;o.textContent='#'+b.billNo+' ₹'+fmt(s.bal);bs.appendChild(o);});});
-    [pi,bs,di,ai2,db].forEach(function(e){row.appendChild(e);});rc.appendChild(row);}
+    // Party autocomplete with dropdown
+    var piWrapper=document.createElement('div');piWrapper.style.cssText='position:relative;flex:1';
+    piWrapper.appendChild(pi);
+    var piDrop=document.createElement('div');
+    piDrop.style.cssText='position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:999;max-height:200px;overflow-y:auto;display:none;font-size:12px';
+    piWrapper.appendChild(piDrop);
+    pi.addEventListener('focus',function(){if(this.value.trim().length>0)pi.dispatchEvent(new Event('input'));});
+    pi.addEventListener('input',function(){
+      var q=this.value.toUpperCase().trim();
+      bs.innerHTML='<option value="">— Bill —</option>';
+      piDrop.innerHTML='';
+      if(!q){piDrop.style.display='none';return;}
+      var matched=Array.from(new Set(bills.filter(function(b){return b.party&&b.party.toUpperCase().indexOf(q)!==-1&&getBillStatus(b).bal>0;}).map(function(b){return b.party;}))).slice(0,10);
+      if(!matched.length){piDrop.style.display='none';return;}
+      matched.forEach(function(party){
+        var opt=document.createElement('div');
+        opt.style.cssText='padding:6px 10px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-weight:600;color:#166534';
+        opt.textContent=party;
+        opt.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});
+        opt.addEventListener('mouseleave',function(){this.style.background='';});
+        opt.addEventListener('mousedown',function(ev){ev.preventDefault();pi.value=party;piDrop.style.display='none';
+          // Auto-populate bill dropdown
+          bs.innerHTML='<option value="">— Bill —</option>';
+          bills.filter(function(b){return b.party===party&&getBillStatus(b).bal>0;}).slice(0,20).forEach(function(b){var s=getBillStatus(b);var o=document.createElement('option');o.value=b.id;o.textContent='#'+b.billNo+' ₹'+fmt(s.bal);bs.appendChild(o);if(bills.filter(function(x){return x.party===party&&getBillStatus(x).bal>0;}).length===1)o.selected=true;});
+        });
+        piDrop.appendChild(opt);
+      });
+      piDrop.style.display='block';
+    });
+    pi.addEventListener('blur',function(){setTimeout(function(){piDrop.style.display='none';},200);});
+    [piWrapper,bs,di,ai2,db].forEach(function(e){row.appendChild(e);});rc.appendChild(row);}
   addRow();addRow();
   addB.addEventListener('click',function(){addRow();upd();});
   saveB.addEventListener('click',function(){
@@ -12154,9 +12281,7 @@ function pgAgeing() {
     var PAGE_AGE=100,pgAge=0;
     function renderAgePage(){
       _ageDetailDiv.innerHTML='';
-      var sorted=bk.bills.slice().sort(function(a,b2){return getDays(b2)-getDays(a);});
-      var totalPgA=Math.max(1,Math.ceil(sorted.length/PAGE_AGE));
-      var pageB=sorted.slice(pgAge*PAGE_AGE,(pgAge+1)*PAGE_AGE);
+      // sort/filter now handled by getSortedAgeBills()
       var sec=document.createElement('div');sec.className='card';
       var sh=document.createElement('div');sh.className='card-head';
       sh.innerHTML='<h4 style="color:'+bk.color+'">'+bk.label+' <span style="background:'+bk.bg+';color:'+bk.color+';padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px">'+bk.bills.length+' bills</span></h4>'+
@@ -12164,37 +12289,115 @@ function pgAgeing() {
       sec.appendChild(sh);
       var tOuter=document.createElement('div');tOuter.style.overflow='auto';
       var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
-      tbl.innerHTML='<thead><tr style="background:#f9fafb">'+
-        ['Bill#','Date','Party','Broker','Grade','Bill Amt','Received','Balance','Days','Action'].map(function(h){
-          return '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left">'+h+'</th>';
-        }).join('')+'</tr></thead>';
-      var tbody=document.createElement('tbody');
-      var rowsHtml='';
-      pageB.forEach(function(b){
-        var s=getBillStatus(b);var days=getDays(b);
-        var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
-        rowsHtml+='<tr style="border-bottom:1px solid #f3f4f6">'+
-          '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+b.billNo+'</td>'+
-          '<td style="padding:6px 10px">'+fmtDate(b.date)+'</td>'+
-          '<td style="padding:6px 10px;font-weight:600">'+b.party+'</td>'+
-          '<td style="padding:6px 10px">'+(b.broker||'-')+'</td>'+
-          '<td style="padding:6px 10px;font-size:11px">'+grade+'</td>'+
-          '<td style="padding:6px 10px;text-align:right">₹'+fmt(b.netAmt)+'</td>'+
-          '<td style="padding:6px 10px;text-align:right;color:#166534">₹'+fmt(s.recv)+'</td>'+
-          '<td style="padding:6px 10px;text-align:right;font-weight:700;color:'+bk.color+'">₹'+fmt(s.bal)+'</td>'+
-          '<td style="padding:6px 10px;text-align:center;font-weight:700;color:'+bk.color+'">'+days+'d</td>'+
-          '<td style="padding:6px 10px"><a href="#" style="color:#166534;font-size:11px;font-weight:600" onclick="pageState.ledgerParty=\''+b.party+'\';go(\'ledger\')">Ledger</a></td>'+
-          '</tr>';
-      });
-      tbody.innerHTML=rowsHtml;
-      tbl.appendChild(tbody);tOuter.appendChild(tbl);sec.appendChild(tOuter);
-      if(totalPgA>1){
-        var pgBarA=document.createElement('div');pgBarA.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280';
-        pgBarA.innerHTML='<span>'+(pgAge*PAGE_AGE+1)+'-'+Math.min((pgAge+1)*PAGE_AGE,sorted.length)+' of '+sorted.length+'</span>';
-        var pgBtnsA=document.createElement('div');pgBtnsA.style.cssText='display:flex;gap:4px';
-        for(var pi2=0;pi2<totalPgA;pi2++){(function(pn){var pb=document.createElement('button');pb.textContent=pn+1;pb.style.cssText='padding:2px 8px;border-radius:5px;border:1px solid '+(pn===pgAge?'#166534':'#e5e7eb')+';background:'+(pn===pgAge?'#166534':'#fff')+';color:'+(pn===pgAge?'#fff':'#374151')+';font-size:11px;cursor:pointer;font-family:var(--font)';pb.addEventListener('click',function(){pgAge=pn;renderAgePage();});pgBtnsA.appendChild(pb);})(pi2);}
-        pgBarA.appendChild(pgBtnsA);sec.appendChild(pgBarA);
+      // Build sortable+filterable ageing detail table
+      var ageSort={key:'days',dir:-1};
+      var ageFilters={};
+      function getSortedAgeBills(){
+        return bk.bills.slice().filter(function(b){
+          if(ageFilters.party&&ageFilters.party.size>0&&!ageFilters.party.has(b.party))return false;
+          if(ageFilters.broker&&ageFilters.broker.size>0&&!ageFilters.broker.has(b.broker||''))return false;
+          if(ageFilters.grade&&ageFilters.grade.size>0){var bg=(b.rows||[]).map(function(r){return r.grade;});if(!bg.some(function(g){return ageFilters.grade.has(g);}))return false;}
+          if(ageFilters.bal_min!==undefined&&getBillStatus(b).bal<ageFilters.bal_min)return false;
+          if(ageFilters.bal_max!==undefined&&getBillStatus(b).bal>ageFilters.bal_max)return false;
+          return true;
+        }).sort(function(a,b2){
+          var av,bv;
+          if(ageSort.key==='days'){av=getDays(a);bv=getDays(b2);}
+          else if(ageSort.key==='bal'){av=getBillStatus(a).bal;bv=getBillStatus(b2).bal;}
+          else if(ageSort.key==='netAmt'){av=a.netAmt||0;bv=b2.netAmt||0;}
+          else if(ageSort.key==='recv'){av=getBillStatus(a).recv;bv=getBillStatus(b2).recv;}
+          else if(ageSort.key==='billNo'){av=parseInt(a.billNo)||0;bv=parseInt(b2.billNo)||0;}
+          else if(ageSort.key==='date'){av=a.date||'';bv=b2.date||'';}
+          else{av=a[ageSort.key]||'';bv=b2[ageSort.key]||'';}
+          if(typeof av==='number'&&typeof bv==='number')return(av-bv)*ageSort.dir;
+          return String(av).localeCompare(String(bv))*ageSort.dir;
+        });
       }
+      var ageCols=[
+        {h:'Bill#',k:'billNo',fk:'billNo'},
+        {h:'Date',k:'date',fk:'date'},
+        {h:'Party',k:'party',fk:'party'},
+        {h:'Broker',k:'broker',fk:'broker'},
+        {h:'Grade',k:'grade',fk:'grade',noSort:true},
+        {h:'Bill Amt',k:'netAmt',fk:'netAmt'},
+        {h:'Received',k:'recv',fk:'recv'},
+        {h:'Balance',k:'bal',fk:'bal'},
+        {h:'Days',k:'days',fk:null},
+        {h:'Action',k:null,fk:null,noSort:true}
+      ];
+      var ageThead=document.createElement('thead');
+      var ageTbodyEl=document.createElement('tbody');
+      function buildAgeThead(){
+        ageThead.innerHTML='';
+        var htr=document.createElement('tr');htr.style.background='#f9fafb';
+        ageCols.forEach(function(c){
+          var th=document.createElement('th');
+          th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left'+(c.noSort?'':';cursor:pointer');
+          var hs=document.createElement('span');hs.textContent=c.h;th.appendChild(hs);
+          if(!c.noSort){
+            var si=document.createElement('span');si.style.cssText='margin-left:2px;font-size:9px;opacity:'+(ageSort.key===c.k?'1':'0.3');
+            si.textContent=ageSort.key===c.k?(ageSort.dir>0?'↑':'↓'):'⇅';
+            if(ageSort.key===c.k)si.style.color=bk.color;th.appendChild(si);
+            (function(key){th.addEventListener('click',function(ev){if(ev.target.tagName==='BUTTON')return;ageSort.dir=ageSort.key===key?-ageSort.dir:-1;ageSort.key=key;buildAgeThead();renderAgeRows();})})(c.k);
+          }
+          if(c.fk){
+            (function(col){
+              var getAV=function(){
+                var vals=bk.bills.map(function(b){
+                  if(col.fk==='grade')return (b.rows||[]).map(function(r){return r.grade;});
+                  return [b[col.fk]||''];
+                }).reduce(function(a,v){return a.concat(v);},[]);
+                return Array.from(new Set(vals)).sort();
+              };
+              mkColFilter(th,getAV,ageFilters,col.fk,function(){buildAgeThead();renderAgeRows();});
+            })(c);
+          }
+          htr.appendChild(th);
+        });
+        ageThead.appendChild(htr);
+      }
+      tbl.innerHTML='';
+      tbl.appendChild(ageThead);
+      tbl.appendChild(ageTbodyEl);tOuter.appendChild(tbl);sec.appendChild(tOuter);
+      var pgBarContainer=document.createElement('div');sec.appendChild(pgBarContainer);
+      buildAgeThead();
+      function renderAgeRows(){
+        ageTbodyEl.innerHTML='';
+        var sorted2=getSortedAgeBills();
+        var totalPgA2=Math.max(1,Math.ceil(sorted2.length/PAGE_AGE));
+        if(pgAge>=totalPgA2)pgAge=0;
+        var pageB2=sorted2.slice(pgAge*PAGE_AGE,(pgAge+1)*PAGE_AGE);
+        var rowsHtml='';
+        pageB2.forEach(function(b){
+          var s=getBillStatus(b);var days=getDays(b);
+          var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
+          rowsHtml+='<tr style="border-bottom:1px solid #f3f4f6">'+
+            '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+b.billNo+'</td>'+
+            '<td style="padding:6px 10px">'+fmtDate(b.date)+'</td>'+
+            '<td style="padding:6px 10px;font-weight:600">'+b.party+'</td>'+
+            '<td style="padding:6px 10px">'+(b.broker||'-')+'</td>'+
+            '<td style="padding:6px 10px;font-size:11px">'+grade+'</td>'+
+            '<td style="padding:6px 10px;text-align:right">₹'+fmt(b.netAmt)+'</td>'+
+            '<td style="padding:6px 10px;text-align:right;color:#166534">₹'+fmt(s.recv)+'</td>'+
+            '<td style="padding:6px 10px;text-align:right;font-weight:700;color:'+bk.color+'">₹'+fmt(s.bal)+'</td>'+
+            '<td style="padding:6px 10px;text-align:center;font-weight:700;color:'+bk.color+'">'+days+'d</td>'+
+            '<td style="padding:6px 10px"><a href="#" style="color:#166534;font-size:11px;font-weight:600" onclick="pageState.ledgerParty=\''+b.party+'\';go(\'ledger\')">Ledger</a></td>'+
+            '</tr>';
+        });
+        ageTbodyEl.innerHTML=rowsHtml;
+        // Update header bill count
+        sh.querySelector('h4 span').textContent=sorted2.length+' bills';
+        // Pagination
+        pgBarContainer.innerHTML='';
+        if(totalPgA2>1){
+          var pgBarA=document.createElement('div');pgBarA.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280';
+          pgBarA.innerHTML='<span>'+(pgAge*PAGE_AGE+1)+'-'+Math.min((pgAge+1)*PAGE_AGE,sorted2.length)+' of '+sorted2.length+'</span>';
+          var pgBtnsA=document.createElement('div');pgBtnsA.style.cssText='display:flex;gap:4px';
+          for(var pi2=0;pi2<totalPgA2;pi2++){(function(pn){var pb=document.createElement('button');pb.textContent=pn+1;pb.style.cssText='padding:2px 8px;border-radius:5px;border:1px solid '+(pn===pgAge?'#166534':'#e5e7eb')+';background:'+(pn===pgAge?'#166534':'#fff')+';color:'+(pn===pgAge?'#fff':'#374151')+';font-size:11px;cursor:pointer;font-family:var(--font)';pb.addEventListener('click',function(){pgAge=pn;renderAgeRows();});pgBtnsA.appendChild(pb);})(pi2);}
+          pgBarA.appendChild(pgBtnsA);pgBarContainer.appendChild(pgBarA);
+        }
+      }
+      renderAgeRows();
       _ageDetailDiv.appendChild(sec);
     }
     renderAgePage();
@@ -13033,7 +13236,7 @@ function pgSuspense() {
     '<span style="border-left:1px solid #fde68a;padding-left:14px;color:var(--brand)">Cleared: <strong>\u20b9'+fmt(clrAmt)+'</strong></span>';
 
   // ── TABLE ──
-  var tblOuter = document.createElement('div'); tblOuter.style.overflow='auto';
+  var tblOuter = document.createElement('div'); tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
   var tbl = document.createElement('table'); tbl.style.width='100%';
   var thead = document.createElement('thead'); var htr = document.createElement('tr');
   htr.style.background='#f9fafb';
