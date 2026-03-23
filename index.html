@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CashewPro — Jai Shree Cashew Industries</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <!-- Google Identity Services for Drive backup -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -3608,10 +3608,10 @@ function pgAllBills() {
   }
 
   // Table
-  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
+  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 200px)';
   var tblWrap=document.createElement('div');tblWrap.id='abt';tblWrap.style.cssText='transition:transform .15s;transform-origin:top left';
   var tbl=document.createElement('table');tbl.style.cssText='border-collapse:collapse;width:100%';
-  var thead=document.createElement('thead');thead.style.cssText='position:sticky;top:46px;z-index:4';
+  var thead=document.createElement('thead');thead.style.cssText='position:sticky;top:0;z-index:4';
   var tbody=document.createElement('tbody');
   tbl.appendChild(thead);tbl.appendChild(tbody);tblWrap.appendChild(tbl);tblOuter.appendChild(tblWrap);
 
@@ -3631,6 +3631,7 @@ function pgAllBills() {
     {l:'Type',       k:'billType',  fk:'billType', num:false,                id:'billType', def:true},
     {l:'Transport',  k:'transport', fk:'transport',num:false,                id:'transport',def:false},
     {l:'Station',    k:'station',   fk:'station',  num:false,                id:'station',  def:false},
+    {l:'Rate',       k:'rate',      fk:null,       num:true,  noSort:true,   id:'rate',     def:false},
     {l:'Net Amt',    k:'netAmt',    fk:'netAmt',   num:true,                 id:'netAmt',   def:true},
     {l:'STP Rate',   k:'stp',       fk:'stp',      num:true,                 id:'stp',      def:true},
     {l:'Remarks',    k:'remarks',   fk:'remarks',  num:false,                id:'remarks',  def:true},
@@ -3670,7 +3671,7 @@ function pgAllBills() {
     }
     getCols().forEach(function(c){
       var th=document.createElement('th');th.className=c.num?'num':'';
-      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:46px;z-index:3;background:'+(c.pay?'#d1fae5':'var(--surface)')+(c.pay?';color:#166534':'');
+      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:0;z-index:3;background:'+(c.pay?'#d1fae5':'var(--surface)')+(c.pay?';color:#166534':'');
       var ns=document.createElement('span');ns.textContent=c.l;th.appendChild(ns);
       if(!c.noSort){
         th.style.cursor='pointer';
@@ -3789,6 +3790,7 @@ function pgAllBills() {
         else if(c.k==='billType') addTd(row.billType||'credit');
         else if(c.k==='transport') addTd(row.transport||'-');
         else if(c.k==='station') addTd(row.station||'-');
+        else if(c.k==='rate') addTd(row.rows&&row.rows.length?(row.rows.map(function(r){return r.rate||0;}).filter(Boolean).join(', ')||'-'):'-',true);
         else if(c.k==='netAmt') addTd('\u20b9'+fmt(row.netAmt),true);
         else if(c.k==='stp') addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
         else if(c.k==='remarks') addTd(row.remarks||'-');
@@ -3941,6 +3943,7 @@ function openColCustomizeDialog() {
     {id:'billType',  label:'Type (Credit/Cash)',key:'billType', default:true},
     {id:'transport', label:'Transport',       key:'transport',  default:false},
     {id:'station',   label:'Station',         key:'station',    default:false},
+    {id:'rate',      label:'Rate (₹/kg)',     key:'rate',       default:false},
     {id:'netAmt',    label:'Net Amount',      key:'netAmt',     default:true},
     {id:'stp',       label:'STP Rate',        key:'stp',        default:true},
     {id:'remarks',   label:'Price Remarks',   key:'remarks',    default:true},
@@ -4591,7 +4594,7 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
   }
 
   var fname='BillsReport_'+today().replace(/-/g,'')+'_'+sourceBills.length+'bills.xlsx';
-  XLSX.writeFile(wb,fname,{cellStyles:true,bookType:'xlsx'});
+  XLSX.writeFile(wb,fname);
   toast('✅ '+sourceBills.length+' bills exported — '+headers.length+' columns!');
 }
 
@@ -5098,9 +5101,9 @@ function pgDueList() {
       (anyF?'<span style="color:#d97706;margin-left:8px">Filters active</span>':'');
   }
 
-  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:visible';
+  var tblOuter=document.createElement('div');tblOuter.style.cssText='overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px)';
   var tbl=document.createElement('table');tbl.style.cssText='border-collapse:collapse;width:100%';
-  var thead=document.createElement('thead');thead.style.cssText='position:sticky;top:46px;z-index:4';
+  var thead=document.createElement('thead');thead.style.cssText='position:sticky;top:0;z-index:4';
   var tbody=document.createElement('tbody');
   tbl.appendChild(thead);tbl.appendChild(tbody);tblOuter.appendChild(tbl);
 
@@ -5125,7 +5128,7 @@ function pgDueList() {
     if(state.printMode){var thS=document.createElement('th');thS.style.cssText='width:28px;text-align:center;background:#fef9c3;position:sticky;top:0;z-index:2';var sa=document.createElement('input');sa.type='checkbox';sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();renderRows(d);});thS.appendChild(sa);htr.appendChild(thS);}
     cols.forEach(function(c){
       var th=document.createElement('th');th.className=c.num?'num':'';
-      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:46px;z-index:3;background:var(--surface)'+(c.noSort?'':';cursor:pointer');
+      th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:0;z-index:3;background:var(--surface)'+(c.noSort?'':';cursor:pointer');
       var ns=document.createElement('span');ns.textContent=c.l;th.appendChild(ns);
       if(!c.noSort){var si=document.createElement('span');si.style.cssText='margin-left:2px;font-size:9px;opacity:'+(state.sortKey===c.k?'1':'0.3');si.textContent=state.sortKey===c.k?(state.sortDir>0?'\u2191':'\u2193'):'\u21C5';if(state.sortKey===c.k)si.style.color='#166534';th.appendChild(si);(function(key){th.addEventListener('click',function(e){if(e.target.tagName==='BUTTON'||e.target.tagName==='INPUT')return;state.sortDir=state.sortKey===key?-state.sortDir:-1;state.sortKey=key;var nd=getData();buildHdr(nd);renderRows(nd);});})(c.k);}
       if(c.fk){
