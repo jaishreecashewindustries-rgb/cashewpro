@@ -10265,9 +10265,18 @@ function pgBillImport() {
   var statusDiv2=document.createElement('div');statusDiv2.id='bi-status';upB2.appendChild(statusDiv2);
   upCard.appendChild(upB2);wrap.appendChild(upCard);
 
-  // _biTableDiv: container for bill table — updated in-place by renderImportTable()
+  // _biTableDiv: container for bill table
   var _biTableDiv = document.createElement('div');
   wrap.appendChild(_biTableDiv);
+
+  // renderImportTable: defined here at top level so async callbacks can call it
+  function renderImportTable() {
+    if(!_biTableDiv) return;
+    _biTableDiv.innerHTML = '';
+    if(!state.rows || !state.rows.length) return;
+    var tCard = buildBillTable();
+    if(tCard) _biTableDiv.appendChild(tCard);
+  }
 
   // ─── Format 2: HEADER+ITEM multi-grade parser ───
   // Async version — shows conflict dialogs
@@ -10732,17 +10741,8 @@ function pgBillImport() {
     stFil.addEventListener('change',applyBiFilters);brFil.addEventListener('change',applyBiFilters);stnFil.addEventListener('change',applyBiFilters);sortSel.addEventListener('change',applyBiFilters);
     clrBtn2.addEventListener('click',function(){state.biSearch='';state.biStatus='';state.biBroker='';state.biStation='';state.biSort='date_desc';srch.value='';stFil.value='';brFil.value='';stnFil.value='';sortSel.value='date_desc';renderImportTable();});
 
-    // ── renderImportTable: rebuilds bill table in-place ──
-    function renderImportTable() {
-      if(!_biTableDiv) return;
-      _biTableDiv.innerHTML = '';
-      var _tCard = _buildImportTableCard();
-      _biTableDiv.appendChild(_tCard);
-      // Update header summary
-      _updateBiHeader();
-    }
-    function _buildImportTableCard() {
-      var tCard=document.createElement('div');tCard.className='card';tCard.appendChild(tbWrap);
+    // tCard built here, returned to renderImportTable
+    var tCard=document.createElement('div');tCard.className='card';tCard.appendChild(tbWrap);
       var tH=document.createElement('div');tH.className='card-head';
       var sel=state.rows.filter(function(r){return r._include;}).length;
       var dup=state.rows.filter(function(r){return r._dup;}).length;
@@ -10866,9 +10866,8 @@ function pgBillImport() {
       });
 
       if(!state.rows.length){var etr3=document.createElement('tr');var etd3=document.createElement('td');etd3.setAttribute('colspan',11);etd3.style.cssText='text-align:center;padding:30px;color:#9ca3af;font-size:12px';etd3.textContent='Koi bills nahi mili.';etr3.appendChild(etd3);tb3.appendChild(etr3);}
-      tbl3.appendChild(tb3);tB.appendChild(tbl3);tCard.appendChild(tB);return tCard;
-    }
-    renderImportTable();
+      tbl3.appendChild(tb3);tB.appendChild(tbl3);tCard.appendChild(tB);
+    return tCard;
   }
 
   function importBills() {
