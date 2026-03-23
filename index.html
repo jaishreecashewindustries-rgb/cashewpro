@@ -1908,7 +1908,21 @@ function mkFilterDrop(key, getVals, filterState, onApply) {
     drop.style.left=Math.min(rect.left,window.innerWidth-230)+'px';
 
     function doApply(){
-      filterState[key]=(cur.size===uvals.length)?null:cur;
+      var q3=si.value.trim();
+      var effectiveCur=cur;
+      if(q3){
+        var fvApply=uvals.filter(function(v){return String(v==null?'':v).toLowerCase().includes(q3.toLowerCase());});
+        var uncheckedVis=fvApply.filter(function(v){return !cur.has(v);});
+        var checkedVis=fvApply.filter(function(v){return cur.has(v);});
+        if(uncheckedVis.length===fvApply.length){
+          // Nothing visible checked → select ALL visible as filter
+          effectiveCur=new Set(fvApply);
+        } else if(checkedVis.length>0&&checkedVis.length<uvals.length){
+          // Some visible checked → apply only those
+          effectiveCur=new Set(checkedVis);
+        }
+      }
+      filterState[key]=(effectiveCur.size===0)?null:(effectiveCur.size>=uvals.length?null:effectiveCur);
       drop.remove();
       document.removeEventListener('click',outsideClose);
       updateFbState();
@@ -2020,7 +2034,22 @@ function mkFilterDrop(key, getVals, filterState, onApply) {
       if(cntSpan)cntSpan.textContent=cur.size+' / '+uvals.length;
     }
 
-    si.addEventListener('input',function(){renderItems(this.value);});
+    var _fdrLastQ='';
+    si.addEventListener('input',function(){
+      var newQ=this.value.trim();
+      if(newQ&&!_fdrLastQ){
+        // Started typing: deselect all visible so user can pick specific ones
+        var fvNew=uvals.filter(function(v){return String(v==null?'':v).toLowerCase().includes(newQ.toLowerCase());});
+        fvNew.forEach(function(v){cur.delete(v);});
+        syncAllChk();
+      } else if(!newQ&&_fdrLastQ){
+        // Cleared search: restore all selected
+        uvals.forEach(function(v){cur.add(v);});
+        syncAllChk();
+      }
+      _fdrLastQ=newQ;
+      renderItems(this.value);
+    });
 
     // Footer
     var foot=document.createElement('div');
@@ -3041,7 +3070,22 @@ function mkColFilter(th, getVals, filtersObj, key, onApply, opts) {
         }
       }
 
-      si.addEventListener('input', function(){ renderList(this.value); });
+      var _lastQ='';
+      si.addEventListener('input', function(){
+        var newQ=this.value.trim();
+        // When user starts typing (transitions from empty to non-empty),
+        // switch to "none selected" mode so they can pick specific items
+        if(newQ && !_lastQ){
+          // Moving from empty to search: deselect all visible items
+          var fvNew=vals.filter(function(v){return String(v).toLowerCase().includes(newQ.toLowerCase());});
+          fvNew.forEach(function(v){cur.delete(v);});
+        } else if(!newQ && _lastQ){
+          // Moving from search to empty: restore all selected
+          vals.forEach(function(v){cur.add(v);});
+        }
+        _lastQ=newQ;
+        renderList(this.value);
+      });
       renderList('');
 
       var foot = document.createElement('div');
@@ -3054,15 +3098,21 @@ function mkColFilter(th, getVals, filtersObj, key, onApply, opts) {
       var okB  = el('button',{cls:'btn btn-green btn-sm',text:'Apply'});
 
       function doListApply(){
-        // FIX: if user searched, apply only checked visible items
         var q3 = si.value.trim();
         var effectiveCur = cur;
         if(q3){
+          // When search is active: apply only the VISIBLE filtered items that are checked
           var fvApply = vals.filter(function(v){return String(v).toLowerCase().includes(q3.toLowerCase());});
           var checkedVisible = fvApply.filter(function(v){return cur.has(v);});
-          if(checkedVisible.length > 0 && checkedVisible.length < vals.length){
+          var uncheckedVisible = fvApply.filter(function(v){return !cur.has(v);});
+          if(uncheckedVisible.length === fvApply.length){
+            // Nothing visible is checked → select ALL visible items as filter
+            effectiveCur = new Set(fvApply);
+          } else if(checkedVisible.length > 0 && checkedVisible.length < vals.length){
+            // Some visible items checked → apply only those
             effectiveCur = new Set(checkedVisible);
           }
+          // else: all vals selected → no filter (effectiveCur = cur = all)
         }
         filtersObj[key] = effectiveCur.size === 0 ? null : (effectiveCur.size >= vals.length ? null : effectiveCur);
         applyAndClose(drop);
@@ -3709,29 +3759,7 @@ function pgAllBills() {
       var lastMode=lastPay2?(lastPay2.mode||'-'):'-';
       var lastChq=lastPay2?(lastPay2.chequeNo||''):'-';
       var lastRcpt=lastPay2?(lastPay2.receiptNo||''):'-';
-      // Dynamic column rendering based on active baseCols
-      baseCols.forEach(function(c){
-        // Special cells handled separately: recv, bal, status, lastMode, lastChq, lastRcpt
-        if(['recv','bal','status','lastMode','lastChq','lastRcpt'].indexOf(c.k)!==-1) return;
-        if(c.k==='billNo') addTd(row.billNo||'-');
-        else if(c.k==='date') addTd(fmtDate(row.date)||'-');
-        else if(c.k==='party') addTd(displayPartyName(row.party,row.station)+(row.partyGstin&&_colOn('partyGstin',false)?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));
-        else if(c.k==='broker') addTd(row.broker||'-');
-        else if(c.k==='rows') addTd(grade);
-        else if(c.k==='billType') addTd(row.billType||'credit');
-        else if(c.k==='transport') addTd(row.transport||'-');
-        else if(c.k==='station') addTd(row.station||'-');
-        else if(c.k==='netAmt') addTd('\u20b9'+fmt(row.netAmt),true);
-        else if(c.k==='stp') addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
-        else if(c.k==='remarks') addTd(row.remarks||'-');
-        else if(c.k==='weight') addTd(fmt((row.rows||[]).reduce(function(s,r){return s+(r.weight||0);},0))+'kg',true);
-        else if(c.k==='taxable') addTd(row.taxable?'\u20b9'+fmt(row.taxable):'-',true);
-        else if(c.k==='cgst') addTd(row.cgst?'\u20b9'+fmt(row.cgst):'-',true);
-        else if(c.k==='sgst') addTd(row.sgst?'\u20b9'+fmt(row.sgst):'-',true);
-        else if(c.k==='packing') addTd(row.packing?'\u20b9'+fmt(row.packing):'-',true);
-        else if(c.k==='partyGstin') addTd('<span style="font-size:10px;font-family:monospace">'+( row.partyGstin||'-')+'</span>');
-      });
-      // Received column — with Gross badge if applicable
+      // Build Received wrapper (needed for recv cell)
       var recvEl=document.createElement('span');
       recvEl.style.cssText='color:#166534;font-weight:600';
       recvEl.textContent='\u20b9'+fmt(s.recv);
@@ -3750,15 +3778,46 @@ function pgAllBills() {
           recvWrapper.appendChild(gpBadge);
         }
       }
-      if(_colOn('recv',true)){var recvTd=document.createElement('td');recvTd.className='num';recvTd.style.maxWidth='180px';recvTd.appendChild(recvWrapper);tr.appendChild(recvTd);}
-      if(_colOn('bal',true)){addTd(s.bal>0?el('span',{text:'\u20b9'+fmt(s.bal),style:'color:#dc2626;font-weight:700'}):el('span',{text:'\u20b90',style:'color:#166534'}),true);}
-      if(_colOn('status',true)){addTd(badge(s.status));}
-      // Last Mode cell
-      if(_colOn('lastMode',true)){var modCell=document.createElement('td');modCell.style.padding='7px 10px';if(lastMode&&lastMode!=='-'){var ms=document.createElement('span');ms.style.cssText='font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e0f2fe;color:#0369a1';ms.textContent=lastMode;modCell.appendChild(ms);}else{modCell.textContent='-';}tr.appendChild(modCell);}
-      // Cheque No cell (separate)
-      if(_colOn('lastChq',true)){var chqCell=document.createElement('td');chqCell.style.cssText='padding:7px 10px;font-size:11px;color:#374151;font-family:monospace';chqCell.textContent=lastChq||'-';tr.appendChild(chqCell);}
-      // Receipt No cell (separate)
-      if(_colOn('lastRcpt',true)){var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);}
+
+      // FULLY dynamic rendering — ALL cols including recv/bal/status follow baseCols order
+      baseCols.forEach(function(c){
+        if(c.k==='billNo') addTd(row.billNo||'-');
+        else if(c.k==='date') addTd(fmtDate(row.date)||'-');
+        else if(c.k==='party') addTd(displayPartyName(row.party,row.station)+(row.partyGstin?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));
+        else if(c.k==='broker') addTd(row.broker||'-');
+        else if(c.k==='rows') addTd(grade);
+        else if(c.k==='billType') addTd(row.billType||'credit');
+        else if(c.k==='transport') addTd(row.transport||'-');
+        else if(c.k==='station') addTd(row.station||'-');
+        else if(c.k==='netAmt') addTd('\u20b9'+fmt(row.netAmt),true);
+        else if(c.k==='stp') addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
+        else if(c.k==='remarks') addTd(row.remarks||'-');
+        else if(c.k==='weight') addTd(fmt((row.rows||[]).reduce(function(s2,r){return s2+(r.weight||0);},0))+'kg',true);
+        else if(c.k==='taxable') addTd(row.taxable?'\u20b9'+fmt(row.taxable):'-',true);
+        else if(c.k==='cgst') addTd(row.cgst?'\u20b9'+fmt(row.cgst):'-',true);
+        else if(c.k==='sgst') addTd(row.sgst?'\u20b9'+fmt(row.sgst):'-',true);
+        else if(c.k==='packing') addTd(row.packing?'\u20b9'+fmt(row.packing):'-',true);
+        else if(c.k==='partyGstin') addTd('<span style="font-size:10px;font-family:monospace">'+(row.partyGstin||'-')+'</span>');
+        else if(c.k==='recv'){
+          var recvTd=document.createElement('td');recvTd.className='num';recvTd.style.maxWidth='180px';
+          recvTd.appendChild(recvWrapper);tr.appendChild(recvTd);
+        }
+        else if(c.k==='bal') addTd(s.bal>0?el('span',{text:'\u20b9'+fmt(s.bal),style:'color:#dc2626;font-weight:700'}):el('span',{text:'\u20b90',style:'color:#166534'}),true);
+        else if(c.k==='status') addTd(badge(s.status));
+        else if(c.k==='lastMode'){
+          var modCell=document.createElement('td');modCell.style.padding='7px 10px';
+          if(lastMode&&lastMode!=='-'){var ms=document.createElement('span');ms.style.cssText='font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:#e0f2fe;color:#0369a1';ms.textContent=lastMode;modCell.appendChild(ms);}
+          else{modCell.textContent='-';}tr.appendChild(modCell);
+        }
+        else if(c.k==='lastChq'){
+          var chqCell=document.createElement('td');chqCell.style.cssText='padding:7px 10px;font-size:11px;color:#374151;font-family:monospace';
+          chqCell.textContent=lastChq||'-';tr.appendChild(chqCell);
+        }
+        else if(c.k==='lastRcpt'){
+          var rcCell=document.createElement('td');rcCell.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;font-family:monospace';
+          rcCell.textContent=lastRcpt||'-';tr.appendChild(rcCell);
+        }
+      });
       if(state.showPay){
         addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'\u20b9'+fmt(lpy.amount||0):'-',true,true);
         addTd(lpy?'\u20b9'+fmt(lpy.rebate||0):'-',true,true);addTd(lpy?lpy.mode||'-':'-',false,true);
@@ -4350,32 +4409,117 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
   var tmpDiv=document.createElement('div'); tmpDiv.innerHTML=html2;
   var ws1=XLSX.utils.table_to_sheet(tmpDiv.querySelector('table'));
 
-  // ── CRITICAL FIX: Override all numeric cells with actual number type ──
-  // table_to_sheet reads everything as string from HTML; we fix it now
-  var dataStartXlRow=HDR_ROW+1; // row index in sheet where data begins (after company/sub/blank/hdr)
+  // ── Helper: encode cell address ──
+  function encCell(r,c){return XLSX.utils.encode_cell({r:r,c:c});}
+
+  // ── Apply cell styles (SheetJS 0.18 free supports s property with cellStyles:true) ──
+  var SGREEN  = {rgb:'1A6B3C'};  // dark green bg
+  var SGREEN2 = {rgb:'2D7D50'};  // medium green bg
+  var SBLUE   = {rgb:'1D4ED8'};  // blue header bg  
+  var SWHITE  = {rgb:'FFFFFF'};  // white text
+  var SLIGHT  = {rgb:'F3F4F6'};  // light grey row
+  var SBLUEL  = {rgb:'DBEAFE'};  // light blue pay col
+  var SPAID   = {rgb:'DCFCE7'};  // paid green bg
+  var SPART   = {rgb:'FEF9C3'};  // partial yellow bg
+  var SDUE    = {rgb:'FEE2E2'};  // due red bg
+  var STOTBG  = {rgb:'1A6B3C'};  // totals row bg
+  var SREDTXT = {rgb:'DC2626'};  // red text (balance due)
+  var SGRNTXT = {rgb:'166534'};  // green text (paid)
+  var SGRTXT2 = {rgb:'92400E'};  // amber text (partial)
+
+  function mkStyle(bgRgb, fontRgb, bold, hAlign){
+    var s={};
+    if(bgRgb) s.fill={patternType:'solid',fgColor:{rgb:bgRgb.rgb}};
+    s.font={bold:!!bold,color:{rgb:fontRgb?fontRgb.rgb:'111827'}};
+    if(hAlign) s.alignment={horizontal:hAlign,wrapText:false};
+    else s.alignment={wrapText:false};
+    s.border={top:{style:'thin',color:{rgb:'E5E7EB'}},bottom:{style:'thin',color:{rgb:'E5E7EB'}},left:{style:'thin',color:{rgb:'E5E7EB'}},right:{style:'thin',color:{rgb:'E5E7EB'}}};
+    return s;
+  }
+
+  // Row 0 (company name): dark green bg, white bold text, center
+  for(var ci0=0;ci0<nCols;ci0++){
+    var a0=encCell(0,ci0);
+    if(ws1[a0]) ws1[a0].s=mkStyle(SGREEN,SWHITE,true,'center');
+  }
+  // Row 1 (subtitle): medium green bg, white text, center  
+  for(var ci1=0;ci1<nCols;ci1++){
+    var a1=encCell(1,ci1);
+    if(ws1[a1]) ws1[a1].s=mkStyle(SGREEN2,SWHITE,false,'center');
+  }
+  // Row 2 (blank): light bg
+  for(var ci2=0;ci2<nCols;ci2++){
+    var a2=encCell(2,ci2);
+    if(ws1[a2]) ws1[a2].s={fill:{patternType:'solid',fgColor:{rgb:'F9FAFB'}},border:{bottom:{style:'thin',color:{rgb:'E5E7EB'}}}};
+  }
+  // Row 3 (headers): bill cols = green, pay cols = blue
+  for(var ci3=0;ci3<nCols;ci3++){
+    var a3=encCell(HDR_ROW,ci3);
+    var isPayH=ci3>=billHeaders.length;
+    if(ws1[a3]) ws1[a3].s=mkStyle(isPayH?SBLUE:SGREEN,SWHITE,true,'center');
+  }
+  // Data rows
+  var dataStartXlRow=HDR_ROW+1;
   dataRows.forEach(function(row,ri){
     var xlRow=dataStartXlRow+ri;
+    var isCont=row._cont;
+    var rowBgRgb=isCont?'E0F2FE':(ri%2===0?'FFFFFF':'F9FAFB');
     headers.forEach(function(h,ci){
+      var addr=encCell(xlRow,ci);
+      if(!ws1[addr]) return;
       var v=row[h];
+      var isAmt=amtCols.has(h);
+      var isPayCol=ci>=billHeaders.length;
+      var isStatus=h==='Status';
+      var hAlign=typeof v==='number'?'right':'left';
+      var bgRgb=isPayCol&&!isCont?'DBEAFE':(isCont?'E0F2FE':rowBgRgb);
+      var fontRgb='111827'; var bold=false;
+      if(isStatus){
+        if(v==='PAID'){bgRgb='DCFCE7';fontRgb='166534';bold=true;}
+        else if(v==='PARTIAL'){bgRgb='FEF9C3';fontRgb='92400E';bold=true;}
+        else if(v){bgRgb='FEE2E2';fontRgb='DC2626';bold=true;}
+      }
+      if((h==='Outstanding'||h==='Balance')&&typeof v==='number'){
+        if(v>0.5){fontRgb='DC2626';bold=true;}
+        else if(v<=0.5){fontRgb='166534';}
+      }
+      if(h==='Net Amount'){bold=true;}
+      if(isCont&&ci<billHeaders.length){fontRgb='9CA3AF';}
+      ws1[addr].s={
+        fill:{patternType:'solid',fgColor:{rgb:bgRgb}},
+        font:{bold:bold,color:{rgb:fontRgb},sz:10},
+        alignment:{horizontal:hAlign,wrapText:false},
+        border:{top:{style:'thin',color:{rgb:'E5E7EB'}},bottom:{style:'thin',color:{rgb:'E5E7EB'}},left:{style:'thin',color:{rgb:'E5E7EB'}},right:{style:'thin',color:{rgb:'E5E7EB'}}}
+      };
+      // Fix numeric cells
       if(typeof v==='number'){
-        var addr=C(xlRow,ci);
-        if(ws1[addr]){
-          ws1[addr].t='n';
-          ws1[addr].v=v;
-          // Net Amount: integer format (no decimals); others: auto
-          ws1[addr].z='#,##0'; // integer with thousand separator, NO ₹
-        }
+        ws1[addr].t='n'; ws1[addr].v=v; ws1[addr].z='#,##0';
       }
     });
   });
-  // Fix totals row numeric cells
+  // Totals row: dark green bg, white bold
   headers.forEach(function(h,ci){
-    if(amtCols.has(h)&&ci>0){
+    var addr=encCell(TOT_ROW,ci);
+    if(!ws1[addr]) return;
+    var isAmt=amtCols.has(h);
+    if(isAmt&&ci>0){
       var t=dataRows.filter(function(r){return !r._cont;}).reduce(function(s,r){return s+(typeof r[h]==='number'?r[h]:0);},0);
-      var addr=C(TOT_ROW,ci);
-      if(ws1[addr]){ws1[addr].t='n';ws1[addr].v=t;ws1[addr].z='#,##0';}
+      ws1[addr].t='n'; ws1[addr].v=t; ws1[addr].z='#,##0';
     }
+    ws1[addr].s={
+      fill:{patternType:'solid',fgColor:{rgb:'1A6B3C'}},
+      font:{bold:true,color:{rgb:'FFFFFF'},sz:10},
+      alignment:{horizontal:ci>0&&isAmt?'right':'left',wrapText:false},
+      border:{top:{style:'medium',color:{rgb:'FFFFFF'}},bottom:{style:'medium',color:{rgb:'FFFFFF'}},left:{style:'thin',color:{rgb:'2D7D50'}},right:{style:'thin',color:{rgb:'2D7D50'}}}
+    };
   });
+
+  // ── Merge cells for company name rows ──
+  ws1['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:nCols-1}},
+    {s:{r:1,c:0},e:{r:1,c:nCols-1}},
+    {s:{r:2,c:0},e:{r:2,c:nCols-1}}
+  ];
 
   // ── Column widths ──
   ws1['!cols']=headers.map(function(h){
@@ -4447,7 +4591,7 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
   }
 
   var fname='BillsReport_'+today().replace(/-/g,'')+'_'+sourceBills.length+'bills.xlsx';
-  XLSX.writeFile(wb,fname);
+  XLSX.writeFile(wb,fname,{cellStyles:true,bookType:'xlsx'});
   toast('✅ '+sourceBills.length+' bills exported — '+headers.length+' columns!');
 }
 
