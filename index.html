@@ -10265,7 +10265,9 @@ function pgBillImport() {
   var statusDiv2=document.createElement('div');statusDiv2.id='bi-status';upB2.appendChild(statusDiv2);
   upCard.appendChild(upB2);wrap.appendChild(upCard);
 
-  if(state.rows&&state.rows.length) wrap.appendChild(buildBillTable());
+  // _biTableDiv: container for bill table — updated in-place by renderImportTable()
+  var _biTableDiv = document.createElement('div');
+  wrap.appendChild(_biTableDiv);
 
   // ─── Format 2: HEADER+ITEM multi-grade parser ───
   // Async version — shows conflict dialogs
@@ -10730,12 +10732,14 @@ function pgBillImport() {
     stFil.addEventListener('change',applyBiFilters);brFil.addEventListener('change',applyBiFilters);stnFil.addEventListener('change',applyBiFilters);sortSel.addEventListener('change',applyBiFilters);
     clrBtn2.addEventListener('click',function(){state.biSearch='';state.biStatus='';state.biBroker='';state.biStation='';state.biSort='date_desc';srch.value='';stFil.value='';brFil.value='';stnFil.value='';sortSel.value='date_desc';renderImportTable();});
 
-    // ── renderImportTable: in-place re-render (no full page refresh) ──
-    var _importTableContainer = document.createElement('div');
+    // ── renderImportTable: rebuilds bill table in-place ──
     function renderImportTable() {
-      _importTableContainer.innerHTML = '';
-      var tCardNew = _buildImportTableCard();
-      _importTableContainer.appendChild(tCardNew);
+      if(!_biTableDiv) return;
+      _biTableDiv.innerHTML = '';
+      var _tCard = _buildImportTableCard();
+      _biTableDiv.appendChild(_tCard);
+      // Update header summary
+      _updateBiHeader();
     }
     function _buildImportTableCard() {
       var tCard=document.createElement('div');tCard.className='card';tCard.appendChild(tbWrap);
@@ -10755,7 +10759,7 @@ function pgBillImport() {
       var impBtn=el('button',{cls:'btn btn-green btn-sm',text:'✅ Import Selected'});
       impBtn.addEventListener('click',importBills);
       var clrBtn=el('button',{cls:'btn btn-outline btn-sm',text:'🗑 Clear'});
-      clrBtn.addEventListener('click',function(){if(confirm('Clear?')){state.rows=[];refresh();}});
+      clrBtn.addEventListener('click',function(){if(confirm('Clear?')){state.rows=[];if(_biTableDiv)_biTableDiv.innerHTML='';else refresh();}});
       btnD.appendChild(impBtn);btnD.appendChild(clrBtn);tH.appendChild(btnD);tCard.appendChild(tH);
 
       var tB=document.createElement('div');tB.style.overflow='auto';
@@ -10885,7 +10889,8 @@ function pgBillImport() {
     state.rows=[];
     go('all-bills');
   }
-  wrap.appendChild(_importTableContainer);
+  // render table on load if rows exist
+  if(state.rows&&state.rows.length) renderImportTable();
   return wrap;
 }
 
