@@ -1496,6 +1496,7 @@ function prewarmBillStatusCache() {
 // Build party profile index: name → {brokers:[], stations:[], gstin:''}
 function buildPartyIndex() {
   var idx = {};
+  // First from bills (live data)
   bills.forEach(function(b) {
     var p = (b.party||'').trim().toUpperCase();
     if(!p) return;
@@ -1504,12 +1505,47 @@ function buildPartyIndex() {
     if(b.station && b.station.trim()) idx[p].stations.add(b.station.trim().toUpperCase());
     if(b.partyGstin && b.partyGstin.trim() && !idx[p].gstin) idx[p].gstin = b.partyGstin.trim().toUpperCase();
   });
+  // Also merge from Party Master (manually imported parties)
+  var pm = DB.getObj('partyMaster', {});
+  Object.keys(pm).forEach(function(p){
+    var entry = pm[p];
+    if(!idx[p]) idx[p] = {brokers:new Set(), stations:new Set(), gstin:''};
+    (entry.brokers||[]).forEach(function(br){ if(br) idx[p].brokers.add(br.toUpperCase()); });
+    (entry.stations||[]).forEach(function(st){ if(st) idx[p].stations.add(st.toUpperCase()); });
+    if(entry.gstin && !idx[p].gstin) idx[p].gstin = entry.gstin.toUpperCase();
+  });
   // Convert Sets to arrays
   Object.keys(idx).forEach(function(k){
     idx[k].brokers = Array.from(idx[k].brokers);
     idx[k].stations = Array.from(idx[k].stations);
   });
   return idx;
+}
+
+// ── displayPartyName: party naam ke saath station badge dikhao ──
+function displayPartyName(partyName, station) {
+  if(!partyName) return '\u2014';
+  var stn = (station||'').trim().toUpperCase();
+  if(!stn) {
+    var idx = buildPartyIndex();
+    var profile = idx[partyName.toUpperCase()];
+    if(profile && profile.stations && profile.stations.length===1) stn = profile.stations[0];
+  }
+  var badge = stn
+    ? ' <span style="display:inline-block;font-size:9px;font-weight:700;color:#0369a1;background:#e0f2fe;padding:1px 5px;border-radius:10px;letter-spacing:.3px;vertical-align:middle">'+stn+'</span>'
+    : '';
+  return '<span style="font-weight:600">'+partyName+'</span>'+badge;
+}
+
+function displayPartyNameText(partyName, station) {
+  if(!partyName) return '\u2014';
+  var stn = (station||'').trim().toUpperCase();
+  if(!stn) {
+    var idx = buildPartyIndex();
+    var profile = idx[partyName.toUpperCase()];
+    if(profile && profile.stations && profile.stations.length===1) stn = profile.stations[0];
+  }
+  return stn ? partyName+', '+stn : partyName;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1668,92 +1704,201 @@ function showPartyConflictDialog(importedName, importedStation, importedBroker, 
   });
 }
 
-// Resolve imported party name using name + station + broker logic
-// Returns: {match: 'exact'/'warn'/'new'/'needs_confirm', party: string, reason: string}
-// NOTE: For 'needs_confirm' match, party is null — caller must show dialog
-function resolveImportedParty(importedName, importedStation, importedBroker) {
-  var name = (importedName||'').trim().toUpperCase();
-  var station = (importedStation||'').trim().toUpperCase();
-  var broker = (importedBroker||'').trim().toUpperCase();
-  var partyIdx = buildPartyIndex();
+// ═══════════════════════════════════════════════════════════════════
+// PARTY RESOLUTION — Complete rewrite
+//
+// PROBLEM YEH THA:
+//   1. Sirf existing bills se compare hota tha — same file ke andar
+//      ek hi naam ke 2 alag parties detect nahi hoti thi
+//   2. Broker/station BLANK hone par dialog kabhi trigger nahi hota
+//   3. Pehli baar import mein (no existing bills) koi check hi nahi
+//
+// NAI LOGIC:
+//   Step 1 — _importSessionIndex banao: is file ke andar abhi tak
+//            jo parties process ho chuki hain unka index
+//   Step 2 — Existing bills + Party Master se bhi compare karo
+//   Step 3 — Agar KISI bhi jagah same naam, ALAG station/broker mile
+//            → dialog dikhao
+//   Step 4 — Agar cache mein decision hai → directly use karo
+// ═══════════════════════════════════════════════════════════════════
 
-  // 1. Exact name match
-  if(partyIdx[name]) {
-    var profile = partyIdx[name];
+// Session index: is import run mein jo parties resolve ho chuki hain
+// key: partyName (uppercase) → [{station, broker, resolvedName}]
+var _importSessionIndex = {};
 
-    // If broker given + broker matches → confident same party
-    if(broker && profile.brokers.length && profile.brokers.indexOf(broker) >= 0) {
-      return {match:'exact', party:name, reason:'Name + Broker match'};
-    }
-
-    // If broker given + broker DOESN'T match → needs user confirmation
-    if(broker && profile.brokers.length && profile.brokers.indexOf(broker) < 0) {
-      // Check conflict cache first
-      var cKey1 = _conflictKey(name, station, broker);
-      if(_partyConflictCache[cKey1] !== undefined) {
-        return {match:'exact', party:_partyConflictCache[cKey1], reason:'User confirmed (cached)'};
-      }
-      return {match:'needs_confirm', party:null,
-        reason:'Same name "'+name+'" but broker alag hai. Existing brokers: '+profile.brokers.join(', ')+' | Imported broker: '+broker,
-        _profile: profile, _name: name, _station: station, _broker: broker};
-    }
-
-    // No broker in either → check station
-    if(!broker || !profile.brokers.length) {
-      if(station && profile.stations.length && profile.stations.indexOf(station) < 0) {
-        // Different station = likely different party — check cache first
-        var cKey2 = _conflictKey(name, station, broker);
-        if(_partyConflictCache[cKey2] !== undefined) {
-          return {match:'exact', party:_partyConflictCache[cKey2], reason:'User confirmed (cached)'};
-        }
-        return {match:'needs_confirm', party:null,
-          reason:'Same naam "'+name+'" but alag station. Existing: '+profile.stations.join(', ')+' | Imported: '+station+'. Kya yeh SAME party hai ya ALAG party?',
-          _profile: profile, _name: name, _station: station, _broker: broker};
-      }
-      return {match:'exact', party:name, reason:'Name match (no broker to compare)'};
-    }
-
-    return {match:'exact', party:name, reason:'Name match'};
-  }
-
-  // 2. No exact match — fuzzy search
-  var allNames = Object.keys(partyIdx);
-  var words = name.split(/\s+/).filter(function(w){return w.length>2;});
-  var scored = allNames.map(function(p){
-    var hits = words.filter(function(w){return p.indexOf(w)>=0;}).length;
-    return {p:p, s:hits/Math.max(words.length,1)};
-  }).filter(function(x){return x.s>=0.6;}).sort(function(a,b){return b.s-a.s;});
-
-  if(scored.length) {
-    return {match:'fuzzy', party:scored[0].p,
-      reason:'Close match found: '+scored[0].p+' ('+Math.round(scored[0].s*100)+'% similar)'};
-  }
-
-  // 3. New party
-  return {match:'new', party:name, reason:'New party — not in existing data'};
+// Reset karo har nayi file par
+function resetImportSession() {
+  _importSessionIndex = {};
+  _partyConflictCache = {};
 }
 
-// Async version of resolveImportedParty — shows dialog if needs_confirm
-// Returns promise resolving to final party name string
+// Session mein party add karo after resolution
+function _sessionAddParty(rawName, station, broker, resolvedName) {
+  var n = (rawName||'').trim().toUpperCase();
+  if(!n) return;
+  if(!_importSessionIndex[n]) _importSessionIndex[n] = [];
+  _importSessionIndex[n].push({
+    station: (station||'').trim().toUpperCase(),
+    broker:  (broker||'').trim().toUpperCase(),
+    resolvedName: resolvedName
+  });
+}
+
+// Kya is naam ki party already session mein exist karti hai with different station/broker?
+// Returns: null (no conflict) | {existingEntries: [...], profile: {stations, brokers}}
+function _detectConflict(name, station, broker) {
+  var n      = (name||'').trim().toUpperCase();
+  var stn    = (station||'').trim().toUpperCase();
+  var brk    = (broker||'').trim().toUpperCase();
+
+  // Build combined profile from: existing bills + party master + session
+  var existingBillsIdx = buildPartyIndex(); // bills + party master
+  var sessionEntries   = _importSessionIndex[n] || [];
+
+  // Collect all known stations & brokers for this name
+  var knownStations = new Set();
+  var knownBrokers  = new Set();
+
+  if(existingBillsIdx[n]) {
+    existingBillsIdx[n].stations.forEach(function(s){ knownStations.add(s); });
+    existingBillsIdx[n].brokers.forEach(function(b){ knownBrokers.add(b); });
+  }
+  sessionEntries.forEach(function(e){
+    if(e.station) knownStations.add(e.station);
+    if(e.broker)  knownBrokers.add(e.broker);
+  });
+
+  // No existing data at all → new party, no conflict
+  if(!knownStations.size && !knownBrokers.size && !sessionEntries.length) return null;
+
+  // ── CONFLICT DETECTION RULES ──
+  // Rule 1: Station given AND differs from ALL known stations → conflict
+  if(stn && knownStations.size > 0 && !knownStations.has(stn)) {
+    return {
+      knownStations: Array.from(knownStations),
+      knownBrokers:  Array.from(knownBrokers),
+      reason: 'Same naam "'+n+'" — Station alag hai. Known: '+Array.from(knownStations).join(', ')+' | Import mein: '+stn
+    };
+  }
+
+  // Rule 2: Broker given AND differs from ALL known brokers → conflict
+  if(brk && knownBrokers.size > 0 && !knownBrokers.has(brk)) {
+    return {
+      knownStations: Array.from(knownStations),
+      knownBrokers:  Array.from(knownBrokers),
+      reason: 'Same naam "'+n+'" — Broker alag hai. Known: '+Array.from(knownBrokers).join(', ')+' | Import mein: '+brk
+    };
+  }
+
+  // Rule 3: Session mein same naam but DIFFERENT resolvedName → means user already
+  //         said it's a different party for another combo — check if this one matches
+  var differentResolved = sessionEntries.filter(function(e){
+    return e.resolvedName && e.resolvedName !== n;
+  });
+  if(differentResolved.length && (stn || brk)) {
+    // If current station/broker doesn't match any entry with same resolvedName=n
+    var sameNameEntries = sessionEntries.filter(function(e){ return e.resolvedName === n; });
+    if(sameNameEntries.length === 0) {
+      return {
+        knownStations: Array.from(knownStations),
+        knownBrokers:  Array.from(knownBrokers),
+        reason: 'File mein pehle "'+n+'" ek alag party ke roop mein resolve hua tha'
+      };
+    }
+  }
+
+  return null; // No conflict
+}
+
+// Main async resolver — call karo har party ke liye import ke waqt
 async function resolveImportedPartyAsync(importedName, importedStation, importedBroker) {
-  var res = resolveImportedParty(importedName, importedStation, importedBroker);
-  if(res.match !== 'needs_confirm') {
-    return { name: res.party || importedName, match: res.match, reason: res.reason };
+  var name    = (importedName||'').trim().toUpperCase();
+  var station = (importedStation||'').trim().toUpperCase();
+  var broker  = (importedBroker||'').trim().toUpperCase();
+
+  if(!name) return { name: '', match: 'new', reason: 'Empty name' };
+
+  // Step 1: Check cache (user ka previous decision in this session)
+  var cKey = _conflictKey(name, station, broker);
+  // Also check "apply to all" by name
+  var nameAllKey = '__name__' + name;
+  if(_partyConflictCache[nameAllKey] !== undefined) {
+    var cached = _partyConflictCache[nameAllKey];
+    _sessionAddParty(name, station, broker, cached);
+    return { name: cached, match: 'user_resolved', reason: 'Apply-all decision: '+cached };
   }
-  // Check cache
-  var cKey = _conflictKey(res._name, res._station, res._broker);
   if(_partyConflictCache[cKey] !== undefined) {
-    return { name: _partyConflictCache[cKey], match: 'user_resolved', reason: 'User ka purana decision apply hua' };
+    var cached2 = _partyConflictCache[cKey];
+    _sessionAddParty(name, station, broker, cached2);
+    return { name: cached2, match: 'user_resolved', reason: 'Cached decision: '+cached2 };
   }
-  // Show dialog
-  var result = await showPartyConflictDialog(res._name, res._station, res._broker, res._profile || {});
-  // Store in cache
+
+  // Step 2: Detect conflict
+  var conflict = _detectConflict(name, station, broker);
+
+  if(!conflict) {
+    // No conflict — just use the name as-is
+    // But check if there's a fuzzy match for completely new parties
+    var existIdx = buildPartyIndex();
+    if(!existIdx[name] && !_importSessionIndex[name]) {
+      // Try fuzzy match
+      var words = name.split(/\s+/).filter(function(w){ return w.length>2; });
+      var allNames = Object.keys(existIdx);
+      var scored = allNames.map(function(p){
+        var hits = words.filter(function(w){ return p.indexOf(w)>=0; }).length;
+        return {p:p, s: hits/Math.max(words.length,1)};
+      }).filter(function(x){ return x.s>=0.6; }).sort(function(a,b){ return b.s-a.s; });
+      if(scored.length) {
+        _sessionAddParty(name, station, broker, name);
+        return { name: name, match: 'fuzzy', reason: 'Fuzzy match found: '+scored[0].p+' — import naam use kar raha hai: '+name };
+      }
+      _sessionAddParty(name, station, broker, name);
+      return { name: name, match: 'new', reason: 'Nayi party' };
+    }
+    _sessionAddParty(name, station, broker, name);
+    return { name: name, match: 'exact', reason: 'Party match — no conflict' };
+  }
+
+  // Step 3: Conflict detected → show dialog
+  var existProfile = { stations: conflict.knownStations, brokers: conflict.knownBrokers };
+  var result = await showPartyConflictDialog(name, station, broker, existProfile);
+
+  // Store decision in cache
   if(result.applyToAll) {
-    // Apply for all rows with this name (any station/broker combo)
-    _partyConflictCache['__name__' + res._name] = result.chosenName;
+    _partyConflictCache[nameAllKey] = result.chosenName;
   }
   _partyConflictCache[cKey] = result.chosenName;
-  return { name: result.chosenName, match: 'user_resolved', reason: 'User ne decide kiya: ' + (result.decision==='same'?'Same party':'Alag party') };
+  _sessionAddParty(name, station, broker, result.chosenName);
+
+  return {
+    name: result.chosenName,
+    match: 'user_resolved',
+    reason: 'User ne decide kiya: '+(result.decision==='same'?'Same party (naam: '+result.chosenName+')':'Alag party (naam: '+result.chosenName+')')
+  };
+}
+
+// Sync fallback (used in non-async contexts like Format 2 legacy path)
+function resolveImportedParty(importedName, importedStation, importedBroker) {
+  var name    = (importedName||'').trim().toUpperCase();
+  var station = (importedStation||'').trim().toUpperCase();
+  var broker  = (importedBroker||'').trim().toUpperCase();
+  var cKey    = _conflictKey(name, station, broker);
+  var nameAllKey = '__name__' + name;
+
+  // Cache check
+  if(_partyConflictCache[nameAllKey] !== undefined)
+    return {match:'user_resolved', party:_partyConflictCache[nameAllKey], reason:'Cached (apply-all)'};
+  if(_partyConflictCache[cKey] !== undefined)
+    return {match:'user_resolved', party:_partyConflictCache[cKey], reason:'Cached'};
+
+  var conflict = _detectConflict(name, station, broker);
+  if(conflict) {
+    // Sync path can't show dialog — mark as needs_confirm
+    return {match:'needs_confirm', party:null, reason:conflict.reason, _profile:{stations:conflict.knownStations,brokers:conflict.knownBrokers}, _name:name, _station:station, _broker:broker};
+  }
+  if(!name) return {match:'new', party:name, reason:'Empty'};
+  _sessionAddParty(name, station, broker, name);
+  return {match:'exact', party:name, reason:'No conflict'};
 }
 
 function getBillStatus(bill) {
@@ -1828,6 +1973,7 @@ var NAV = [
   { id: 'history',     icon: 'clock',     label: 'History & Undo' },
   { id: 'bank-upload', icon: 'bank',      label: 'Bank Upload' },
   { id: 'bill-import', icon: 'import',    label: 'Bill Import' },
+  { id: 'party-master',icon: 'book',     label: '🏢 Party Master' },
   { id: 'receipt-ledger', icon: 'list',   label: 'Receipt Ledger' },
   { id: 'ai-rules',    icon: 'cpu',       label: 'AI Import Rules' },
   { id: 'interest',    icon: 'percent',   label: 'Interest Calculator' },
@@ -2652,7 +2798,7 @@ function openPayModal(billId) {
   // Info bar
   var info=document.createElement('div');
   info.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px';
-  info.innerHTML='<strong>'+b.party+'</strong><br>Bill: <strong>\u20b9'+fmt(b.netAmt)+'</strong>&nbsp;|&nbsp;Received: <strong style="color:#166534">\u20b9'+fmt(s.recv)+'</strong>&nbsp;|&nbsp;Balance: <strong style="color:#dc2626">\u20b9'+fmt(s.bal)+'</strong>';
+  info.innerHTML=displayPartyName(b.party,b.station)+'<br>Bill: <strong>\u20b9'+fmt(b.netAmt)+'</strong>&nbsp;|&nbsp;Received: <strong style="color:#166534">\u20b9'+fmt(s.recv)+'</strong>&nbsp;|&nbsp;Balance: <strong style="color:#dc2626">\u20b9'+fmt(s.bal)+'</strong>';
   body.appendChild(info);
 
   var grid=document.createElement('div');grid.className='grid g2';grid.style.marginBottom='12px';
@@ -2887,6 +3033,7 @@ function render(page) {
     'receipt-ledger': pgReceiptLedger,
     'bank-upload':    pgBankUpload,
     'bill-import':    pgBillImport,
+    'party-master':   pgPartyMaster,
     'ai-rules':       pgAIRules,
     'returns':        pgReturns,
     'expenses':       pgExpenses,
@@ -3239,7 +3386,7 @@ function pgDashboard() {
 
   var tbl = buildTable([
     { label: 'Date', key: 'date' },
-    { label: 'Party', key: 'party', render: function(v) { return '<strong>' + v + '</strong>'; } },
+    { label: 'Party', key: 'party', render: function(v,r) { return displayPartyName(v, r&&r.station||''); } },
     { label: 'Grade', key: 'rows', render: function(v) { return (v||[]).map(function(r){return r.grade;}).join(', ') || '-'; } },
     { label: 'Bill Amt', key: 'netAmt', num: true, render: function(v) { return '\u20b9' + fmt(v); } },
     { label: 'Balance', key: 'id', num: true, render: function(v, row) {
@@ -3806,7 +3953,7 @@ function pgAllBills() {
       var lastMode=lastPay2?(lastPay2.mode||'-'):'-';
       var lastChq=lastPay2?(lastPay2.chequeNo||''):'-';
       var lastRcpt=lastPay2?(lastPay2.receiptNo||''):'-';
-      addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd('<strong>'+row.party+'</strong>'+(row.partyGstin?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));addTd(row.broker||'-');addTd(grade);addTd(row.billType||'credit');
+      addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd(displayPartyName(row.party,row.station)+(row.partyGstin?'<div style="font-size:9px;color:#6b7280;font-family:monospace">'+row.partyGstin+'</div>':''));addTd(row.broker||'-');addTd(grade);addTd(row.billType||'credit');
       addTd('\u20b9'+fmt(row.netAmt),true);
       // Received column — with Gross badge if applicable
       var recvEl=document.createElement('span');
@@ -4564,7 +4711,7 @@ function pgDueList() {
       function addTd(val,num){var td=document.createElement('td');td.className=num?'num':'';if(val instanceof HTMLElement)td.appendChild(val);else td.innerHTML=(val!=null&&val!=='')?String(val):'-';tr.appendChild(td);}
       var days=Math.floor((new Date()-new Date(row.date))/86400000);
       var grade=(row.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
-      addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd('<strong>'+row.party+'</strong>');addTd(row.broker||'-');addTd(grade);
+      addTd(row.billNo||'-');addTd(fmtDate(row.date)||'-');addTd(displayPartyName(row.party,row.station));addTd(row.broker||'-');addTd(grade);
       addTd('\u20b9'+fmt(row.netAmt),true);
       addTd(el('span',{text:'\u20b9'+fmt(s.recv),style:'color:#166534'}),true);
       addTd(el('span',{text:'\u20b9'+fmt(s.bal),style:'color:#dc2626;font-weight:700'}),true);
@@ -5098,7 +5245,7 @@ function pgReceive() {
 
       var billNTd=document.createElement('td');billNTd.style.cssText='padding:5px 8px;font-family:monospace;font-size:11px;color:#6b7280';billNTd.textContent=b.billNo||'-';tr.appendChild(billNTd);
       var dateTd2=document.createElement('td');dateTd2.style.cssText='padding:5px 8px;font-size:11px;white-space:nowrap';dateTd2.textContent=fmtDate(b.date);tr.appendChild(dateTd2);
-      var partyTd = document.createElement('td'); partyTd.innerHTML='<strong>'+b.party+'</strong>';
+      var partyTd = document.createElement('td'); partyTd.innerHTML=displayPartyName(b.party,b.station);
       var gradeTd = document.createElement('td'); gradeTd.textContent=grade; gradeTd.style.fontSize='11px';
       var amtTd = document.createElement('td'); amtTd.className='num'; amtTd.textContent='\u20b9'+fmt(b.netAmt);
       var balTd = document.createElement('td'); balTd.className='num';
@@ -5665,9 +5812,9 @@ function pgLedger() {
     };
   });
 
-  var _ld2=filtered.map(function(p){var pb=bills.filter(function(b){return b.party===p;});return{party:p,bills:pb.length,total:pb.reduce(function(s,b){return s+b.netAmt;},0),received:pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0),rebate:pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0),interest:pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0),due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};});
+  var _ld2=filtered.map(function(p){var pb=bills.filter(function(b){return b.party===p;});var _stn=pb.length?pb[0].station||'':'';return{party:p,_station:_stn,bills:pb.length,total:pb.reduce(function(s,b){return s+b.netAmt;},0),received:pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0),rebate:pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0),interest:pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0),due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};});
   return genericListPage('📒 Party Ledger',_ld2,[
-    {label:'Party',key:'party',render:function(v){return'<strong>'+v+'</strong>';}},
+    {label:'Party',key:'party',render:function(v,r){return displayPartyName(v, (r&&r._station)||'');}},
     {label:'Bills',key:'bills',num:true},
     {label:'Total Sales',key:'total',num:true,render:function(v){return'\u20b9'+fmt(v);}},
     {label:'Received',key:'received',num:true,render:function(v){return'<span style="color:#166534;font-weight:700">\u20b9'+fmt(v)+'</span>';}},
@@ -5703,7 +5850,9 @@ function pgPartyLedger(party) {
   });
   var titleDiv=document.createElement('div');
     var partyGstinVal = (bills.find(function(b){return b.party===party&&b.partyGstin;})||{}).partyGstin||'';
-  titleDiv.innerHTML='<span style="font-size:17px;font-weight:700;color:#166534">'+party+'</span>'+
+  var _partyStation=(bills.find(function(b){return b.party===party&&b.station;})||{}).station||'';
+  var _stnBadge=_partyStation?'<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:700">'+_partyStation+'</span>':'';
+  titleDiv.innerHTML='<span style="font-size:17px;font-weight:700;color:#166534">'+party+'</span>'+_stnBadge+
     (partyGstinVal?'<span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:2px 7px;border-radius:4px;margin-left:8px;font-family:monospace;font-weight:700">GSTIN: '+partyGstinVal+'</span>':'')+
     '<span style="font-size:11px;color:#9ca3af;margin-left:8px">Party Ledger</span>';
   var actDiv=document.createElement('div');actDiv.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
@@ -6822,7 +6971,7 @@ function pgReports() {
         });
         return eb;
       }},
-      {l:'Party',k:'party',render:function(r){return '<strong>'+r.party+'</strong>';}},
+      {l:'Party',k:'party',render:function(r){return displayPartyName(r.party,r.station||'');}},
       {l:'Bills',k:'bills',num:true},{l:'Total Sales',k:'total',num:true,render:function(r){return '\u20b9'+fmt(r.total);}},
       {l:'Received',k:'recv',num:true,render:function(r){return '<span style="color:#166534">\u20b9'+fmt(r.recv)+'</span>';}},
       {l:'Outstanding',k:'due',num:true,render:function(r){return '<span style="color:'+(r.due>0?'#dc2626':'#166534')+';font-weight:700">\u20b9'+fmt(r.due)+'</span>';}},
@@ -6985,7 +7134,7 @@ function pgReports() {
       cBody.appendChild(emptyInt);
     } else {
       cBody.appendChild(mkTbl2([
-        {l:'Party',k:'party',render:function(r){return '<strong>'+r.party+'</strong>';}},
+        {l:'Party',k:'party',render:function(r){return displayPartyName(r.party,r.station||'');}},
         {l:'Entries',k:'count',num:true,render:function(r){return r.count;}},
         {l:'Total Interest',k:'totalInt',num:true,render:function(r){return '<strong style="color:#7c3aed">\u20b9'+fmt(r.totalInt)+'</strong>';}}
       ],intData));
@@ -7414,6 +7563,489 @@ function pgFinancialYear() {
   sumBody.appendChild(tbl);
   sumCard.appendChild(sumBody);
   wrap.appendChild(sumCard);
+
+  return wrap;
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// PARTY MASTER PAGE — Import/Manage parties with station+broker
+// ═══════════════════════════════════════════════════════════
+function pgPartyMaster() {
+  var wrap = document.createElement('div');
+  var pm = DB.getObj('partyMaster', {});
+
+  // ── Header ──
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'margin-bottom:14px';
+  hdr.innerHTML = '<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0">🏢 Party Master</h3>' +
+    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Sabhi parties ke naam, station, broker, GSTIN yahan save karo — Bill Import mein automatic match hoga aur mismatch nahi hoga</p>';
+  wrap.appendChild(hdr);
+
+  // ── Stats bar ──
+  var partyIdx = buildPartyIndex();
+  var totalFromBills = Object.keys(partyIdx).length;
+  var totalManual = Object.keys(pm).length;
+  var statsDiv = document.createElement('div');
+  statsDiv.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px';
+  [
+    {l:'Total Parties (Bills se)', v:totalFromBills, c:'#166534', bg:'#f0fdf4'},
+    {l:'Manually Added', v:totalManual, c:'#0369a1', bg:'#e0f2fe'},
+    {l:'Total Unique', v:Object.keys(buildPartyIndex()).length, c:'#7c3aed', bg:'#f5f3ff'},
+  ].forEach(function(s){
+    var d = document.createElement('div');
+    d.style.cssText = 'background:'+s.bg+';border:1px solid '+s.c+'33;border-radius:10px;padding:12px 14px';
+    d.innerHTML = '<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">'+s.l+'</div>'+
+      '<div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';
+    statsDiv.appendChild(d);
+  });
+  wrap.appendChild(statsDiv);
+
+  // ── Import from Excel card ──
+  var impCard = document.createElement('div');
+  impCard.className = 'card';
+  impCard.style.marginBottom = '14px';
+  var impH = document.createElement('div');
+  impH.className = 'card-head';
+  impH.innerHTML = '<h4>📥 Excel se Party Master Import karo</h4>';
+  impCard.appendChild(impH);
+  var impB = document.createElement('div');
+  impB.style.cssText = 'padding:14px 16px';
+
+  // Format explanation
+  impB.innerHTML =
+    '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:12px">' +
+      '<strong style="color:#166534">Excel Format (koi bhi column order chalega):</strong><br>' +
+      '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">' +
+        ['PARTY_NAME *','DELIVERY_STATION','BROKER','PARTY_GSTIN','TRANSPORT','NOTES'].map(function(c){
+          return '<code style="background:#fff;border:1px solid #bbf7d0;padding:2px 6px;border-radius:4px;font-size:11px">'+c+'</code>';
+        }).join('') +
+      '</div>' +
+      '<div style="margin-top:8px;color:#4b7c5e;font-size:11px">✅ Party Master ka template download karo neeche se — already filled hoga bills ke data se</div>' +
+    '</div>';
+
+  // Status div
+  var impStatus = document.createElement('div');
+  impStatus.style.marginBottom = '10px';
+
+  // File input
+  var fileRow = document.createElement('div');
+  fileRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+
+  var fileInp = document.createElement('input');
+  fileInp.type = 'file';
+  fileInp.accept = '.xlsx,.xls,.csv';
+  fileInp.style.cssText = 'flex:1;min-width:200px;padding:7px 10px;border:1.5px solid #d1d5db;border-radius:7px;font-size:12px;font-family:var(--font);cursor:pointer';
+
+  var importBtn = el('button', {cls:'btn btn-green', text:'⬆ Import Parties'});
+  var dlTemplateBtn = el('button', {cls:'btn btn-outline', text:'⬇ Download Template'});
+  dlTemplateBtn.style.cssText += 'background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
+
+  // Download template — pre-filled with existing bills data
+  dlTemplateBtn.addEventListener('click', function(){
+    var idx2 = buildPartyIndex();
+    var rows = [['PARTY_NAME','DELIVERY_STATION','BROKER','PARTY_GSTIN','TRANSPORT','NOTES']];
+    // Fill from existing bills first
+    Object.keys(idx2).sort().forEach(function(p){
+      var prof = idx2[p];
+      // Get transport from bills
+      var billsForParty = bills.filter(function(b){ return b.party===p; });
+      var transport = '';
+      billsForParty.some(function(b){ if(b.transport){transport=b.transport;return true;} });
+      rows.push([
+        p,
+        prof.stations.join(' / ') || '',
+        prof.brokers.join(' / ') || '',
+        prof.gstin || '',
+        transport,
+        ''
+      ]);
+    });
+    // Also add any manually added that might not be in bills
+    Object.keys(pm).forEach(function(p){
+      if(idx2[p]) return; // already included
+      var e = pm[p];
+      rows.push([p, (e.stations||[]).join(' / '), (e.brokers||[]).join(' / '), e.gstin||'', e.transport||'', e.notes||'']);
+    });
+    var wb2 = XLSX.utils.book_new();
+    var ws2 = XLSX.utils.aoa_to_sheet(rows);
+    ws2['!cols'] = [{wch:30},{wch:20},{wch:25},{wch:20},{wch:18},{wch:20}];
+    // Instructions sheet
+    var instrRows = [
+      ['CashewPro Party Master — Instructions'],[''],
+      ['Column','Required','Description','Example'],
+      ['PARTY_NAME','Yes','Party ka full naam (UPPERCASE recommended)','PRADEEP TRADING COMPANY'],
+      ['DELIVERY_STATION','No','Party ka station/city (ek ya multiple "/" se separate)','SURATGARH / JAIPUR'],
+      ['BROKER','No','Broker ka naam (multiple "/" se)','PAREEK JI / SHARMA JI'],
+      ['PARTY_GSTIN','No','Party ka GST number','08XXXXX1ZV'],
+      ['TRANSPORT','No','Default transport','FAST WAY'],
+      ['NOTES','No','Koi notes ya remarks',''],
+      [''],
+      ['Note: Multiple stations ya brokers "/" se alag karo'],
+      ['Note: Import ke baad Bill Import mein party conflict nahi hoga'],
+    ];
+    var wsI = XLSX.utils.aoa_to_sheet(instrRows);
+    wsI['!cols'] = [{wch:20},{wch:10},{wch:45},{wch:30}];
+    XLSX.utils.book_append_sheet(wb2, ws2, 'Party Master');
+    XLSX.utils.book_append_sheet(wb2, wsI, 'Instructions');
+    XLSX.writeFile(wb2, 'PartyMaster_'+today().replace(/-/g,'')+'.xlsx');
+    toast('✅ Party Master template downloaded! '+rows.length+' parties');
+  });
+
+  // Import logic
+  importBtn.addEventListener('click', function(){
+    var file = fileInp.files[0];
+    if(!file){ toast('Pehle file select karo!','err'); return; }
+    var reader = new FileReader();
+    reader.onload = function(e){
+      try {
+        var wb2 = XLSX.read(e.target.result, {type:'array', raw:false});
+        // Find "Party Master" sheet or first sheet
+        var sheetName = wb2.SheetNames.find(function(n){ return /party.?master/i.test(n); }) || wb2.SheetNames[0];
+        var ws2 = wb2.Sheets[sheetName];
+        var raw = XLSX.utils.sheet_to_json(ws2, {header:1, raw:false, defval:''});
+
+        // Find header row
+        var hdrRow = -1, colMap = {};
+        for(var i=0; i<Math.min(5,raw.length); i++){
+          var rowUp = raw[i].map(function(c){ return String(c||'').trim().toUpperCase(); });
+          if(rowUp.some(function(c){ return c==='PARTY_NAME'||c==='PARTY NAME'||c==='NAAM'||c==='NAME'; })){
+            hdrRow = i;
+            rowUp.forEach(function(h,ci){
+              if(/party.?name|naam|^name$/i.test(h)) colMap.name = ci;
+              else if(/station|delivery/i.test(h)) colMap.station = ci;
+              else if(/broker/i.test(h)) colMap.broker = ci;
+              else if(/gstin|gst/i.test(h)) colMap.gstin = ci;
+              else if(/transport/i.test(h)) colMap.transport = ci;
+              else if(/notes?|remark/i.test(h)) colMap.notes = ci;
+            });
+            break;
+          }
+        }
+        if(hdrRow<0 || colMap.name===undefined){
+          impStatus.innerHTML = '<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ PARTY_NAME column nahi mili. Column header check karo.</div>';
+          return;
+        }
+
+        var newPm = Object.assign({}, pm); // preserve existing
+        var imported=0, skipped=0, updated=0;
+
+        for(var ri=hdrRow+1; ri<raw.length; ri++){
+          var row = raw[ri];
+          var name = (colMap.name!==undefined && row[colMap.name] ? String(row[colMap.name]).trim().toUpperCase() : '');
+          if(!name || /^(grand total|total|subtotal)$/i.test(name)) continue;
+
+          // Parse stations (split by / or ,)
+          var stationStr = colMap.station!==undefined ? String(row[colMap.station]||'').trim().toUpperCase() : '';
+          var stations = stationStr ? stationStr.split(/[\/,]+/).map(function(s){ return s.trim(); }).filter(Boolean) : [];
+
+          // Parse brokers
+          var brokerStr = colMap.broker!==undefined ? String(row[colMap.broker]||'').trim().toUpperCase() : '';
+          var brokers = brokerStr ? brokerStr.split(/[\/,]+/).map(function(s){ return s.trim(); }).filter(Boolean) : [];
+
+          var gstin = colMap.gstin!==undefined ? String(row[colMap.gstin]||'').trim().toUpperCase() : '';
+          var transport = colMap.transport!==undefined ? String(row[colMap.transport]||'').trim().toUpperCase() : '';
+          var notes = colMap.notes!==undefined ? String(row[colMap.notes]||'').trim() : '';
+
+          if(newPm[name]){
+            // Merge — add new stations/brokers, don't overwrite existing
+            var existing = newPm[name];
+            var allStations = Array.from(new Set((existing.stations||[]).concat(stations)));
+            var allBrokers  = Array.from(new Set((existing.brokers||[]).concat(brokers)));
+            newPm[name] = {
+              stations: allStations,
+              brokers: allBrokers,
+              gstin: gstin || existing.gstin || '',
+              transport: transport || existing.transport || '',
+              notes: notes || existing.notes || ''
+            };
+            updated++;
+          } else {
+            newPm[name] = { stations:stations, brokers:brokers, gstin:gstin, transport:transport, notes:notes };
+            imported++;
+          }
+        }
+
+        DB.setObj('partyMaster', newPm);
+        pm = newPm;
+        impStatus.innerHTML = '<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">' +
+          '✅ <strong>'+(imported+updated)+' parties imported/updated</strong> — '+imported+' new, '+updated+' merged, '+skipped+' skipped' +
+          '</div>';
+        toast('✅ Party Master updated! '+Object.keys(newPm).length+' parties');
+        fileInp.value='';
+        setTimeout(function(){ go('party-master'); }, 800);
+      } catch(ex) {
+        impStatus.innerHTML = '<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ Error: '+ex.message+'</div>';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  fileRow.appendChild(fileInp);
+  fileRow.appendChild(importBtn);
+  fileRow.appendChild(dlTemplateBtn);
+  impB.appendChild(impStatus);
+  impB.appendChild(fileRow);
+  impCard.appendChild(impB);
+  wrap.appendChild(impCard);
+
+  // ── Add party manually card ──
+  var addCard = document.createElement('div');
+  addCard.className = 'card';
+  addCard.style.marginBottom = '14px';
+  var addH = document.createElement('div');
+  addH.className = 'card-head';
+  addH.innerHTML = '<h4>➕ Party Manually Add karo</h4>';
+  addCard.appendChild(addH);
+  var addB = document.createElement('div');
+  addB.style.cssText = 'padding:14px 16px';
+
+  var addStatus = document.createElement('div');
+  addStatus.style.marginBottom='8px';
+
+  // Form grid
+  var fg = document.createElement('div');
+  fg.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px';
+
+  function makeField(labelText, inputId, placeholder) {
+    var wrap2 = document.createElement('div');
+    var lbl = document.createElement('label');
+    lbl.htmlFor = inputId;
+    lbl.style.cssText = 'display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:3px';
+    lbl.textContent = labelText;
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.id = inputId;
+    inp.placeholder = placeholder;
+    inp.style.cssText = 'width:100%;padding:7px 10px;border:1.5px solid #d1d5db;border-radius:7px;font-size:12px;font-family:var(--font);outline:none;box-sizing:border-box;text-transform:uppercase';
+    inp.addEventListener('focus', function(){ this.style.borderColor='#166534'; });
+    inp.addEventListener('blur', function(){ this.style.borderColor='#d1d5db'; });
+    inp.addEventListener('input', function(){ this.value=this.value.toUpperCase(); });
+    wrap2.appendChild(lbl);
+    wrap2.appendChild(inp);
+    return wrap2;
+  }
+
+  var fName = makeField('Party Name *', 'pm-name', 'PRADEEP TRADING COMPANY');
+  var fStation = makeField('Station / City', 'pm-station', 'SURATGARH');
+  var fBroker = makeField('Broker', 'pm-broker', 'PAREEK JI');
+  var fGstin = makeField('GSTIN', 'pm-gstin', '08XXXXX1ZV');
+
+  // Name field full-width
+  fName.style.gridColumn = '1 / -1';
+
+  fg.appendChild(fName);
+  fg.appendChild(fStation);
+  fg.appendChild(fBroker);
+  fg.appendChild(fGstin);
+
+  var saveBtn = el('button', {cls:'btn btn-green', text:'💾 Party Save karo'});
+  saveBtn.addEventListener('click', function(){
+    var name = document.getElementById('pm-name').value.trim().toUpperCase();
+    if(!name){ toast('Party naam zaroori hai!','err'); return; }
+    var station = document.getElementById('pm-station').value.trim().toUpperCase();
+    var broker  = document.getElementById('pm-broker').value.trim().toUpperCase();
+    var gstin   = document.getElementById('pm-gstin').value.trim().toUpperCase();
+    var existing = pm[name] || {stations:[], brokers:[], gstin:'', transport:'', notes:''};
+    var stns = Array.from(new Set(existing.stations.concat(station ? [station] : [])));
+    var bkrs = Array.from(new Set(existing.brokers.concat(broker  ? [broker]  : [])));
+    pm[name] = { stations:stns, brokers:bkrs, gstin:gstin||existing.gstin, transport:existing.transport, notes:existing.notes };
+    DB.setObj('partyMaster', pm);
+    toast('✅ '+name+' saved!');
+    document.getElementById('pm-name').value='';
+    document.getElementById('pm-station').value='';
+    document.getElementById('pm-broker').value='';
+    document.getElementById('pm-gstin').value='';
+    setTimeout(function(){ go('party-master'); }, 300);
+  });
+
+  addB.appendChild(addStatus);
+  addB.appendChild(fg);
+  addB.appendChild(saveBtn);
+  addCard.appendChild(addB);
+  wrap.appendChild(addCard);
+
+  // ── Party List table ──
+  var listCard = document.createElement('div');
+  listCard.className = 'card';
+  var listH = document.createElement('div');
+  listH.className = 'card-head';
+
+  // Search bar
+  var searchInp = document.createElement('input');
+  searchInp.type = 'text';
+  searchInp.placeholder = '🔍 Party search karo...';
+  searchInp.style.cssText = 'padding:6px 10px;border:1.5px solid #d1d5db;border-radius:7px;font-size:12px;font-family:var(--font);outline:none;min-width:200px';
+
+  // Build combined list: bills index + manual
+  var allPartyData = {};
+  var idx3 = buildPartyIndex();
+  Object.keys(idx3).forEach(function(p){
+    allPartyData[p] = {
+      name:p,
+      stations: idx3[p].stations,
+      brokers: idx3[p].brokers,
+      gstin: idx3[p].gstin,
+      fromBills: bills.some(function(b){ return b.party===p; }),
+      manual: !!pm[p]
+    };
+  });
+
+  var clearPmBtn = el('button', {cls:'btn btn-sm', text:'🗑 Manual Entries Clear', style:'background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;font-size:11px'});
+  clearPmBtn.addEventListener('click', function(){
+    if(!confirm('Sabhi manually added parties clear karein? Bills se aayi parties safe rahegi.')) return;
+    DB.setObj('partyMaster', {});
+    toast('Manually added parties cleared');
+    go('party-master');
+  });
+
+  listH.innerHTML = '<h4>📋 All Parties ('+Object.keys(allPartyData).length+')</h4>';
+  var listHRight = document.createElement('div');
+  listHRight.style.cssText = 'display:flex;gap:8px;align-items:center';
+  listHRight.appendChild(searchInp);
+  listHRight.appendChild(clearPmBtn);
+  listH.appendChild(listHRight);
+  listCard.appendChild(listH);
+
+  var tWrap = document.createElement('div');
+  tWrap.style.overflow = 'auto';
+  var tbl = document.createElement('table');
+  tbl.style.cssText = 'width:100%;min-width:700px;border-collapse:collapse;font-size:12px';
+
+  // Table header
+  var thead = document.createElement('thead');
+  thead.innerHTML = '<tr style="background:#f9fafb">' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">#</th>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">Party Name</th>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">Station</th>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">Broker</th>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">GSTIN</th>' +
+    '<th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">Source</th>' +
+    '<th style="padding:8px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;font-weight:700">Action</th>' +
+    '</tr>';
+  tbl.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+
+  function renderPartyTable(q) {
+    tbody.innerHTML = '';
+    var keys = Object.keys(allPartyData).filter(function(p){
+      if(!q) return true;
+      return p.toLowerCase().indexOf(q.toLowerCase()) >= 0 ||
+        allPartyData[p].stations.join(' ').toLowerCase().indexOf(q.toLowerCase()) >= 0 ||
+        allPartyData[p].brokers.join(' ').toLowerCase().indexOf(q.toLowerCase()) >= 0;
+    }).sort();
+
+    if(!keys.length){
+      var etr = document.createElement('tr');
+      var etd = document.createElement('td');
+      etd.colSpan=7;
+      etd.style.cssText='text-align:center;padding:30px;color:#9ca3af;font-size:12px';
+      etd.textContent='Koi party nahi mili';
+      etr.appendChild(etd); tbody.appendChild(etr); return;
+    }
+
+    keys.forEach(function(p, i){
+      var pd = allPartyData[p];
+      var tr = document.createElement('tr');
+      tr.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(i%2===0?'#fff':'#fafafa');
+
+      var numTd=document.createElement('td'); numTd.style.cssText='padding:7px 10px;color:#9ca3af;font-size:11px'; numTd.textContent=i+1;
+      var nameTd=document.createElement('td'); nameTd.style.cssText='padding:7px 10px;font-weight:700;color:#166534';
+      nameTd.innerHTML=pd.name;
+      var stnTd=document.createElement('td'); stnTd.style.cssText='padding:7px 10px';
+      stnTd.innerHTML = pd.stations.length ?
+        pd.stations.map(function(s){ return '<span style="display:inline-block;background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin:1px">'+s+'</span>'; }).join(' ')
+        : '<span style="color:#9ca3af;font-size:11px">—</span>';
+      var brkTd=document.createElement('td'); brkTd.style.cssText='padding:7px 10px;color:#374151;font-size:11px';
+      brkTd.textContent = pd.brokers.length ? pd.brokers.join(', ') : '—';
+      var gstTd=document.createElement('td'); gstTd.style.cssText='padding:7px 10px;font-family:monospace;font-size:10px;color:#6b7280';
+      gstTd.textContent = pd.gstin || '—';
+      var srcTd=document.createElement('td'); srcTd.style.cssText='padding:7px 10px';
+      var srcBadges='';
+      if(pd.fromBills) srcBadges+='<span style="background:#dcfce7;color:#166534;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;margin-right:3px">BILLS</span>';
+      if(pd.manual)    srcBadges+='<span style="background:#e0f2fe;color:#0369a1;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px">MANUAL</span>';
+      srcTd.innerHTML=srcBadges||'—';
+
+      var actTd=document.createElement('td'); actTd.style.cssText='padding:7px 10px;text-align:center;display:flex;gap:4px;justify-content:center';
+
+      // Edit button (only for manually added)
+      if(pm[p]){
+        var editBtn=el('button',{cls:'btn btn-xs btn-outline',text:'Edit'});
+        editBtn.addEventListener('click',(function(pName){
+          return function(){
+            var entry=pm[pName]||{stations:[],brokers:[],gstin:'',transport:''};
+            var d=document.createElement('div');
+            d.style.cssText='display:flex;flex-direction:column;gap:8px;min-width:300px;padding:4px';
+            function mfInp(lbl2,id2,val2){
+              var w2=document.createElement('div');
+              w2.innerHTML='<label style="display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:2px">'+lbl2+'</label>'+
+                '<input id="'+id2+'" type="text" value="'+val2+'" style="width:100%;padding:7px 10px;border:1.5px solid #d1d5db;border-radius:6px;font-size:12px;font-family:var(--font);box-sizing:border-box;text-transform:uppercase;outline:none">';
+              return w2;
+            }
+            d.appendChild(mfInp('Party Name *','edit-pm-name',pName));
+            d.appendChild(mfInp('Stations (/ se alag karo)','edit-pm-station',(entry.stations||[]).join(' / ')));
+            d.appendChild(mfInp('Brokers (/ se alag karo)','edit-pm-broker',(entry.brokers||[]).join(' / ')));
+            d.appendChild(mfInp('GSTIN','edit-pm-gstin',entry.gstin||''));
+            openModal('Party Edit: '+pName, d, [{
+              label:'💾 Save', cls:'btn-green',
+              fn:function(){
+                var nn=(document.getElementById('edit-pm-name').value||'').trim().toUpperCase();
+                if(!nn){toast('Naam zaroori!','err');return;}
+                var newStns=document.getElementById('edit-pm-station').value.split(/[\/,]+/).map(function(s){return s.trim().toUpperCase();}).filter(Boolean);
+                var newBkrs=document.getElementById('edit-pm-broker').value.split(/[\/,]+/).map(function(s){return s.trim().toUpperCase();}).filter(Boolean);
+                var newGstin=(document.getElementById('edit-pm-gstin').value||'').trim().toUpperCase();
+                if(nn!==pName){delete pm[pName];}
+                pm[nn]={stations:newStns,brokers:newBkrs,gstin:newGstin,transport:entry.transport||'',notes:entry.notes||''};
+                DB.setObj('partyMaster',pm);
+                toast('✅ '+nn+' updated!');
+                closeModal();
+                go('party-master');
+              }
+            },{label:'Cancel',cls:'btn-outline',fn:closeModal}]);
+          };
+        })(p));
+        actTd.appendChild(editBtn);
+
+        var delBtn=el('button',{cls:'btn btn-xs',text:'Del',style:'background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;font-size:10px'});
+        delBtn.addEventListener('click',(function(pName2){
+          return function(){
+            if(!confirm(pName2+' ko Party Master se delete karein?')) return;
+            delete pm[pName2];
+            DB.setObj('partyMaster',pm);
+            toast('Deleted: '+pName2);
+            go('party-master');
+          };
+        })(p));
+        actTd.appendChild(delBtn);
+      } else {
+        var addManBtn=el('button',{cls:'btn btn-xs btn-outline',text:'+ Add Info'});
+        addManBtn.title='Is party ki extra info manually add karo';
+        addManBtn.addEventListener('click',(function(pName3, pd3){
+          return function(){
+            document.getElementById('pm-name').value=pName3;
+            document.getElementById('pm-station').value=(pd3.stations||[]).join(' / ');
+            document.getElementById('pm-broker').value=(pd3.brokers||[]).join(' / ');
+            document.getElementById('pm-gstin').value=pd3.gstin||'';
+            addCard.scrollIntoView({behavior:'smooth',block:'center'});
+            document.getElementById('pm-name').focus();
+          };
+        })(p, pd));
+        actTd.appendChild(addManBtn);
+      }
+
+      [numTd,nameTd,stnTd,brkTd,gstTd,srcTd,actTd].forEach(function(td){ tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+  }
+
+  renderPartyTable('');
+  searchInp.addEventListener('input', function(){ renderPartyTable(this.value.trim()); });
+
+  tbl.appendChild(tbody);
+  tWrap.appendChild(tbl);
+  listCard.appendChild(tWrap);
+  wrap.appendChild(listCard);
 
   return wrap;
 }
@@ -8035,7 +8667,7 @@ function pgBankMatch() {
     var sugTd=document.createElement('td');sugTd.style.minWidth='140px';
     if(credit._matched){
       var mb=bills.find(function(b){return b.id===credit._billId;})||{};
-      sugTd.innerHTML='<span style="color:#166534;font-weight:600">'+mb.party+'</span>';
+      sugTd.innerHTML=displayPartyName(mb.party,mb.station);
     } else {
       suggested.forEach(function(b){
         var s=getBillStatus(b);
@@ -8055,7 +8687,7 @@ function pgBankMatch() {
     var partyTd=document.createElement('td');
     if(credit._matched){
       var mb2=bills.find(function(b){return b.id===credit._billId;})||{};
-      partyTd.innerHTML='<strong style="color:#166534">'+mb2.party+'</strong>';
+      partyTd.innerHTML=displayPartyName(mb2.party,mb2.station);
     } else {
       var pSel=document.createElement('select');pSel.className='inp-sm';pSel.id='bmp-'+ci;pSel.style.width='160px';
       var emOpt=document.createElement('option');emOpt.value='';emOpt.textContent='-- Select Party --';pSel.appendChild(emOpt);
@@ -9943,10 +10575,11 @@ function pgBillImport() {
   aiGuideBtn.addEventListener('click',function(){go('ai-rules');});
 
   // ── Party Master Download button ──
-  var partyDlBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\U0001f4cb Party Master Excel'});
-  partyDlBtn.title='Download party list with address, broker, GSTIN for AI file making';
+  var partyDlBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\U0001f3e2 Party Master'});
+  partyDlBtn.title='Party Master manage karo — import/add parties with station+broker';
   partyDlBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
-  partyDlBtn.addEventListener('click',function(){
+  partyDlBtn.addEventListener('click',function(){go('party-master');});
+  var _oldIgnored=function(){
     // Build party master from all bills
     var partyMap={};
     bills.forEach(function(b){
@@ -9986,7 +10619,8 @@ function pgBillImport() {
     XLSX.utils.book_append_sheet(wb,ws,'Party Master');
     XLSX.writeFile(wb,'CashewPro_PartyMaster_'+today().replace(/-/g,'')+'.xlsx');
     toast('\u2705 Party Master downloaded! '+Object.keys(partyMap).length+' parties — AI ko share karo bill import ke liye.');
-  });
+  }; // end _oldIgnored
+  }; // end old click
 
   btnRow.appendChild(dl1);btnRow.appendChild(dl2);btnRow.appendChild(aiGuideBtn);btnRow.appendChild(partyDlBtn);
   instrB.appendChild(btnRow);
@@ -10079,19 +10713,13 @@ function pgBillImport() {
     }
     if(currentRawHdr && currentRawHdr.items.length>0) rawHeaders.push(currentRawHdr);
 
-    // Second pass: async party resolution with dialogs
-    _partyConflictCache = {};
+    // Second pass: async party resolution with dialogs (session already reset by caller)
     for(var hi=0; hi<rawHeaders.length; hi++){
       var rh = rawHeaders[hi];
       if(statusDiv2Ref) statusDiv2Ref.innerHTML='<div style="padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e">⏳ Party resolve ho rahi hai: '+(hi+1)+'/'+rawHeaders.length+'...</div>';
 
-      var nameAllKey = '__name__' + rh._rawParty;
       var resolved;
-      if(_partyConflictCache[nameAllKey] !== undefined) {
-        resolved = { name: _partyConflictCache[nameAllKey], match: 'user_resolved', reason: 'User ka decision apply hua' };
-      } else {
-        resolved = await resolveImportedPartyAsync(rh._rawParty, rh.station, rh.broker);
-      }
+      resolved = await resolveImportedPartyAsync(rh._rawParty, rh.station, rh.broker);
 
       // Compute totals
       var taxableTotal=0, cgstTotal=0, sgstTotal=0;
@@ -10248,7 +10876,7 @@ function pgBillImport() {
         var hasRowType=raw.slice(0,5).some(function(row){return row.some(function(c){return String(c||'').trim().toUpperCase()==='ROW_TYPE';});});
         if(hasRowType){
           // Use async version with conflict dialogs
-          _partyConflictCache = {};
+          resetImportSession();
           statusDiv2.innerHTML='<div style="padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e">⏳ Bills process ho rahi hain... Party conflicts resolve kiye ja rahe hain</div>';
           parseHeaderItemFormatAsync(raw, statusDiv2).then(function(resolvedRows){
             state.rows = resolvedRows;
@@ -10345,21 +10973,15 @@ function pgBillImport() {
         } // end else (Format 1)
 
         // ── Async party resolution with conflict dialogs ──
-        _partyConflictCache = {}; // Reset cache for this import session
+        resetImportSession(); // Reset session for this import
         statusDiv2.innerHTML='<div style="padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e">⏳ Party names resolve ho rahi hain... (' + pendingRows.length + ' bills)</div>';
 
         (async function resolvePending() {
           try {
             for(var pi=0; pi<pendingRows.length; pi++) {
               var pr = pendingRows[pi];
-              // Check "apply to all" cache by name first
-              var nameAllKey = '__name__' + pr._rawParty;
-              var resolved;
-              if(_partyConflictCache[nameAllKey] !== undefined) {
-                resolved = { name: _partyConflictCache[nameAllKey], match: 'user_resolved', reason: 'User ka decision apply hua' };
-              } else {
-                resolved = await resolveImportedPartyAsync(pr._rawParty, pr.station, pr.broker);
-              }
+              // resolveImportedPartyAsync handles cache + session internally
+              var resolved = await resolveImportedPartyAsync(pr._rawParty, pr.station, pr.broker);
               pr.party = resolved.name;
               pr._partyMatch = resolved.match;
               pr._partyReason = resolved.reason;
@@ -10631,7 +11253,7 @@ function pgBillImport() {
           } else if(bill._partyMatch==='new'){
             matchIcon='<span style="margin-left:4px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700">+ NEW</span>';
           }
-          td.innerHTML='<span style="font-weight:600">'+v+'</span>'+matchIcon;
+          td.innerHTML=displayPartyName(bill.party, bill.station)+matchIcon;
           if(bill._partyMatch==='station_mismatch'||bill._partyMatch==='warn'||bill._partyMatch==='fuzzy'){
             var reasonDiv=document.createElement('div');
             reasonDiv.style.cssText='font-size:10px;color:#92400e;margin-top:2px;max-width:220px;line-height:1.3';
@@ -10698,7 +11320,7 @@ function pgOverpayments() {
   ob.sort(function(a,b2){var sa=getBillStatus(a),sb=getBillStatus(b2);return(sb.recv-(b2.netAmt||0))-(sa.recv-(a.netAmt||0));}).forEach(function(b,i){
     var s=getBillStatus(b);var oa=s.recv-(b.netAmt||0);
     var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #fee2e2;background:'+(i%2===0?'#fff':'#fff5f5');
-    tr.innerHTML='<td style="padding:7px 10px;font-weight:700;color:#1d4ed8">#'+b.billNo+'</td><td style="padding:7px 10px">'+fmtDate(b.date)+'</td><td style="padding:7px 10px;font-weight:600;color:#166534;cursor:pointer">'+b.party+'</td><td style="padding:7px 10px;text-align:right">₹'+fmt(b.netAmt||0)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700">₹'+fmt(s.recv)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700;color:#dc2626">₹'+fmt(oa)+'</td>';
+    tr.innerHTML='<td style="padding:7px 10px;font-weight:700;color:#1d4ed8">#'+b.billNo+'</td><td style="padding:7px 10px">'+fmtDate(b.date)+'</td><td style="padding:7px 10px;cursor:pointer">'+displayPartyName(b.party,b.station)+'</td><td style="padding:7px 10px;text-align:right">₹'+fmt(b.netAmt||0)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700">₹'+fmt(s.recv)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700;color:#dc2626">₹'+fmt(oa)+'</td>';
     var atd=document.createElement('td');atd.style.cssText='padding:7px 10px;text-align:center';
     var vb=el('button',{cls:'btn btn-xs btn-outline',text:'View'});vb.addEventListener('click',function(){pageState.ledgerParty=b.party;go('ledger');});atd.appendChild(vb);tr.appendChild(atd);tbody.appendChild(tr);
   });
@@ -11290,7 +11912,7 @@ function openEditPayment(p) {
   // Info bar
   var info=document.createElement('div');
   info.style.cssText='grid-column:span 2;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:4px';
-  info.innerHTML='<strong>Bill:</strong> '+(b.billNo||'-')+' &nbsp;|&nbsp; <strong>Party:</strong> '+(b.party||'-')+' &nbsp;|&nbsp; <strong>Bill Amt:</strong> \u20b9'+fmt(b.netAmt||0);
+  info.innerHTML='<strong>Bill:</strong> '+(b.billNo||'-')+' &nbsp;|&nbsp; <strong>Party:</strong> '+displayPartyNameText(b.party,b.station)+' &nbsp;|&nbsp; <strong>Bill Amt:</strong> \u20b9'+fmt(b.netAmt||0);
   body.appendChild(info);
 
   [mkF3('Amount (\u20b9)','ep-amt','number',p.amount||0),
