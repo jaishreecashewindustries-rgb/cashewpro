@@ -1543,249 +1543,137 @@ function displayPartyNameText(partyName, station) {
   return _s ? partyName+', '+_s : partyName;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// PARTY CONFLICT RESOLUTION SYSTEM
-// Problem: Same naam ki 2 alag parties (e.g. PRADEEP SURATGARH vs BHARATPUR)
-// Solution: Import ke waqt dialog dikhao — user decide kare
-// ═══════════════════════════════════════════════════════════════════
-
-// Session index: is import mein jo parties resolve ho chuki hain
+// ══════════════════════════════════════════════════════
+// PARTY CONFLICT SYSTEM
+// ══════════════════════════════════════════════════════
 var _importSessionIdx = {};
-// Decision cache: user ke decisions
 var _partyDecisionCache = {};
 
 function resetImportSession() {
   _importSessionIdx = {};
   _partyDecisionCache = {};
 }
-
 function _sessionAdd(name, station, broker, resolved) {
   if(!_importSessionIdx[name]) _importSessionIdx[name] = [];
   _importSessionIdx[name].push({station:station, broker:broker, resolved:resolved});
 }
-
-// Detect conflict: same naam, alag station/broker?
-// Returns null (no conflict) OR {knownStations, knownBrokers, reason}
 function _detectConflict(name, station, broker) {
   var existIdx = buildPartyIndex();
   var sessionEntries = _importSessionIdx[name] || [];
   var knownStations = new Set();
   var knownBrokers  = new Set();
-
   if(existIdx[name]) {
     existIdx[name].stations.forEach(function(s){ knownStations.add(s); });
     existIdx[name].brokers.forEach(function(b){ knownBrokers.add(b); });
   }
-  sessionEntries.forEach(function(e){
-    if(e.station) knownStations.add(e.station);
-    if(e.broker)  knownBrokers.add(e.broker);
-  });
-
-  // No history at all → definitely new party
+  sessionEntries.forEach(function(e){ if(e.station) knownStations.add(e.station); if(e.broker) knownBrokers.add(e.broker); });
   if(!knownStations.size && !knownBrokers.size && !sessionEntries.length) return null;
-
-  // Station conflict
-  if(station && knownStations.size && !knownStations.has(station)) {
-    return {knownStations:Array.from(knownStations), knownBrokers:Array.from(knownBrokers),
-      reason:'Same naam "'+name+'" lekin alag station. Known: '+Array.from(knownStations).join(', ')+' | Import: '+station};
-  }
-  // Broker conflict
-  if(broker && knownBrokers.size && !knownBrokers.has(broker)) {
-    return {knownStations:Array.from(knownStations), knownBrokers:Array.from(knownBrokers),
-      reason:'Same naam "'+name+'" lekin alag broker. Known: '+Array.from(knownBrokers).join(', ')+' | Import: '+broker};
-  }
+  if(station && knownStations.size && !knownStations.has(station))
+    return {knownStations:Array.from(knownStations), knownBrokers:Array.from(knownBrokers), reason:'Same naam "'+name+'" lekin alag station. Known: '+Array.from(knownStations).join(', ')+' | Import: '+station};
+  if(broker && knownBrokers.size && !knownBrokers.has(broker))
+    return {knownStations:Array.from(knownStations), knownBrokers:Array.from(knownBrokers), reason:'Same naam "'+name+'" lekin alag broker. Known: '+Array.from(knownBrokers).join(', ')+' | Import: '+broker};
   return null;
 }
-
-// Show dialog — returns Promise {chosenName, decision, applyToAll}
-// Party conflict queue — allows skip and come back later
-var _conflictQueue = [];
-var _conflictQueueIdx = 0;
-
 function showPartyConflictDialog(name, station, broker, knownStations, knownBrokers) {
   return new Promise(function(resolve) {
-    var suggestedName = name + (station ? ' - ' + station : '');
-    var existStation = knownStations.join(', ') || '—';
-    var existBroker  = knownBrokers.join(', ')  || '—';
-    var impStation   = station || '—';
-    var impBroker    = broker  || '—';
-
+    var sug = name + (station ? ' - ' + station : '');
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
-
     var box = document.createElement('div');
-    box.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:100%;max-width:520px;font-family:var(--font);overflow:hidden';
-
-    // Header
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'background:linear-gradient(135deg,#dc2626,#b91c1c);padding:14px 18px;display:flex;align-items:center;justify-content:space-between';
-    hdr.innerHTML = '<div style="display:flex;align-items:center;gap:10px"><div style="font-size:20px">⚠️</div><div><div style="font-size:14px;font-weight:700;color:#fff">Same Naam — Alag Party?</div><div style="font-size:11px;color:rgba(255,255,255,.75)">Party conflict — decide karo</div></div></div>'+
-      '<button id="_dlg_close" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0">×</button>';
-
-    // Body
-    var body = document.createElement('div');
-    body.style.cssText = 'padding:14px 18px;max-height:80vh;overflow-y:auto';
-
-    body.innerHTML =
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'+
-        '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px">'+
-          '<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">IMPORT MEIN:</div>'+
-          '<div style="font-size:12px;font-weight:700;color:#1f2937">'+name+'</div>'+
-          '<div style="font-size:11px;color:#dc2626;font-weight:600">Station: '+impStation+'</div>'+
-          '<div style="font-size:11px;color:#374151">Broker: '+impBroker+'</div>'+
-        '</div>'+
-        '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px">'+
-          '<div style="font-size:10px;font-weight:700;color:#166534;margin-bottom:4px">SYSTEM MEIN:</div>'+
-          '<div style="font-size:12px;font-weight:700;color:#1f2937">'+name+'</div>'+
-          '<div style="font-size:11px;color:#166534;font-weight:600">Station: '+existStation+'</div>'+
-          '<div style="font-size:11px;color:#374151">Broker: '+existBroker+'</div>'+
-        '</div>'+
+    box.style.cssText = 'background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:100%;max-width:480px;font-family:var(--font);overflow:hidden';
+    box.innerHTML =
+      '<div style="background:linear-gradient(135deg,#dc2626,#b91c1c);padding:14px 18px;display:flex;align-items:center;justify-content:space-between">'+
+        '<div style="display:flex;align-items:center;gap:10px"><div style="font-size:20px">⚠️</div>'+
+        '<div><div style="font-size:14px;font-weight:700;color:#fff">Same Naam — Alag Party?</div>'+
+        '<div style="font-size:11px;color:rgba(255,255,255,.75)">Decide karo</div></div></div>'+
+        '<button id="_dlgX" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:18px;line-height:1">×</button>'+
       '</div>'+
-      '<div style="font-size:12px;font-weight:600;color:#1f2937;margin-bottom:8px">Kya yeh SAME party hai ya ALAG party?</div>';
-
-    // Options
-    var opts = document.createElement('div');
-    opts.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-bottom:10px';
-
-    var btn1 = document.createElement('button');
-    btn1.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:2px solid #d1fae5;border-radius:9px;background:#f0fdf4;cursor:pointer;text-align:left;font-family:var(--font);width:100%;transition:border-color .15s';
-    btn1.innerHTML='<div style="font-size:18px;flex-shrink:0">✅</div><div><div style="font-size:12px;font-weight:700;color:#166534">SAME PARTY hai</div><div style="font-size:11px;color:#4b7c5e">Bill "'+name+'" naam se save hoga</div></div>';
-    btn1.onmouseenter=function(){btn1.style.borderColor='#10b981';};
-    btn1.onmouseleave=function(){btn1.style.borderColor='#d1fae5';};
-
-    var btn2 = document.createElement('button');
-    btn2.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:2px solid #fee2e2;border-radius:9px;background:#fff7f7;cursor:pointer;text-align:left;font-family:var(--font);width:100%;transition:border-color .15s';
-    btn2.innerHTML='<div style="font-size:18px;flex-shrink:0">🏢</div><div><div style="font-size:12px;font-weight:700;color:#dc2626">ALAG PARTY hai</div><div style="font-size:11px;color:#9b2626">Bill "<strong>'+suggestedName+'</strong>" naam se save hoga</div></div>';
-    btn2.onmouseenter=function(){btn2.style.borderColor='#f87171';};
-    btn2.onmouseleave=function(){btn2.style.borderColor='#fee2e2';};
-
-    // Custom name
-    var customDiv = document.createElement('div');
-    customDiv.style.cssText='padding:10px 12px;border:2px solid #e5e7eb;border-radius:9px;background:#f9fafb';
-    customDiv.innerHTML='<div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:5px">✏️ Custom naam do:</div>';
-    var cInp = document.createElement('input');
-    cInp.type='text'; cInp.value=suggestedName;
-    cInp.style.cssText='width:100%;padding:7px 9px;border:1.5px solid #d1d5db;border-radius:6px;font-size:12px;font-family:var(--font);text-transform:uppercase;outline:none;box-sizing:border-box';
-    cInp.oninput=function(){this.value=this.value.toUpperCase();};
-    cInp.onfocus=function(){this.style.borderColor='#166534';};
-    cInp.onblur=function(){this.style.borderColor='#d1d5db';};
-    var cBtn = document.createElement('button');
-    cBtn.textContent='Is naam se save karo →';
-    cBtn.style.cssText='margin-top:6px;padding:6px 12px;background:#374151;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font)';
-    customDiv.appendChild(cInp); customDiv.appendChild(cBtn);
-
-    opts.appendChild(btn1); opts.appendChild(btn2); opts.appendChild(customDiv);
-    body.appendChild(opts);
-
-    // Apply to all
-    var applyAllDiv = document.createElement('div');
-    applyAllDiv.style.cssText='background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:7px 10px;display:flex;align-items:center;gap:7px;margin-bottom:10px';
-    var applyChk = document.createElement('input');
-    applyChk.type='checkbox'; applyChk.style.cssText='width:14px;height:14px;accent-color:#d97706;cursor:pointer;flex-shrink:0';
-    var applyLbl = document.createElement('label');
-    applyLbl.style.cssText='font-size:11px;color:#92400e;cursor:pointer';
-    applyLbl.textContent='Is file ke sabhi "'+name+'" ke liye yahi decision lagao';
-    applyAllDiv.appendChild(applyChk); applyAllDiv.appendChild(applyLbl);
-    body.appendChild(applyAllDiv);
-
-    // Skip button
-    var skipDiv = document.createElement('div');
-    skipDiv.style.cssText='display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #f3f4f6;padding-top:10px;margin-top:4px';
-    var skipBtn = document.createElement('button');
-    skipBtn.style.cssText='padding:6px 14px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;color:#6b7280;cursor:pointer;font-family:var(--font)';
-    skipBtn.textContent='⏭ Abhi Skip karo (baad mein decide)';
-    skipDiv.appendChild(skipBtn);
-    body.appendChild(skipDiv);
-
-    box.appendChild(hdr); box.appendChild(body);
+      '<div style="padding:14px 18px">'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'+
+          '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px">'+
+            '<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">IMPORT MEIN:</div>'+
+            '<div style="font-size:12px;font-weight:700">'+name+'</div>'+
+            '<div style="font-size:11px;color:#dc2626">Station: '+(station||'—')+'</div>'+
+            '<div style="font-size:11px;color:#374151">Broker: '+(broker||'—')+'</div>'+
+          '</div>'+
+          '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px">'+
+            '<div style="font-size:10px;font-weight:700;color:#166534;margin-bottom:4px">SYSTEM MEIN:</div>'+
+            '<div style="font-size:12px;font-weight:700">'+name+'</div>'+
+            '<div style="font-size:11px;color:#166534">Station: '+(knownStations.join(', ')||'—')+'</div>'+
+            '<div style="font-size:11px;color:#374151">Broker: '+(knownBrokers.join(', ')||'—')+'</div>'+
+          '</div>'+
+        '</div>'+
+        '<div style="font-size:12px;font-weight:600;color:#1f2937;margin-bottom:8px">Kya yeh SAME party hai ya ALAG party?</div>'+
+        '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px" id="_dlgOpts">'+
+          '<button id="_dlgSame" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #d1fae5;border-radius:9px;background:#f0fdf4;cursor:pointer;text-align:left;font-family:var(--font);width:100%">'+
+            '<div style="font-size:18px">✅</div><div><div style="font-size:12px;font-weight:700;color:#166534">SAME PARTY hai</div><div style="font-size:11px;color:#4b7c5e">Bill "'+name+'" naam se save hoga</div></div></button>'+
+          '<button id="_dlgDiff" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #fee2e2;border-radius:9px;background:#fff7f7;cursor:pointer;text-align:left;font-family:var(--font);width:100%">'+
+            '<div style="font-size:18px">🏢</div><div><div style="font-size:12px;font-weight:700;color:#dc2626">ALAG PARTY hai</div><div style="font-size:11px;color:#9b2626">Bill "<strong>'+sug+'</strong>" naam se save hoga</div></div></button>'+
+          '<div style="padding:10px 12px;border:2px solid #e5e7eb;border-radius:9px;background:#f9fafb">'+
+            '<div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:5px">✏️ Custom naam do:</div>'+
+            '<div style="display:flex;gap:6px"><input id="_dlgCInp" type="text" value="'+sug+'" style="flex:1;padding:6px 9px;border:1.5px solid #d1d5db;border-radius:6px;font-size:12px;font-family:var(--font);text-transform:uppercase;outline:none">'+
+            '<button id="_dlgCBtn" style="padding:6px 12px;background:#374151;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">Save →</button></div>'+
+          '</div>'+
+        '</div>'+
+        '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:7px 10px;display:flex;align-items:center;gap:7px">'+
+          '<input id="_dlgApplyAll" type="checkbox" style="width:14px;height:14px;accent-color:#d97706;cursor:pointer;flex-shrink:0">'+
+          '<label for="_dlgApplyAll" style="font-size:11px;color:#92400e;cursor:pointer">Is file ke sabhi "'+name+'" ke liye yahi decision apply karo</label>'+
+        '</div>'+
+      '</div>';
     overlay.appendChild(box);
+    document.body.appendChild(box.parentElement || overlay);
     document.body.appendChild(overlay);
-
-    function close(chosenName, decision) {
+    function done(chosenName, decision) {
       if(document.body.contains(overlay)) document.body.removeChild(overlay);
-      resolve({chosenName:chosenName, decision:decision, applyToAll:applyChk.checked});
+      var applyAll = document.getElementById('_dlgApplyAll');
+      resolve({chosenName:chosenName, decision:decision, applyToAll:applyAll&&applyAll.checked});
     }
-
-    // Close X — treat as "same party" (safe default)
-    box.querySelector('#_dlg_close').onclick = function(){ close(name, 'same'); };
-    // Skip — use suggested name, user can edit later in the table
-    skipBtn.onclick = function(){ close(name, 'same'); };
-    btn1.onclick = function(){ close(name, 'same'); };
-    btn2.onclick = function(){ close(suggestedName, 'different'); };
-    cBtn.onclick = function(){ var n=cInp.value.trim().toUpperCase(); if(n) close(n,'custom'); };
-    // Keyboard: Escape = same, Enter = same
-    overlay.addEventListener('keydown', function(e){
-      if(e.key==='Escape') close(name,'same');
-      if(e.key==='Enter' && document.activeElement!==cInp) close(name,'same');
-    });
-
-    setTimeout(function(){ btn1.focus(); }, 50);
+    document.getElementById('_dlgX').onclick = function(){ done(name,'same'); };
+    document.getElementById('_dlgSame').onclick = function(){ done(name,'same'); };
+    document.getElementById('_dlgDiff').onclick = function(){ done(sug,'different'); };
+    document.getElementById('_dlgCBtn').onclick = function(){ var n=(document.getElementById('_dlgCInp').value||'').trim().toUpperCase(); if(n) done(n,'custom'); };
+    document.getElementById('_dlgCInp').oninput = function(){ this.value=this.value.toUpperCase(); };
+    overlay.addEventListener('keydown',function(e){ if(e.key==='Escape') done(name,'same'); });
+    setTimeout(function(){ var b=document.getElementById('_dlgSame'); if(b) b.focus(); },50);
   });
 }
-
-// Async party resolver — main entry point
 async function resolveImportedPartyAsync(importedName, importedStation, importedBroker) {
-  var name    = (importedName||'').trim().toUpperCase();
-  var station = (importedStation||'').trim().toUpperCase();
-  var broker  = (importedBroker||'').trim().toUpperCase();
-  if(!name) return {name:'', match:'new', reason:'Empty'};
-
-  // Cache check (apply-to-all)
-  var nameKey = '__all__'+name;
-  if(_partyDecisionCache[nameKey] !== undefined) {
-    _sessionAdd(name, station, broker, _partyDecisionCache[nameKey]);
-    return {name:_partyDecisionCache[nameKey], match:'user_resolved', reason:'Apply-all'};
-  }
-  // Cache check (exact combo)
-  var comboKey = name+'||'+station+'||'+broker;
-  if(_partyDecisionCache[comboKey] !== undefined) {
-    _sessionAdd(name, station, broker, _partyDecisionCache[comboKey]);
-    return {name:_partyDecisionCache[comboKey], match:'user_resolved', reason:'Cached'};
-  }
-
-  // Detect conflict
-  var conflict = _detectConflict(name, station, broker);
-  if(!conflict) {
-    // No conflict — check for fuzzy match if completely new
-    var existIdx = buildPartyIndex();
-    if(!existIdx[name] && !_importSessionIdx[name]) {
-      var words = name.split(/s+/).filter(function(w){return w.length>2;});
-      var allNames = Object.keys(existIdx);
-      var scored = allNames.map(function(p){
-        var hits=words.filter(function(w){return p.indexOf(w)>=0;}).length;
-        return {p:p, s:hits/Math.max(words.length,1)};
-      }).filter(function(x){return x.s>=0.6;}).sort(function(a,b){return b.s-a.s;});
-      _sessionAdd(name, station, broker, name);
-      return {name:name, match:scored.length?'fuzzy':'new',
-        reason:scored.length?'Fuzzy: '+scored[0].p:'New party'};
+  var name=(importedName||'').trim().toUpperCase();
+  var station=(importedStation||'').trim().toUpperCase();
+  var broker=(importedBroker||'').trim().toUpperCase();
+  if(!name) return {name:'',match:'new',reason:'Empty'};
+  var nameKey='__all__'+name, comboKey=name+'||'+station+'||'+broker;
+  if(_partyDecisionCache[nameKey]!==undefined){ _sessionAdd(name,station,broker,_partyDecisionCache[nameKey]); return {name:_partyDecisionCache[nameKey],match:'user_resolved',reason:'Apply-all'}; }
+  if(_partyDecisionCache[comboKey]!==undefined){ _sessionAdd(name,station,broker,_partyDecisionCache[comboKey]); return {name:_partyDecisionCache[comboKey],match:'user_resolved',reason:'Cached'}; }
+  var conflict=_detectConflict(name,station,broker);
+  if(!conflict){
+    var existIdx=buildPartyIndex();
+    if(!existIdx[name]&&!_importSessionIdx[name]){
+      var words=name.split(/s+/).filter(function(w){return w.length>2;});
+      var scored=Object.keys(existIdx).map(function(p){ var hits=words.filter(function(w){return p.indexOf(w)>=0;}).length; return {p:p,s:hits/Math.max(words.length,1)}; }).filter(function(x){return x.s>=0.6;}).sort(function(a,b){return b.s-a.s;});
+      _sessionAdd(name,station,broker,name);
+      return {name:name,match:scored.length?'fuzzy':'new',reason:scored.length?'Fuzzy: '+scored[0].p:'New party'};
     }
-    _sessionAdd(name, station, broker, name);
-    return {name:name, match:'exact', reason:'Match, no conflict'};
+    _sessionAdd(name,station,broker,name);
+    return {name:name,match:'exact',reason:'Match, no conflict'};
   }
-
-  // Show dialog
-  var result = await showPartyConflictDialog(name, station, broker, conflict.knownStations, conflict.knownBrokers);
-  if(result.applyToAll) _partyDecisionCache[nameKey] = result.chosenName;
-  _partyDecisionCache[comboKey] = result.chosenName;
-  _sessionAdd(name, station, broker, result.chosenName);
-  return {name:result.chosenName, match:'user_resolved',
-    reason:'User: '+(result.decision==='same'?'Same':'Alag')+' ('+result.chosenName+')'};
+  var result=await showPartyConflictDialog(name,station,broker,conflict.knownStations,conflict.knownBrokers);
+  if(result.applyToAll) _partyDecisionCache[nameKey]=result.chosenName;
+  _partyDecisionCache[comboKey]=result.chosenName;
+  _sessionAdd(name,station,broker,result.chosenName);
+  return {name:result.chosenName,match:'user_resolved',reason:'User: '+(result.decision==='same'?'Same':'Alag')+' ('+result.chosenName+')'};
 }
-
-// Sync fallback (for non-async contexts)
 function resolveImportedParty(importedName, importedStation, importedBroker) {
-  var name    = (importedName||'').trim().toUpperCase();
-  var station = (importedStation||'').trim().toUpperCase();
-  var broker  = (importedBroker||'').trim().toUpperCase();
-  var nameKey  = '__all__'+name;
-  var comboKey = name+'||'+station+'||'+broker;
-  if(_partyDecisionCache[nameKey]  !== undefined) return {match:'user_resolved', party:_partyDecisionCache[nameKey],  reason:'Cached'};
-  if(_partyDecisionCache[comboKey] !== undefined) return {match:'user_resolved', party:_partyDecisionCache[comboKey], reason:'Cached'};
-  var conflict = _detectConflict(name, station, broker);
-  if(conflict) return {match:'needs_confirm', party:null, reason:conflict.reason,
-    _knownStations:conflict.knownStations, _knownBrokers:conflict.knownBrokers};
-  _sessionAdd(name, station, broker, name);
-  return {match:name?'exact':'new', party:name, reason:'No conflict'};
+  var name=(importedName||'').trim().toUpperCase();
+  var station=(importedStation||'').trim().toUpperCase();
+  var broker=(importedBroker||'').trim().toUpperCase();
+  var nameKey='__all__'+name, comboKey=name+'||'+station+'||'+broker;
+  if(_partyDecisionCache[nameKey]!==undefined) return {match:'user_resolved',party:_partyDecisionCache[nameKey],reason:'Cached'};
+  if(_partyDecisionCache[comboKey]!==undefined) return {match:'user_resolved',party:_partyDecisionCache[comboKey],reason:'Cached'};
+  var conflict=_detectConflict(name,station,broker);
+  if(conflict) return {match:'needs_confirm',party:null,reason:conflict.reason,_knownStations:conflict.knownStations,_knownBrokers:conflict.knownBrokers};
+  _sessionAdd(name,station,broker,name);
+  return {match:name?'exact':'new',party:name,reason:'No conflict'};
 }
 
 function getBillStatus(bill) {
@@ -5132,7 +5020,7 @@ function pgReceive() {
 
       var billNTd=document.createElement('td');billNTd.style.cssText='padding:5px 8px;font-family:monospace;font-size:11px;color:#6b7280';billNTd.textContent=b.billNo||'-';tr.appendChild(billNTd);
       var dateTd2=document.createElement('td');dateTd2.style.cssText='padding:5px 8px;font-size:11px;white-space:nowrap';dateTd2.textContent=fmtDate(b.date);tr.appendChild(dateTd2);
-      var partyTd = document.createElement('td'); partyTd.innerHTML=displayPartyName(b.party,b.station);
+      var partyTd = document.createElement('td'); partyTd.innerHTML='<strong>'+b.party+'</strong>';
       var gradeTd = document.createElement('td'); gradeTd.textContent=grade; gradeTd.style.fontSize='11px';
       var amtTd = document.createElement('td'); amtTd.className='num'; amtTd.textContent='\u20b9'+fmt(b.netAmt);
       var balTd = document.createElement('td'); balTd.className='num';
@@ -5737,9 +5625,9 @@ function pgPartyLedger(party) {
   });
   var titleDiv=document.createElement('div');
     var partyGstinVal = (bills.find(function(b){return b.party===party&&b.partyGstin;})||{}).partyGstin||'';
-  var _pStn=(bills.find(function(b){return b.party===party&&b.station;})||{}).station||'';
+  var _pStn2=(bills.find(function(b){return b.party===party&&b.station;})||{}).station||'';
   titleDiv.innerHTML='<span style="font-size:17px;font-weight:700;color:#166534">'+party+'</span>'+
-    (_pStn?'<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:700">'+_pStn+'</span>':'')+
+    (_pStn2?'<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:700">'+_pStn2+'</span>':'')+
     (partyGstinVal?'<span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:2px 7px;border-radius:4px;margin-left:8px;font-family:monospace;font-weight:700">GSTIN: '+partyGstinVal+'</span>':'')+
     '<span style="font-size:11px;color:#9ca3af;margin-left:8px">Party Ledger</span>';
   var actDiv=document.createElement('div');actDiv.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
@@ -7455,233 +7343,90 @@ function pgFinancialYear() {
 }
 
 
-// ═══════════════════════════════════════════════
-// PARTY MASTER PAGE
-// ═══════════════════════════════════════════════
 function pgPartyMaster() {
-  var wrap = document.createElement('div');
-  var pm = DB.getObj('partyMaster', {});
-  var partyIdx = buildPartyIndex();
-
-  var hdr = document.createElement('div');
-  hdr.style.marginBottom='14px';
-  hdr.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0">🏢 Party Master</h3>'+
-    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Parties ke naam, station, broker yahan save karo — Bill Import mein mismatch nahi hoga</p>';
-  wrap.appendChild(hdr);
-
+  var wrap=document.createElement('div');
+  var pm=DB.getObj('partyMaster',{});
+  var partyIdx=buildPartyIndex();
+  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0 0 4px">🏢 Party Master</h3>'+
+    '<p style="font-size:12px;color:#6b7280;margin:0 0 14px">Parties ke naam, station, broker yahan save karo — Bill Import mein mismatch nahi hoga</p>';
   // Stats
-  var statsDiv=document.createElement('div');
-  statsDiv.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px';
-  [{l:'Bills se Parties',v:Object.keys(partyIdx).length,c:'#166534',bg:'#f0fdf4'},
-   {l:'Manually Added',v:Object.keys(pm).length,c:'#0369a1',bg:'#e0f2fe'},
-   {l:'Total Unique',v:Object.keys(partyIdx).length,c:'#7c3aed',bg:'#f5f3ff'}
-  ].forEach(function(s){
-    var d=document.createElement('div');
-    d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+'33;border-radius:10px;padding:12px 14px';
-    d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">'+s.l+'</div>'+
-      '<div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';
-    statsDiv.appendChild(d);
-  });
-  wrap.appendChild(statsDiv);
-
-  // ── Import Card ──
+  var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px';
+  [{l:'Bills se Parties',v:Object.keys(partyIdx).length,c:'#166534',bg:'#f0fdf4'},{l:'Manually Added',v:Object.keys(pm).length,c:'#0369a1',bg:'#e0f2fe'},{l:'Total Unique',v:Object.keys(partyIdx).length,c:'#7c3aed',bg:'#f5f3ff'}].forEach(function(s){var d=document.createElement('div');d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+'33;border-radius:10px;padding:12px 14px';d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">'+s.l+'</div><div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';sg.appendChild(d);});
+  wrap.appendChild(sg);
+  // Import card
   var impCard=document.createElement('div');impCard.className='card';impCard.style.marginBottom='14px';
-  var impH=document.createElement('div');impH.className='card-head';
-  impH.innerHTML='<h4>📥 Excel se Party Master Import karo</h4>';
+  var impH=document.createElement('div');impH.className='card-head';impH.innerHTML='<h4>📥 Excel se Party Master Import karo</h4>';
   impCard.appendChild(impH);
   var impB=document.createElement('div');impB.style.cssText='padding:14px 16px';
-  impB.innerHTML='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px">'+
-    '<strong style="color:#166534">Excel Format:</strong> '+
-    ['PARTY_NAME *','DELIVERY_STATION','BROKER','PARTY_GSTIN','NOTES'].map(function(c){
-      return '<code style="background:#fff;border:1px solid #bbf7d0;padding:1px 5px;border-radius:3px;font-size:11px">'+c+'</code>';
-    }).join(' ')+
-    '<br><span style="color:#4b7c5e;font-size:11px">✔ Multiple stations/brokers — "/" se alag karo. Template download karo — bills data se pre-filled hoga.</span></div>';
-
+  impB.innerHTML='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px"><strong style="color:#166534">Excel Format:</strong> '+['PARTY_NAME *','DELIVERY_STATION','BROKER','PARTY_GSTIN','NOTES'].map(function(c){return '<code style="background:#fff;border:1px solid #bbf7d0;padding:1px 5px;border-radius:3px;font-size:11px">'+c+'</code>';}).join(' ')+'<br><span style="color:#4b7c5e;font-size:11px">✔ Multiple stations/brokers "/" se alag karo. Template mein bills data pre-filled hoga.</span></div>';
   var impStatus=document.createElement('div');impStatus.style.marginBottom='8px';
   var fileRow=document.createElement('div');fileRow.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
-  var fileInp=document.createElement('input');fileInp.type='file';fileInp.accept='.xlsx,.xls,.csv';
-  fileInp.style.cssText='flex:1;min-width:180px;padding:6px 10px;border:1.5px solid #d1d5db;border-radius:7px;font-size:12px;font-family:var(--font);cursor:pointer';
+  var fileInp=document.createElement('input');fileInp.type='file';fileInp.accept='.xlsx,.xls,.csv';fileInp.style.cssText='flex:1;min-width:180px;padding:6px 10px;border:1.5px solid #d1d5db;border-radius:7px;font-size:12px;font-family:var(--font);cursor:pointer';
   var importBtn=el('button',{cls:'btn btn-green',text:'⬆ Import'});
-  var dlBtn=el('button',{cls:'btn btn-outline',text:'⬇ Download Template'});
-  dlBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8';
-
+  var dlBtn=el('button',{cls:'btn btn-outline',text:'⬇ Template'});dlBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8';
   dlBtn.addEventListener('click',function(){
-    var idx2=buildPartyIndex();
     var rows=[['PARTY_NAME','DELIVERY_STATION','BROKER','PARTY_GSTIN','NOTES']];
-    Object.keys(idx2).sort().forEach(function(p){
-      var pr=idx2[p];
-      var tr2=bills.filter(function(b){return b.party===p&&b.transport;});
-      rows.push([p,pr.stations.join(' / '),pr.brokers.join(' / '),pr.gstin||'','']);
-    });
-    Object.keys(pm).forEach(function(p){
-      if(idx2[p])return;
-      var e=pm[p];
-      rows.push([p,(e.stations||[]).join(' / '),(e.brokers||[]).join(' / '),e.gstin||'',e.notes||'']);
-    });
-    var wb2=XLSX.utils.book_new();
-    var ws2=XLSX.utils.aoa_to_sheet(rows);
-    ws2['!cols']=[{wch:30},{wch:20},{wch:25},{wch:20},{wch:20}];
-    XLSX.utils.book_append_sheet(wb2,ws2,'Party Master');
-    XLSX.writeFile(wb2,'PartyMaster_'+today().replace(/-/g,'')+'.xlsx');
-    toast('✅ Template downloaded! '+rows.length+' parties');
+    Object.keys(buildPartyIndex()).sort().forEach(function(p){var pr=buildPartyIndex()[p];rows.push([p,pr.stations.join(' / '),pr.brokers.join(' / '),pr.gstin||'','']);});
+    var wb2=XLSX.utils.book_new();var ws2=XLSX.utils.aoa_to_sheet(rows);ws2['!cols']=[{wch:30},{wch:20},{wch:25},{wch:20},{wch:20}];
+    XLSX.utils.book_append_sheet(wb2,ws2,'Party Master');XLSX.writeFile(wb2,'PartyMaster_'+today().replace(/-/g,'')+'.xlsx');toast('✅ Template downloaded!');
   });
-
   importBtn.addEventListener('click',function(){
-    var file=fileInp.files[0];
-    if(!file){toast('Pehle file select karo!','err');return;}
-    var reader=new FileReader();
-    reader.onload=function(e){
+    var file=fileInp.files[0];if(!file){toast('Pehle file select karo!','err');return;}
+    var reader=new FileReader();reader.onload=function(e){
       try{
         var wb2=XLSX.read(e.target.result,{type:'array',raw:false});
-        var sheetName=wb2.SheetNames.find(function(n){return /party.?master/i.test(n);})||wb2.SheetNames[0];
-        var raw=XLSX.utils.sheet_to_json(wb2.Sheets[sheetName],{header:1,raw:false,defval:''});
+        var raw=XLSX.utils.sheet_to_json(wb2.Sheets[wb2.SheetNames[0]],{header:1,raw:false,defval:''});
         var hdrRow=-1,colMap={};
-        for(var i=0;i<Math.min(5,raw.length);i++){
-          var rowUp=raw[i].map(function(c){return String(c||'').trim().toUpperCase();});
-          if(rowUp.some(function(c){return c==='PARTY_NAME'||c==='PARTY NAME'||c==='NAME';})){
-            hdrRow=i;
-            rowUp.forEach(function(h,ci){
-              if(/party.?name|^name$/i.test(h))colMap.name=ci;
-              else if(/station|delivery/i.test(h))colMap.station=ci;
-              else if(/broker/i.test(h))colMap.broker=ci;
-              else if(/gstin|gst/i.test(h))colMap.gstin=ci;
-              else if(/notes?|remark/i.test(h))colMap.notes=ci;
-            });break;
-          }
-        }
-        if(hdrRow<0||colMap.name===undefined){
-          impStatus.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ PARTY_NAME column nahi mili</div>';return;
-        }
-        var newPm=Object.assign({},pm);
-        var imported=0,updated=0;
+        for(var i=0;i<Math.min(5,raw.length);i++){var rowUp=raw[i].map(function(c){return String(c||'').trim().toUpperCase();});if(rowUp.some(function(c){return c==='PARTY_NAME'||c==='NAME';})){hdrRow=i;rowUp.forEach(function(h,ci){if(/party.?name|^name$/i.test(h))colMap.name=ci;else if(/station|delivery/i.test(h))colMap.station=ci;else if(/broker/i.test(h))colMap.broker=ci;else if(/gstin/i.test(h))colMap.gstin=ci;else if(/notes?/i.test(h))colMap.notes=ci;});break;}}
+        if(hdrRow<0||colMap.name===undefined){impStatus.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ PARTY_NAME column nahi mili</div>';return;}
+        var newPm=Object.assign({},pm);var imported=0,updated=0;
         for(var ri=hdrRow+1;ri<raw.length;ri++){
-          var row=raw[ri];
-          var name=(colMap.name!==undefined&&row[colMap.name]?String(row[colMap.name]).trim().toUpperCase():'');
+          var name=(colMap.name!==undefined&&raw[ri][colMap.name]?String(raw[ri][colMap.name]).trim().toUpperCase():'');
           if(!name||/^(grand total|total)$/i.test(name))continue;
-          var stns=colMap.station!==undefined?String(row[colMap.station]||'').trim().toUpperCase().split(/[/,]+/).map(function(s){return s.trim();}).filter(Boolean):[];
-          var bkrs=colMap.broker!==undefined?String(row[colMap.broker]||'').trim().toUpperCase().split(/[/,]+/).map(function(s){return s.trim();}).filter(Boolean):[];
-          var gstin=colMap.gstin!==undefined?String(row[colMap.gstin]||'').trim().toUpperCase():'';
-          var notes=colMap.notes!==undefined?String(row[colMap.notes]||'').trim():'';
-          if(newPm[name]){
-            var ex=newPm[name];
-            newPm[name]={stations:Array.from(new Set((ex.stations||[]).concat(stns))),
-              brokers:Array.from(new Set((ex.brokers||[]).concat(bkrs))),
-              gstin:gstin||ex.gstin||'',notes:notes||ex.notes||''};
-            updated++;
-          } else {
-            newPm[name]={stations:stns,brokers:bkrs,gstin:gstin,notes:notes};
-            imported++;
-          }
+          var stns=colMap.station!==undefined?String(raw[ri][colMap.station]||'').trim().toUpperCase().split(/[/,]+/).map(function(s){return s.trim();}).filter(Boolean):[];
+          var bkrs=colMap.broker!==undefined?String(raw[ri][colMap.broker]||'').trim().toUpperCase().split(/[/,]+/).map(function(s){return s.trim();}).filter(Boolean):[];
+          var gstin=colMap.gstin!==undefined?String(raw[ri][colMap.gstin]||'').trim().toUpperCase():'';
+          if(newPm[name]){var ex=newPm[name];newPm[name]={stations:Array.from(new Set((ex.stations||[]).concat(stns))),brokers:Array.from(new Set((ex.brokers||[]).concat(bkrs))),gstin:gstin||ex.gstin||'',notes:ex.notes||''};updated++;}
+          else{newPm[name]={stations:stns,brokers:bkrs,gstin:gstin,notes:''};imported++;}
         }
         DB.setObj('partyMaster',newPm);
-        impStatus.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ '+(imported+updated)+' parties imported/updated — '+imported+' new, '+updated+' merged</div>';
-        toast('✅ Party Master updated! '+Object.keys(newPm).length+' parties');
-        fileInp.value='';
-        setTimeout(function(){go('party-master');},600);
-      }catch(ex){
-        impStatus.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ '+ex.message+'</div>';
-      }
+        impStatus.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ '+(imported+updated)+' parties imported — '+imported+' new, '+updated+' merged</div>';
+        toast('✅ Party Master updated!');fileInp.value='';setTimeout(function(){go('party-master');},600);
+      }catch(ex){impStatus.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ '+ex.message+'</div>';}
     };reader.readAsArrayBuffer(file);
   });
-
   fileRow.appendChild(fileInp);fileRow.appendChild(importBtn);fileRow.appendChild(dlBtn);
-  impB.appendChild(impStatus);impB.appendChild(fileRow);
-  impCard.appendChild(impB);wrap.appendChild(impCard);
-
-  // ── Manual Add Card ──
-  var addCard=document.createElement('div');addCard.className='card';addCard.style.marginBottom='14px';
-  var addH=document.createElement('div');addH.className='card-head';addH.innerHTML='<h4>➕ Party Manually Add karo</h4>';
-  addCard.appendChild(addH);
-  var addB=document.createElement('div');addB.style.cssText='padding:14px 16px';
-  var fg=document.createElement('div');fg.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px';
-  function mkInp(lbl2,id2,ph2){
-    var w2=document.createElement('div');
-    w2.innerHTML='<label for="'+id2+'" style="display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:3px">'+lbl2+'</label>'+
-      '<input id="'+id2+'" type="text" placeholder="'+ph2+'" style="width:100%;padding:7px 10px;border:1.5px solid #d1d5db;border-radius:7px;font-size:12px;font-family:var(--font);text-transform:uppercase;outline:none;box-sizing:border-box">';
-    return w2;
-  }
-  var fName=mkInp('Party Name *','pm-name','PRADEEP TRADING CO');fName.style.gridColumn='1 / -1';
-  var fStn=mkInp('Station','pm-station','SURATGARH');
-  var fBrk=mkInp('Broker','pm-broker','PAREEK JI');
-  var fGst=mkInp('GSTIN','pm-gstin','08XXXXX1ZV');fGst.style.gridColumn='1 / -1';
-  fg.appendChild(fName);fg.appendChild(fStn);fg.appendChild(fBrk);fg.appendChild(fGst);
-  var saveBtn=el('button',{cls:'btn btn-green',text:'💾 Save Party'});
-  saveBtn.addEventListener('click',function(){
-    var name=(document.getElementById('pm-name').value||'').trim().toUpperCase();
-    if(!name){toast('Party naam zaroori!','err');return;}
-    var stn=(document.getElementById('pm-station').value||'').trim().toUpperCase();
-    var brk=(document.getElementById('pm-broker').value||'').trim().toUpperCase();
-    var gst=(document.getElementById('pm-gstin').value||'').trim().toUpperCase();
-    var ex=pm[name]||{stations:[],brokers:[],gstin:''};
-    var stns=Array.from(new Set(ex.stations.concat(stn?[stn]:[])));
-    var bkrs=Array.from(new Set(ex.brokers.concat(brk?[brk]:[])));
-    pm[name]={stations:stns,brokers:bkrs,gstin:gst||ex.gstin,notes:ex.notes||''};
-    DB.setObj('partyMaster',pm);
-    toast('✅ '+name+' saved!');
-    ['pm-name','pm-station','pm-broker','pm-gstin'].forEach(function(id){var el2=document.getElementById(id);if(el2)el2.value='';});
-    setTimeout(function(){go('party-master');},300);
-  });
-  addB.appendChild(fg);addB.appendChild(saveBtn);addCard.appendChild(addB);wrap.appendChild(addCard);
-
-  // ── Party List ──
+  impB.appendChild(impStatus);impB.appendChild(fileRow);impCard.appendChild(impB);wrap.appendChild(impCard);
+  // Party list
   var listCard=document.createElement('div');listCard.className='card';
   var listH=document.createElement('div');listH.className='card-head';
-  var searchInp=document.createElement('input');
-  searchInp.type='text';searchInp.placeholder='🔍 Search...';
-  searchInp.style.cssText='padding:5px 9px;border:1.5px solid #d1d5db;border-radius:6px;font-size:12px;font-family:var(--font);outline:none;width:180px';
-  var clearBtn=el('button',{cls:'btn btn-sm',text:'🗑 Manual Clear',style:'background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;font-size:11px'});
-  clearBtn.addEventListener('click',function(){if(!confirm('Manually added parties clear karein?'))return;DB.setObj('partyMaster',{});toast('Cleared');go('party-master');});
-  var allPD={};
-  Object.keys(partyIdx).forEach(function(p){allPD[p]={name:p,stations:partyIdx[p].stations,brokers:partyIdx[p].brokers,gstin:partyIdx[p].gstin,fromBills:bills.some(function(b){return b.party===p;}),manual:!!pm[p]};});
+  var searchInp=document.createElement('input');searchInp.type='text';searchInp.placeholder='🔍 Search...';searchInp.style.cssText='padding:5px 9px;border:1.5px solid #d1d5db;border-radius:6px;font-size:12px;font-family:var(--font);outline:none;width:180px';
+  var allPD={};Object.keys(partyIdx).forEach(function(p){allPD[p]={name:p,stations:partyIdx[p].stations,brokers:partyIdx[p].brokers,gstin:partyIdx[p].gstin,fromBills:bills.some(function(b){return b.party===p;}),manual:!!pm[p]};});
   listH.innerHTML='<h4>📋 All Parties ('+Object.keys(allPD).length+')</h4>';
-  var lhRight=document.createElement('div');lhRight.style.cssText='display:flex;gap:8px;align-items:center';
-  lhRight.appendChild(searchInp);lhRight.appendChild(clearBtn);listH.appendChild(lhRight);listCard.appendChild(listH);
+  var lhR=document.createElement('div');lhR.appendChild(searchInp);listH.appendChild(lhR);listCard.appendChild(listH);
   var tWrap=document.createElement('div');tWrap.style.overflow='auto';
   var tbl=document.createElement('table');tbl.style.cssText='width:100%;min-width:600px;border-collapse:collapse;font-size:12px';
-  tbl.innerHTML='<thead><tr style="background:#f9fafb">'+
-    ['#','Party Name','Station','Broker','GSTIN','Source','Action'].map(function(h){
-      return '<th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">'+h+'</th>';
-    }).join('')+'</tr></thead>';
+  tbl.innerHTML='<thead><tr style="background:#f9fafb">'+['#','Party Name','Station','Broker','GSTIN','Source','Action'].map(function(h){return '<th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">'+h+'</th>';}).join('')+'</tr></thead>';
   var tbody=document.createElement('tbody');
   function renderPM(q){
     tbody.innerHTML='';
-    var keys=Object.keys(allPD).filter(function(p){
-      if(!q)return true;
-      return p.toLowerCase().indexOf(q.toLowerCase())>=0||allPD[p].stations.join(' ').toLowerCase().indexOf(q.toLowerCase())>=0;
-    }).sort();
-    if(!keys.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.colSpan=7;etd.style.cssText='text-align:center;padding:30px;color:#9ca3af';etd.textContent='Koi party nahi mili';etr.appendChild(etd);tbody.appendChild(etr);return;}
+    var keys=Object.keys(allPD).filter(function(p){return !q||p.toLowerCase().indexOf(q.toLowerCase())>=0||allPD[p].stations.join(' ').toLowerCase().indexOf(q.toLowerCase())>=0;}).sort();
+    if(!keys.length){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:30px;color:#9ca3af">Koi party nahi mili</td></tr>';return;}
     keys.forEach(function(p,i){
-      var pd=allPD[p];
-      var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(i%2===0?'#fff':'#fafafa');
-      var cells=[
-        '<span style="color:#9ca3af">'+(i+1)+'</span>',
-        '<strong style="color:#166534">'+p+'</strong>',
-        pd.stations.map(function(s){return '<span style="display:inline-block;background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin:1px">'+s+'</span>';}).join(' ')||'<span style="color:#9ca3af">—</span>',
-        '<span style="font-size:11px;color:#374151">'+(pd.brokers.join(', ')||'—')+'</span>',
+      var pd=allPD[p];var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(i%2===0?'#fff':'#fafafa');
+      var cells=['<span style="color:#9ca3af">'+(i+1)+'</span>','<strong style="color:#166534">'+p+'</strong>',
+        pd.stations.map(function(s){return '<span style="display:inline-block;background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin:1px">'+s+'</span>';}).join(' ')||'—',
+        '<span style="font-size:11px">'+(pd.brokers.join(', ')||'—')+'</span>',
         '<span style="font-family:monospace;font-size:10px;color:#6b7280">'+(pd.gstin||'—')+'</span>',
         (pd.fromBills?'<span style="background:#dcfce7;color:#166534;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;margin-right:2px">BILLS</span>':'')+
-        (pd.manual?'<span style="background:#e0f2fe;color:#0369a1;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px">MANUAL</span>':'')
-      ];
+        (pd.manual?'<span style="background:#e0f2fe;color:#0369a1;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px">MANUAL</span>':'')];
       cells.forEach(function(c){var td=document.createElement('td');td.style.padding='7px 10px';td.innerHTML=c;tr.appendChild(td);});
-      var actTd=document.createElement('td');actTd.style.cssText='padding:7px 10px;display:flex;gap:4px';
-      if(pm[p]){
-        var delBtn=el('button',{cls:'btn btn-xs',text:'Del',style:'background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;font-size:10px'});
-        delBtn.addEventListener('click',(function(pn){return function(){if(!confirm(pn+' delete karein?'))return;delete pm[pn];DB.setObj('partyMaster',pm);toast('Deleted');go('party-master');};})(p));
-        actTd.appendChild(delBtn);
-      } else {
-        var addBtn=el('button',{cls:'btn btn-xs btn-outline',text:'+ Info'});
-        addBtn.addEventListener('click',(function(pn,pd2){return function(){
-          var n2=document.getElementById('pm-name');var s2=document.getElementById('pm-station');var b2=document.getElementById('pm-broker');var g2=document.getElementById('pm-gstin');
-          if(n2)n2.value=pn;if(s2)s2.value=(pd2.stations||[]).join(' / ');if(b2)b2.value=(pd2.brokers||[]).join(' / ');if(g2)g2.value=pd2.gstin||'';
-          addCard.scrollIntoView({behavior:'smooth',block:'center'});
-        };})(p,pd));
-        actTd.appendChild(addBtn);
-      }
+      var actTd=document.createElement('td');actTd.style.cssText='padding:7px 10px';
+      if(pm[p]){var delBtn=el('button',{cls:'btn btn-xs',text:'Del',style:'background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;font-size:10px'});delBtn.addEventListener('click',(function(pn){return function(){if(!confirm(pn+' delete?'))return;delete pm[pn];DB.setObj('partyMaster',pm);toast('Deleted');go('party-master');};})(p));actTd.appendChild(delBtn);}
       tr.appendChild(actTd);tbody.appendChild(tr);
     });
   }
-  renderPM('');
-  searchInp.addEventListener('input',function(){renderPM(this.value.trim());});
+  renderPM('');searchInp.addEventListener('input',function(){renderPM(this.value.trim());});
   tbl.appendChild(tbody);tWrap.appendChild(tbl);listCard.appendChild(tWrap);wrap.appendChild(listCard);
   return wrap;
 }
@@ -8527,22 +8272,17 @@ function pgBankUpload() {
     if (state.tab === id) { t.style.color='var(--brand)'; t.style.borderBottomColor='var(--brand)'; t.style.fontWeight='700'; }
     t.addEventListener('click', function() {
       state.tab = id;
-      // Update tab styles
       document.querySelectorAll('[data-buTab]').forEach(function(bt){
-        var active = bt.getAttribute('data-buTab')===id;
-        bt.style.color = active?'var(--brand)':'var(--text-3)';
-        bt.style.borderBottomColor = active?'var(--brand)':'transparent';
-        bt.style.fontWeight = active?'700':'500';
+        var active=bt.getAttribute('data-buTab')===id;
+        bt.style.color=active?'var(--brand)':'var(--text-3)';
+        bt.style.borderBottomColor=active?'var(--brand)':'transparent';
+        bt.style.fontWeight=active?'700':'500';
       });
-      // Re-render only content area
-      var ca = document.getElementById('_buContent');
-      if(ca) {
-        ca.innerHTML='';
-        if(id==='template'){ca.appendChild(buildTemplateGuide());}
-        else if(id==='clearance'){ca.appendChild(buildClearanceTab());}
-        else {
-          if(state.rows&&state.rows.length) ca.appendChild(buildImportTable());
-        }
+      var ca=document.getElementById('_buContent');
+      if(ca){ ca.innerHTML='';
+        if(id==='template') ca.appendChild(buildTemplateGuide());
+        else if(id==='clearance') ca.appendChild(buildClearanceTab());
+        else { if(state.rows&&state.rows.length) ca.appendChild(buildImportTable()); }
       } else { refresh(); }
     });
     t.setAttribute('data-buTab', id);
@@ -8577,10 +8317,7 @@ function pgBankUpload() {
   tabBar.appendChild(tabLeft);
   tabBar.appendChild(tabRight);
   wrap.appendChild(tabBar);
-
-  // ── RENDER ACTIVE TAB (in content div for in-place tab switching) ──
-  var _buContentDiv = document.createElement('div');
-  _buContentDiv.id = '_buContent';
+  var _buContentDiv=document.createElement('div');_buContentDiv.id='_buContent';
   wrap.appendChild(_buContentDiv);
   if (state.tab === 'template') { _buContentDiv.appendChild(buildTemplateGuide()); return wrap; }
   if (state.tab === 'clearance') { _buContentDiv.appendChild(buildClearanceTab()); return wrap; }
@@ -8955,7 +8692,7 @@ function pgBankUpload() {
     // Clear all btn
     var clrBtn = document.createElement('button'); clrBtn.className='btn btn-outline btn-sm'; clrBtn.textContent='🗑 Clear';
     clrBtn.addEventListener('click',function(){
-      if(confirm('Clear all imported rows?')){state.rows=[];state.search='';state.filterStatus='all';var ca2=document.getElementById('_buContent');if(ca2){ca2.innerHTML=''}else{refresh();}}
+      if(confirm('Clear all imported rows?')){state.rows=[];state.search='';state.filterStatus='all';refresh();}
     });
 
     // Go to clearance btn
@@ -9035,9 +8772,7 @@ function pgBankUpload() {
 
     var tbody = document.createElement('tbody'); tbody.id='bu-tbody';
     tbl.appendChild(tbody);
-    tBody.appendChild(tbl);
-    var _buPgBarDiv=document.createElement('div');_buPgBarDiv.id='_buPgBar';_buPgBarDiv.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;flex-wrap:wrap;gap:6px';
-    tCard.appendChild(tBody); tCard.appendChild(_buPgBarDiv);
+    tBody.appendChild(tbl); tCard.appendChild(tBody);
 
     // Inline edit panel container
     var editPanel = document.createElement('div'); editPanel.id='bu-edit-panel';
@@ -9062,103 +8797,105 @@ function pgBankUpload() {
       return rows2;
     }
 
-    var BU_PAGE = 75;
-    if(!state._buPage) state._buPage = 0;
-
     function rebuildBody() {
       var tb2=document.getElementById('bu-tbody'); if(!tb2)return;
       tb2.innerHTML='';
       var rows2=getFiltered();
-      var totalPages=Math.max(1,Math.ceil(rows2.length/BU_PAGE));
-      if(state._buPage>=totalPages) state._buPage=0;
-      var pg=state._buPage;
-      var pageRows=rows2.slice(pg*BU_PAGE,(pg+1)*BU_PAGE);
-
-      // Update pagination bar
-      var pgBarBU=document.getElementById('_buPgBar');
-      if(pgBarBU){
-        pgBarBU.innerHTML='';
-        var info=document.createElement('span');
-        info.style.cssText='font-size:12px;color:#6b7280';
-        info.textContent=(rows2.length?pg*BU_PAGE+1:0)+'-'+Math.min((pg+1)*BU_PAGE,rows2.length)+' / '+rows2.length+' rows ('+state.rows.length+' total)';
-        pgBarBU.appendChild(info);
-        if(totalPages>1){
-          var pgBtns=document.createElement('div');pgBtns.style.cssText='display:flex;gap:4px;align-items:center';
-          var prevB=el('button',{cls:'btn btn-sm btn-outline',text:'←'});prevB.style.padding='2px 9px';
-          prevB.disabled=pg===0;
-          prevB.addEventListener('click',function(){state._buPage=pg-1;rebuildBody();});
-          pgBtns.appendChild(prevB);
-          var startPg=Math.max(0,pg-2),endPg=Math.min(totalPages-1,startPg+4);
-          for(var pi=startPg;pi<=endPg;pi++){
-            (function(pNum){
-              var pb=document.createElement('button');pb.textContent=pNum+1;
-              pb.style.cssText='padding:2px 8px;border-radius:5px;border:1px solid '+(pNum===pg?'#166534':'#e5e7eb')+';background:'+(pNum===pg?'#166534':'#fff')+';color:'+(pNum===pg?'#fff':'#374151')+';font-size:12px;cursor:pointer;font-family:var(--font)';
-              pb.addEventListener('click',function(){state._buPage=pNum;rebuildBody();});
-              pgBtns.appendChild(pb);
-            })(pi);
-          }
-          var nextB=el('button',{cls:'btn btn-sm btn-outline',text:'→'});nextB.style.padding='2px 9px';
-          nextB.disabled=pg===totalPages-1;
-          nextB.addEventListener('click',function(){state._buPage=pg+1;rebuildBody();});
-          pgBtns.appendChild(nextB);
-          pgBarBU.appendChild(pgBtns);
-        }
-      }
-
-      if(!pageRows.length){
+      if(!rows2.length){
         var etr=document.createElement('tr'); var etd=document.createElement('td');
         etd.setAttribute('colspan','13'); etd.style.cssText='padding:32px;text-align:center;color:var(--text-4);font-size:13px';
-        etd.innerHTML='<div style="font-size:24px;margin-bottom:8px">📫</div>No rows match current filters';
+        etd.innerHTML='<div style="font-size:24px;margin-bottom:8px">📭</div>No rows match current filters';
         etr.appendChild(etd); tb2.appendChild(etr); return;
       }
-      pageRows.forEach(function(row) {
+      rows2.forEach(function(row) {
         var tr=document.createElement('tr');
         var isGroupHeader = row.rowType==='HEADER';
         var isDetail = row.rowType==='DETAIL';
         var bgColor = row._saved?'#f0fdf4':row._status==='issue'?'#fffbeb':isGroupHeader?'#f8faff':isDetail?'#fafbff':'#fff';
         tr.style.cssText='border-bottom:1px solid var(--border-light);background:'+bgColor+';opacity:'+(row._include?'1':'0.55');
         if(row._saved) tr.style.opacity='0.7';
+
+        // Checkbox
         var tdck=document.createElement('td'); tdck.style.cssText='padding:8px 12px';
         if(!row._saved){
           var ck=document.createElement('input'); ck.type='checkbox'; ck.checked=row._include;
           ck.style.cssText='width:15px;height:15px;accent-color:#166534;cursor:pointer';
           ck.addEventListener('change',function(){row._include=this.checked;});
           tdck.appendChild(ck);
-        } else { tdck.innerHTML='<span style="color:#166534;font-size:14px">✓</span>'; }
+        } else {
+          tdck.innerHTML='<span style="color:#166534;font-size:14px">✓</span>';
+        }
         tr.appendChild(tdck);
+
+        // Row type badge
         var tdType=document.createElement('td'); tdType.style.cssText='padding:8px 10px';
         var typeColors={HEADER:'#1d4ed8:#dbeafe',DETAIL:'#166534:#dcfce7',SINGLE:'#374151:#f3f4f6',ADVANCE:'#7c3aed:#f5f3ff',PARTIAL:'#d97706:#fffbeb',BILLTOBILL:'#0891b2:#ecfeff'};
         var tc=(typeColors[row.rowType]||'#374151:#f3f4f6').split(':');
-        tdType.innerHTML='<span style="background:'+tc[1]+';color:'+tc[0]+';border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">'+(isDetail?'↳ ':'')+row.rowType+'</span>';
+        tdType.innerHTML='<span style="background:'+tc[1]+';color:'+tc[0]+';border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">'+(isDetail?'↳ ':'')+ row.rowType+'</span>';
         tr.appendChild(tdType);
-        function mkCell(val, extra) { var td2=document.createElement('td'); td2.style.cssText='padding:8px 10px;font-size:12.5px'+(extra?';'+extra:''); td2.textContent=val||'—'; return td2; }
-        function mkNumCell(val) { var td2=document.createElement('td'); td2.style.cssText='padding:8px 10px;font-size:12px;text-align:right;font-family:var(--font-mono)'; td2.textContent=val>0?'₹'+fmt(val):'—'; return td2; }
+
+        function mkCell(val, extra) {
+          var td2=document.createElement('td'); td2.style.cssText='padding:8px 10px;font-size:12.5px'+(extra?';'+extra:'');
+          td2.textContent=val||'—'; return td2;
+        }
+        function mkNumCell(val) {
+          var td2=document.createElement('td'); td2.style.cssText='padding:8px 10px;font-size:12px;text-align:right;font-family:var(--font-mono)';
+          td2.textContent=val>0?'\u20b9'+fmt(val):'—'; return td2;
+        }
+
         tr.appendChild(mkCell(row.date));
+
+        // Party cell — show issue if mismatch
         var tdPar=document.createElement('td'); tdPar.style.cssText='padding:8px 10px;font-size:12.5px;max-width:160px';
-        if(row.partyIssue){ tdPar.innerHTML='<div style="color:#dc2626;font-weight:600;font-size:12px">⚠ '+row.partyRaw+'</div>'+(row.partySuggestions.length?'<div style="font-size:10px;color:#6b7280">Suggest: '+row.partySuggestions.slice(0,2).join(', ')+'</div>':'<div style="font-size:10px;color:#dc2626">No match</div>'); }
-        else { tdPar.innerHTML='<div style="font-weight:500">'+row.party+'</div>'+(row.party!==row.partyRaw&&row.partyRaw?'<div style="font-size:10px;color:#9ca3af">Input: '+row.partyRaw+'</div>':''); }
+        if(row.partyIssue){
+          tdPar.innerHTML='<div style="color:#dc2626;font-weight:600;font-size:12px">⚠ '+row.partyRaw+'</div>'+
+            (row.partySuggestions.length?'<div style="font-size:10px;color:#6b7280">Suggest: '+row.partySuggestions.slice(0,2).join(', ')+'</div>':'<div style="font-size:10px;color:#dc2626">No match found</div>');
+        } else {
+          tdPar.innerHTML='<div style="font-weight:500">'+row.party+'</div>'+
+            (row.party!==row.partyRaw&&row.partyRaw?'<div style="font-size:10px;color:#9ca3af">Input: '+row.partyRaw+'</div>':'');
+        }
         tr.appendChild(tdPar);
+
+        // Bill No cell
         var tdBill=document.createElement('td'); tdBill.style.cssText='padding:8px 10px;font-size:12.5px';
-        if(row.billIssue&&row.billNoRaw){ tdBill.innerHTML='<span style="color:#dc2626;font-weight:600">⚠ '+row.billNoRaw+'</span><div style="font-size:10px;color:#dc2626">Bill not found</div>'; }
-        else if(row.billId){ var billObj=bills.find(function(b){return b.id===row.billId;}); var billStat=billObj?getBillStatus(billObj):null; tdBill.innerHTML='<span style="font-weight:600;color:#166534">#'+row.billNo+'</span>'+(billStat?'<div style="font-size:10px;color:#6b7280">Bal:₹'+fmt(billStat.bal)+'</div>':''); }
-        else { tdBill.textContent=row.billNo||'—'; }
+        if(row.billIssue&&row.billNoRaw){
+          tdBill.innerHTML='<span style="color:#dc2626;font-weight:600">⚠ '+row.billNoRaw+'</span><div style="font-size:10px;color:#dc2626">Bill not found</div>';
+        } else if(row.billId){
+          var billObj=bills.find(function(b){return b.id===row.billId;});
+          var billStat=billObj?getBillStatus(billObj):null;
+          tdBill.innerHTML='<span style="font-weight:600;color:#166534">#'+row.billNo+'</span>'+
+            (billStat?'<div style="font-size:10px;color:#6b7280">Bal:\u20b9'+fmt(billStat.bal)+'</div>':'');
+        } else {
+          tdBill.textContent=row.billNo||'—';
+        }
         tr.appendChild(tdBill);
+
         tr.appendChild(mkCell(row.mode,'color:#374151;font-weight:500'));
         tr.appendChild(mkCell(row.chequeNo||row.receiptNo));
         tr.appendChild(mkNumCell(row.grossAmt));
         tr.appendChild(mkNumCell(row.netAmt));
         tr.appendChild(mkNumCell(row.rebate));
         tr.appendChild(mkNumCell(row.interest));
+
+        // Status badge
         var tdSt=document.createElement('td'); tdSt.style.cssText='padding:8px 10px';
         var stMap={matched:'✅ Matched:#dcfce7:#166534',issue:'⚠️ Issue:#fef3c7:#b45309',unmatched:'🔵 Pending:#dbeafe:#1d4ed8'};
         var stParts=(stMap[row._status]||'— Unknown:#f3f4f6:#374151').split(':');
         if(row._saved) tdSt.innerHTML='<span style="background:#dcfce7;color:#166534;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">✓ Saved</span>';
         else tdSt.innerHTML='<span style="background:'+stParts[1]+';color:'+stParts[2]+';border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">'+stParts[0]+'</span>';
         tr.appendChild(tdSt);
+
+        // Action buttons
         var tdAct=document.createElement('td'); tdAct.style.cssText='padding:6px 10px';
-        if(!row._saved){ var editBtn=document.createElement('button'); editBtn.className='btn btn-outline btn-xs'; editBtn.textContent='✏ Edit'; editBtn.addEventListener('click',(function(r){return function(){openInlineEdit(r);};})(row)); tdAct.appendChild(editBtn); }
+        if(!row._saved){
+          var editBtn=document.createElement('button'); editBtn.className='btn btn-outline btn-xs'; editBtn.textContent='✏ Edit';
+          editBtn.addEventListener('click',(function(r){
+            return function(){openInlineEdit(r);};
+          })(row));
+          tdAct.appendChild(editBtn);
+        }
         tr.appendChild(tdAct);
-        tb2.appendChild(tr);
+        tbody.appendChild(tr);
       });
     }
 
@@ -9308,7 +9045,7 @@ function pgBankUpload() {
       '<p style="font-size:12px;color:var(--text-3);margin:3px 0 0">Review payment groups → Confirm → Save to ledger</p></div>';
     var clBtns=document.createElement('div'); clBtns.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
     var backBtn=document.createElement('button'); backBtn.className='btn btn-outline btn-sm'; backBtn.innerHTML='← Back to Import';
-    backBtn.addEventListener('click',function(){ state.tab='import'; refresh(); });
+    backBtn.addEventListener('click',function(){ state.tab='import'; var ca=document.getElementById('_buContent'); if(ca){ca.innerHTML='';if(state.rows&&state.rows.length)ca.appendChild(buildImportTable());}else{refresh();} });
     clBtns.appendChild(backBtn);
     if(matchedRows.length) {
       var saveAllBtn=document.createElement('button'); saveAllBtn.className='btn btn-green btn-sm';
@@ -9352,7 +9089,7 @@ function pgBankUpload() {
     var srchInp=document.createElement('input'); srchInp.type='text'; srchInp.placeholder='🔍 Search party / bill...';
     srchInp.style.cssText='flex:1;min-width:160px;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:var(--font)';
     srchInp.value=state.clSearch||'';
-    srchInp.addEventListener('input',function(){ state.clSearch=this.value; refresh(); });
+    srchInp.addEventListener('input',function(){ state.clSearch=this.value; clearTimeout(state._clT); state._clT=setTimeout(function(){ if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); },200); });
     filterBar.appendChild(srchInp);
 
     // Status filter
@@ -9363,7 +9100,7 @@ function pgBankUpload() {
       if((state.clFilterStatus||'all')===o[0]) opt.selected=true;
       stFilt.appendChild(opt);
     });
-    stFilt.addEventListener('change',function(){ state.clFilterStatus=this.value; refresh(); });
+    stFilt.addEventListener('change',function(){ state.clFilterStatus=this.value; if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); });
     filterBar.appendChild(stFilt);
 
     // Type filter
@@ -9374,7 +9111,7 @@ function pgBankUpload() {
       if((state.clFilterType||'all')===o[0]) opt.selected=true;
       typFilt.appendChild(opt);
     });
-    typFilt.addEventListener('change',function(){ state.clFilterType=this.value; refresh(); });
+    typFilt.addEventListener('change',function(){ state.clFilterType=this.value; if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); });
     filterBar.appendChild(typFilt);
 
     // Sort
@@ -9386,14 +9123,14 @@ function pgBankUpload() {
       if((state.clSort||'date_asc')===o[0]) opt.selected=true;
       sortSel.appendChild(opt);
     });
-    sortSel.addEventListener('change',function(){ state.clSort=this.value; refresh(); });
+    sortSel.addEventListener('change',function(){ state.clSort=this.value; if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); });
     filterBar.appendChild(sortSel);
 
     // Clear filters btn
     var clrFiltBtn=document.createElement('button'); clrFiltBtn.className='btn btn-outline btn-sm';
     clrFiltBtn.textContent='✕ Clear';
     clrFiltBtn.addEventListener('click',function(){
-      state.clSearch=''; state.clFilterStatus='all'; state.clFilterType='all'; state.clSort='date_asc'; refresh();
+      state.clSearch=''; state.clFilterStatus='all'; state.clFilterType='all'; state.clSort='date_asc'; if(typeof rebuildGroups==='function') rebuildGroups(); else refresh();
     });
     filterBar.appendChild(clrFiltBtn);
 
@@ -9440,8 +9177,23 @@ function pgBankUpload() {
       wrap2.appendChild(noRes);
     }
 
-    // ── Render each group ──────────────────────────────────────────────────────
-    groups.forEach(function(group) {
+    var _grpDiv=document.createElement('div');wrap2.appendChild(_grpDiv);
+    function rebuildGroups(){
+      _grpDiv.innerHTML='';
+      var srch2=(state.clSearch||'').toLowerCase(),sfv2=state.clFilterStatus||'all',tfv2=state.clFilterType||'all',sv2=state.clSort||'date_asc';
+      var allG=buildGroups(pendingRows.concat(savedRows));
+      if(srch2) allG=allG.filter(function(g){return g.party.toLowerCase().indexOf(srch2)>=0||g.rows.some(function(r){return (r.billNo||'').toString().indexOf(srch2)>=0;});});
+      if(sfv2==='pending') allG=allG.filter(function(g){return !g.rows.every(function(r){return r._saved;});});
+      else if(sfv2==='saved') allG=allG.filter(function(g){return g.rows.every(function(r){return r._saved;});});
+      else if(sfv2==='issue') allG=allG.filter(function(g){return g.rows.some(function(r){return r._status==='issue';});});
+      if(tfv2!=='all') allG=allG.filter(function(g){return g.rows.some(function(r){return r.rowType===tfv2;});});
+      allG.sort(function(a,b){ var aA=a.rows.reduce(function(s,r){return s+(r.netAmt||0);},0),bA=b.rows.reduce(function(s,r){return s+(r.netAmt||0);},0); if(sv2==='amt_desc')return bA-aA; if(sv2==='amt_asc')return aA-bA; var ad=a.rows[0]?a.rows[0].date:'',bd=b.rows[0]?b.rows[0].date:''; return sv2==='date_desc'?bd.localeCompare(ad):ad.localeCompare(bd); });
+      if(!allG.length){_grpDiv.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-3);font-size:13px">No groups match filters</div>';return;}
+      allG.forEach(function(group){renderGroup(group,_grpDiv);});
+    }
+    function renderGroup(group,container){
+    // Render one group
+    (function() {
       var isGross=group.header&&group.header.grossAmt>0;
       var grossAmt=isGross?group.header.grossAmt:0;
       var rowTotalNet=group.rows.filter(function(r){return r.rowType!=='HEADER';}).reduce(function(s,r){return s+(r.netAmt||0);},0);
@@ -9563,7 +9315,7 @@ function pgBankUpload() {
           return function(){
             if(!confirm('Delete all '+g.rows.length+' rows for '+g.party+'?')) return;
             g.rows.forEach(function(r){ r._include=false; });
-            refresh(); toast('Group deleted','ok');
+            if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); toast('Group deleted','ok');
           };
         })(group));
         gActions.appendChild(delBtn);
@@ -9691,7 +9443,7 @@ function pgBankUpload() {
                   // Re-validate match
                   var matched2=bills.filter(function(b){ return b.party===r.party&&(r.rowType==='HEADER'||b.bill_no===r.billNo); });
                   r._status=matched2.length>0?'matched':'issue';
-                  closeModal(); refresh(); toast('Row updated','ok');
+                  closeModal(); if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); toast('Row updated','ok');
                 }},
                 {label:'Cancel',fn:closeModal}
               ]);
@@ -9708,7 +9460,7 @@ function pgBankUpload() {
             return function(){
               if(!confirm('Delete this row?')) return;
               r._include=false;
-              refresh(); toast('Row deleted','ok');
+              if(typeof rebuildGroups==='function') rebuildGroups(); else refresh(); toast('Row deleted','ok');
             };
           })(row));
           actionTd.appendChild(rowDelBtn);
@@ -9736,8 +9488,9 @@ function pgBankUpload() {
 
       gTbl.appendChild(gTbody);
       gCard.appendChild(gTbl);
-      wrap2.appendChild(gCard);
-    });
+      (container||_grpDiv||wrap2).appendChild(gCard);
+    })();
+    } // close renderGroup
 
     // ── Already saved section ─────────────────────────────────────────────────
     if(savedRows.length&&!(state.clFilterStatus&&state.clFilterStatus!=='all'&&state.clFilterStatus!=='saved')) {
@@ -9756,6 +9509,7 @@ function pgBankUpload() {
       wrap2.appendChild(savedCard);
     }
 
+    rebuildGroups();
     return wrap2;
   }
 
@@ -10234,11 +9988,10 @@ function pgBillImport() {
   aiGuideBtn.addEventListener('click',function(){go('ai-rules');});
 
   // ── Party Master Download button ──
-  var partyDlBtn=el('button',{cls:'btn btn-outline btn-sm',text:'🏢 Party Master'});
-  partyDlBtn.title='Party Master manage karo — station+broker ke saath parties import karo';
+  var partyDlBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\U0001f4cb Party Master Excel'});
+  partyDlBtn.title='Download party list with address, broker, GSTIN for AI file making';
   partyDlBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
-  partyDlBtn.addEventListener('click',function(){ go('party-master'); });
-  var _oldPMfn=function(){
+  partyDlBtn.addEventListener('click',function(){
     // Build party master from all bills
     var partyMap={};
     bills.forEach(function(b){
@@ -10277,8 +10030,9 @@ function pgBillImport() {
     ws['!cols']=[{wch:30},{wch:18},{wch:18},{wch:25},{wch:12},{wch:15},{wch:20}];
     XLSX.utils.book_append_sheet(wb,ws,'Party Master');
     XLSX.writeFile(wb,'CashewPro_PartyMaster_'+today().replace(/-/g,'')+'.xlsx');
-    toast('✅ Party Master downloaded! '+Object.keys(partyMap).length+' parties');
-  };
+    toast('\u2705 Party Master downloaded! '+Object.keys(partyMap).length+' parties — AI ko share karo bill import ke liye.');
+  });
+
   btnRow.appendChild(dl1);btnRow.appendChild(dl2);btnRow.appendChild(aiGuideBtn);btnRow.appendChild(partyDlBtn);
   instrB.appendChild(btnRow);
   instrCard.appendChild(instrB);
@@ -10304,24 +10058,19 @@ function pgBillImport() {
   var statusDiv2=document.createElement('div');statusDiv2.id='bi-status';upB2.appendChild(statusDiv2);
   upCard.appendChild(upB2);wrap.appendChild(upCard);
 
-  // _biTableDiv: container for bill table
-  var _biTableDiv = document.createElement('div');
+  var _biTableDiv=document.createElement('div');
   wrap.appendChild(_biTableDiv);
-
-  // renderImportTable: defined here at top level so async callbacks can call it
-  function renderImportTable() {
-    if(!_biTableDiv) return;
-    _biTableDiv.innerHTML = '';
-    if(!state.rows || !state.rows.length) return;
-    var tCard = buildBillTable();
-    if(tCard) _biTableDiv.appendChild(tCard);
+  if(state.rows&&state.rows.length){ _biTableDiv.appendChild(buildBillTable()); }
+  function renderImportTable(){
+    if(!_biTableDiv)return;
+    _biTableDiv.innerHTML='';
+    if(state.rows&&state.rows.length) _biTableDiv.appendChild(buildBillTable());
   }
 
   // ─── Format 2: HEADER+ITEM multi-grade parser ───
-  // Async version — shows conflict dialogs
   async function parseHeaderItemFormatAsync(raw, statusDivRef) {
-    var rows = [];
-    var colHdr={}, colRowIdx=-1;
+    var rows=[];
+    var colHdr={},colRowIdx=-1;
     for(var i=0;i<Math.min(5,raw.length);i++){
       var rowLow=raw[i].map(function(c){return String(c||'').trim().toUpperCase();});
       if(rowLow.indexOf('ROW_TYPE')>=0){colRowIdx=i;rowLow.forEach(function(h,ci){colHdr[h]=ci;});break;}
@@ -10329,49 +10078,35 @@ function pgBillImport() {
     if(colRowIdx<0) return rows;
     function gcv(row,name){var idx2=colHdr[name];return idx2!==undefined?String(row[idx2]||'').trim():'';}
     function gcn(row,name){return parseFloat(gcv(row,name))||0;}
-
-    // First pass: collect raw header+items (sync)
-    var rawHeaders=[], curHdr=null;
+    var rawHeaders=[],curHdr=null;
     for(var ri=colRowIdx+1;ri<raw.length;ri++){
-      var row=raw[ri];
-      var rt=gcv(row,'ROW_TYPE').toUpperCase();
+      var row=raw[ri]; var rt=gcv(row,'ROW_TYPE').toUpperCase();
       if(!rt)continue;
       if(rt==='HEADER'){
         if(curHdr&&curHdr.items.length) rawHeaders.push(curHdr);
-        curHdr={
-          billNo:gcv(row,'BILL_NO'), date:parseBillDate(gcv(row,'DATE')),
+        curHdr={billNo:gcv(row,'BILL_NO'),date:parseBillDate(gcv(row,'DATE')),
           _rawParty:(gcv(row,'PARTY')||gcv(row,'PARTY_NAME')||gcv(row,'BUYER NAME')||'').toUpperCase().trim(),
           station:(gcv(row,'STATION')||gcv(row,'DELIVERY STATION')||'').toUpperCase().trim(),
           broker:(gcv(row,'BROKER')||'').toUpperCase().trim(),
           partyGstin:(gcv(row,'PARTY_GSTIN')||gcv(row,'GSTIN')||'').toUpperCase().trim(),
           transport:(gcv(row,'TRANSPORT')||'').toUpperCase().trim(),
-          transGstin:(gcv(row,'TRANSPORT_GSTIN')||'').toUpperCase().trim(),
           billType:(gcv(row,'PYMT_MODE')||gcv(row,'PYMT MODE')||'credit').toLowerCase()==='cash'?'cash':'credit',
-          packing:gcn(row,'PACKING')||gcn(row,'BARDHANA')||0,
-          round:gcn(row,'ROUND_OFF')||0,
-          remarks:gcv(row,'REMARKS'), items:[]
-        };
+          packing:gcn(row,'PACKING')||gcn(row,'BARDHANA')||0,round:gcn(row,'ROUND_OFF')||0,
+          remarks:gcv(row,'REMARKS'),items:[]};
       } else if(rt==='ITEM'&&curHdr){
         var grade=(gcv(row,'GRADE')||gcv(row,'DESCRIPTION')||'').toUpperCase().trim();
         if(!grade)continue;
-        var bags=gcn(row,'BAGS')||gcn(row,'QTY')||0;
-        var wt=gcn(row,'WEIGHT')||gcn(row,'WT')||0;
+        var bags=gcn(row,'BAGS')||gcn(row,'QTY')||0,wt=gcn(row,'WEIGHT')||gcn(row,'WT')||0;
         var stp=gcn(row,'STP_RATE')||gcn(row,'STP RATE')||gcn(row,'STP')||0;
-        var rate=gcn(row,'RATE')||0;
-        if(!rate&&stp)rate=Math.round(stp/1.05*100)/100;
+        var rate=gcn(row,'RATE')||0; if(!rate&&stp)rate=Math.round(stp/1.05*100)/100;
         var gstPct=gcn(row,'GST_RATE')||gcn(row,'GST RATE')||5;
         var taxable=gcn(row,'TAXABLE')||gcn(row,'TAXABLE VALUE')||gcn(row,'AMOUNT')||0;
         var hsn=gcv(row,'HSN_CODE')||gcv(row,'HSN CODE')||gcv(row,'HSN')||'080132';
         if(!taxable&&wt&&rate)taxable=Math.round(wt*rate*100)/100;
         curHdr.items.push({grade:grade,qty:bags,weight:wt,rate:rate,stp:stp,taxable:taxable,bags:bags,hsn:hsn,gstPct:gstPct});
-      } else if(rt==='ENDBILL'&&curHdr){
-        if(curHdr.items.length) rawHeaders.push(curHdr);
-        curHdr=null;
-      }
+      } else if(rt==='ENDBILL'&&curHdr){ if(curHdr.items.length) rawHeaders.push(curHdr); curHdr=null; }
     }
     if(curHdr&&curHdr.items.length) rawHeaders.push(curHdr);
-
-    // Second pass: async party resolution
     for(var hi=0;hi<rawHeaders.length;hi++){
       var rh=rawHeaders[hi];
       if(statusDivRef) statusDivRef.innerHTML='<div style="padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e">⏳ Party resolve: '+(hi+1)+'/'+rawHeaders.length+'</div>';
@@ -10380,7 +10115,7 @@ function pgBillImport() {
       rh.items.forEach(function(it){taxT+=it.taxable;var cg=Math.round(it.taxable*it.gstPct/200*100)/100;cgstT+=cg;sgstT+=cg;});
       var netAmt=Math.round((taxT+cgstT+sgstT+rh.packing+rh.round)*100)/100;
       var bill={billNo:rh.billNo,date:rh.date,party:resolved.name,_partyMatch:resolved.match,_partyReason:resolved.reason,
-        partyGstin:rh.partyGstin,station:rh.station,broker:rh.broker,transport:rh.transport,transGstin:rh.transGstin,
+        partyGstin:rh.partyGstin,station:rh.station,broker:rh.broker,transport:rh.transport,
         billType:rh.billType,packing:rh.packing,round:rh.round,remarks:rh.remarks,rows:rh.items,
         taxable:taxT,cgst:cgstT,sgst:sgstT,igst:0,netAmt:netAmt,stp:0,_include:true,_dup:false};
       bill._dup=bills.some(function(b){return b.billNo===bill.billNo&&b.party===bill.party;});
@@ -10525,7 +10260,7 @@ function pgBillImport() {
           parseHeaderItemFormatAsync(raw, statusDiv2).then(function(resolvedRows){
             state.rows=resolvedRows;
             statusDiv2.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ <strong>'+resolvedRows.length+' bills extracted</strong> — '+resolvedRows.filter(function(r){return r._dup;}).length+' duplicates</div>';
-            if(typeof renderImportTable==='function') renderImportTable();
+            if(_biTableDiv){ _biTableDiv.innerHTML=''; if(state.rows.length) _biTableDiv.appendChild(buildBillTable()); }
           }).catch(function(err){
             statusDiv2.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ Error: '+err.message+'</div>';
           });
@@ -10609,10 +10344,7 @@ function pgBillImport() {
             _include:true,_dup:false
           });
         }
-
         } // end else (Format 1)
-
-        // Async party resolution
         resetImportSession();
         statusDiv2.innerHTML='<div style="padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e">⏳ Party names resolve ho rahi hain... ('+pendingRows.length+' bills)</div>';
         (async function(){
@@ -10629,7 +10361,7 @@ function pgBillImport() {
             });
             state.rows=rows;
             statusDiv2.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ <strong>'+rows.length+' bills extracted</strong> — '+rows.filter(function(r){return r._dup;}).length+' duplicates auto-unchecked</div>';
-            if(typeof renderImportTable==='function') renderImportTable();
+            if(_biTableDiv){ _biTableDiv.innerHTML=''; if(state.rows.length) _biTableDiv.appendChild(buildBillTable()); }
           } catch(asyncEx){
             statusDiv2.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ Error: '+asyncEx.message+'</div>';
           }
@@ -10663,7 +10395,7 @@ function pgBillImport() {
             });
             state.rows=rows;
             statusDiv2.innerHTML='<div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534">✅ <strong>'+rows.length+' bills from PDF</strong> — '+rows.filter(function(r){return r._dup;}).length+' duplicates</div>';
-            if(typeof renderImportTable==='function') renderImportTable();
+            refresh();
           });
         }).catch(function(err){statusDiv2.innerHTML='<div style="padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#dc2626">❌ '+err.message+'</div>';});
       };
@@ -10742,22 +10474,19 @@ function pgBillImport() {
   }
 
   function buildBillTable() {
-    var PAGE = 100;
-    if(!state._biPage) state._biPage = 0;
-
-    // ── Filter + sort on ALL rows (not just visible) ──
-    function getVisRows() {
-      var v = state.rows.slice();
-      var q = (state.biSearch||'').toLowerCase();
+    var PAGE=100; if(!state._biPage) state._biPage=0;
+    function getVis(){
+      var v=state.rows.slice();
+      var q=(state.biSearch||'').toLowerCase();
       if(q) v=v.filter(function(r){return (r.party||'').toLowerCase().indexOf(q)>=0||(r.billNo||'').toString().indexOf(q)>=0||(r.station||'').toLowerCase().indexOf(q)>=0||(r.broker||'').toLowerCase().indexOf(q)>=0;});
       var st=state.biStatus||'';
-      if(st==='dup')   v=v.filter(function(r){return r._dup;});
-      else if(st==='new')   v=v.filter(function(r){return !r._dup&&r._include;});
-      else if(st==='warn')  v=v.filter(function(r){return r._partyMatch==='warn'||r._partyMatch==='station_mismatch';});
-      else if(st==='fuzzy') v=v.filter(function(r){return r._partyMatch==='fuzzy';});
+      if(st==='dup') v=v.filter(function(r){return r._dup;});
+      else if(st==='new') v=v.filter(function(r){return !r._dup&&r._include;});
+      else if(st==='warn') v=v.filter(function(r){return r._partyMatch==='warn'||r._partyMatch==='station_mismatch';});
       else if(st==='confirmed') v=v.filter(function(r){return r._partyMatch==='user_resolved';});
-      else if(st==='skip')  v=v.filter(function(r){return !r._include;});
-      if(state.biBroker)  v=v.filter(function(r){return (r.broker||'')===state.biBroker;});
+      else if(st==='fuzzy') v=v.filter(function(r){return r._partyMatch==='fuzzy';});
+      else if(st==='skip') v=v.filter(function(r){return !r._include;});
+      if(state.biBroker) v=v.filter(function(r){return (r.broker||'')===state.biBroker;});
       if(state.biStation) v=v.filter(function(r){return (r.station||'')===state.biStation;});
       var sk=state.biSort||'date_desc';
       v.sort(function(a,b){
@@ -10771,57 +10500,40 @@ function pgBillImport() {
       });
       return v;
     }
-
-    // ── Build table card ──
     var tCard=document.createElement('div');tCard.className='card';
-
     // Toolbar
     var tbWrap=document.createElement('div');
     tbWrap.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb';
-
     var srch=document.createElement('input');srch.type='text';srch.placeholder='🔍 Party/Bill...';srch.className='inp';srch.style.cssText='max-width:180px;font-size:12px';srch.value=state.biSearch||'';
-
     var stFil=document.createElement('select');stFil.className='inp';stFil.style.cssText='font-size:12px';
-    [['','Sab Status'],['new','✓ New'],['dup','⚠ Duplicate'],['warn','⚠ Check'],['confirmed','✅ Confirmed'],['fuzzy','~ Fuzzy'],['skip','Skip']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.biStatus||'')===o[0])op.selected=true;stFil.appendChild(op);});
-
+    [['','Sab'],['new','✓ New'],['dup','⚠ Dup'],['confirmed','✅ Confirmed'],['warn','⚠ Check'],['fuzzy','~ Fuzzy'],['skip','Skip']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.biStatus||'')===o[0])op.selected=true;stFil.appendChild(op);});
     var brFil=document.createElement('select');brFil.className='inp';brFil.style.cssText='font-size:12px';
     [''].concat(Array.from(new Set(state.rows.map(function(r){return r.broker||'';}).filter(Boolean))).sort()).forEach(function(b){var op=document.createElement('option');op.value=b;op.textContent=b||'Sab Broker';if((state.biBroker||'')===b)op.selected=true;brFil.appendChild(op);});
-
     var stnFil=document.createElement('select');stnFil.className='inp';stnFil.style.cssText='font-size:12px';
     [''].concat(Array.from(new Set(state.rows.map(function(r){return r.station||'';}).filter(Boolean))).sort()).forEach(function(s){var op=document.createElement('option');op.value=s;op.textContent=s||'Sab Station';if((state.biStation||'')===s)op.selected=true;stnFil.appendChild(op);});
-
     var sortSel=document.createElement('select');sortSel.className='inp';sortSel.style.cssText='font-size:12px';
-    [['date_desc','Date ↓'],['date_asc','Date ↑'],['billNo_asc','Bill# ↑'],['billNo_desc','Bill# ↓'],['party_asc','Party A-Z'],['amount_desc','Amount ↓']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.biSort||'date_desc')===o[0])op.selected=true;sortSel.appendChild(op);});
-
+    [['date_desc','Date ↓'],['date_asc','Date ↑'],['billNo_asc','Bill# ↑'],['party_asc','Party A-Z'],['amount_desc','Amount ↓']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];if((state.biSort||'date_desc')===o[0])op.selected=true;sortSel.appendChild(op);});
     var clrBtn2=el('button',{cls:'btn btn-outline btn-sm',text:'Clear'});
-
     [srch,stFil,brFil,stnFil,sortSel,clrBtn2].forEach(function(e){tbWrap.appendChild(e);});
     tCard.appendChild(tbWrap);
-
-    // Header bar
+    // Header
     var tH=document.createElement('div');tH.className='card-head';tH.id='_biTH';
-    var h4=document.createElement('h4');h4.id='_biH4';tH.appendChild(h4);
+    var h4el=document.createElement('h4');h4el.id='_biH4';tH.appendChild(h4el);
     var btnD=document.createElement('div');btnD.style.cssText='display:flex;gap:6px';
     var impBtn=el('button',{cls:'btn btn-green btn-sm',text:'✅ Import Selected'});
     impBtn.addEventListener('click',importBills);
     var clrRowsBtn=el('button',{cls:'btn btn-outline btn-sm',text:'🗑 Clear All'});
     clrRowsBtn.addEventListener('click',function(){if(confirm('Sab rows clear karein?')){state.rows=[];if(_biTableDiv)_biTableDiv.innerHTML='';}});
-    btnD.appendChild(impBtn);btnD.appendChild(clrRowsBtn);tH.appendChild(btnD);
-    tCard.appendChild(tH);
-
+    btnD.appendChild(impBtn);btnD.appendChild(clrRowsBtn);tH.appendChild(btnD);tCard.appendChild(tH);
     // Table
     var tB=document.createElement('div');tB.style.overflow='auto';
     var tbl3=document.createElement('table');tbl3.style.cssText='width:100%;min-width:900px;border-collapse:collapse';
     var thead3=document.createElement('thead');
     var hrow=document.createElement('tr');hrow.style.background='#f9fafb';
-
     var thCk=document.createElement('th');thCk.style.cssText='padding:8px 10px;width:36px';
-    var allck3=document.createElement('input');allck3.type='checkbox';allck3.title='Select/Deselect all filtered rows';
+    var allck3=document.createElement('input');allck3.type='checkbox';allck3.title='Select/Deselect all filtered';
     allck3.style.cssText='width:15px;height:15px;accent-color:#166534;cursor:pointer';
-    allck3.addEventListener('change',function(){
-      getVisRows().forEach(function(r){r._include=allck3.checked;});
-      updateHeader(); updateTbody();
-    });
+    allck3.addEventListener('change',function(){getVis().forEach(function(r){r._include=allck3.checked;});updateH();updateTbody();});
     thCk.appendChild(allck3);hrow.appendChild(thCk);
     ['Bill#','Date','Party','Station','Grades','Wt','Net Amt','Mode','Broker','Status'].forEach(function(h){
       hrow.appendChild(el('th',{text:h,style:'padding:8px 10px;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left'}));
@@ -10829,149 +10541,88 @@ function pgBillImport() {
     thead3.appendChild(hrow);tbl3.appendChild(thead3);
     var tb3=document.createElement('tbody');tb3.id='_biTbody';tbl3.appendChild(tb3);
     tB.appendChild(tbl3);tCard.appendChild(tB);
-
-    // Pagination bar
     var pgBar=document.createElement('div');pgBar.id='_biPgBar';
     pgBar.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;flex-wrap:wrap;gap:6px';
     tCard.appendChild(pgBar);
-
-    // ── Update header stats ──
-    function updateHeader() {
+    function updateH(){
       var selC=state.rows.filter(function(r){return r._include;}).length;
       var dupC=state.rows.filter(function(r){return r._dup;}).length;
-      var newC=state.rows.filter(function(r){return r._partyMatch==='new';}).length;
       var confC=state.rows.filter(function(r){return r._partyMatch==='user_resolved';}).length;
+      var newC=state.rows.filter(function(r){return r._partyMatch==='new';}).length;
       var warnC=state.rows.filter(function(r){return r._partyMatch==='warn'||r._partyMatch==='station_mismatch';}).length;
-      var h4el=document.getElementById('_biH4');
-      if(h4el) h4el.innerHTML=
-        state.rows.length+' Bills — <span style="color:#166534">'+selC+' selected</span>'+
+      var h4=document.getElementById('_biH4');
+      if(h4) h4.innerHTML=state.rows.length+' Bills — <span style="color:#166534">'+selC+' selected</span>'+
         (dupC?' <span style="color:#d97706">('+dupC+' dup)</span>':'')+
         (warnC?' <span style="color:#dc2626">⚠ '+warnC+' check</span>':'')+
         (confC?' <span style="color:#0369a1">✅ '+confC+' confirmed</span>':'')+
         (newC?' <span style="color:#166534">+ '+newC+' new</span>':'');
     }
-
-    // ── Render only current page rows ──
-    function updateTbody() {
-      var tbody=document.getElementById('_biTbody'); if(!tbody) return;
-      var vis=getVisRows();
-      var totalPages=Math.max(1,Math.ceil(vis.length/PAGE));
-      if(state._biPage>=totalPages) state._biPage=0;
+    function updateTbody(){
+      var tbody=document.getElementById('_biTbody');if(!tbody)return;
+      var vis=getVis();
+      var totalPg=Math.max(1,Math.ceil(vis.length/PAGE));
+      if(state._biPage>=totalPg) state._biPage=0;
       var pg=state._biPage;
       var pageRows=vis.slice(pg*PAGE,(pg+1)*PAGE);
-
       // Pagination bar
       var pgBarEl=document.getElementById('_biPgBar');
       if(pgBarEl){
         pgBarEl.innerHTML='';
         var info=document.createElement('span');
-        var from=vis.length?pg*PAGE+1:0;
-        var to=Math.min((pg+1)*PAGE,vis.length);
-        info.textContent='Showing '+from+'-'+to+' of '+vis.length+' filtered ('+state.rows.length+' total)';
+        info.textContent=(vis.length?pg*PAGE+1:0)+'-'+Math.min((pg+1)*PAGE,vis.length)+' of '+vis.length+' filtered ('+state.rows.length+' total)';
         pgBarEl.appendChild(info);
-
-        if(totalPages>1){
-          var pgBtns=document.createElement('div');pgBtns.style.cssText='display:flex;gap:4px;align-items:center';
-          // Prev
-          var prevBtn=el('button',{cls:'btn btn-sm btn-outline',text:'←'});
-          prevBtn.disabled=pg===0;prevBtn.style.padding='3px 10px';
-          prevBtn.addEventListener('click',function(){state._biPage=pg-1;updateTbody();});
-          pgBtns.appendChild(prevBtn);
-          // Page numbers (max 5 visible)
-          var startPg=Math.max(0,pg-2);
-          var endPg=Math.min(totalPages-1,startPg+4);
-          for(var pi=startPg;pi<=endPg;pi++){
-            (function(pNum){
-              var pb=document.createElement('button');
-              pb.textContent=pNum+1;
-              pb.style.cssText='padding:3px 9px;border-radius:6px;border:1px solid '+(pNum===pg?'#166534':'#e5e7eb')+';background:'+(pNum===pg?'#166534':'#fff')+';color:'+(pNum===pg?'#fff':'#374151')+';font-size:12px;cursor:pointer;font-family:var(--font)';
-              pb.addEventListener('click',function(){state._biPage=pNum;updateTbody();});
-              pgBtns.appendChild(pb);
-            })(pi);
-          }
-          // Next
-          var nextBtn=el('button',{cls:'btn btn-sm btn-outline',text:'→'});
-          nextBtn.disabled=pg===totalPages-1;nextBtn.style.padding='3px 10px';
-          nextBtn.addEventListener('click',function(){state._biPage=pg+1;updateTbody();});
-          pgBtns.appendChild(nextBtn);
+        if(totalPg>1){
+          var pgBtns=document.createElement('div');pgBtns.style.cssText='display:flex;gap:4px;flex-wrap:wrap';
+          if(pg>0){var pb=el('button',{cls:'btn btn-sm btn-outline',text:'←'});pb.style.padding='3px 9px';pb.addEventListener('click',function(){state._biPage=pg-1;updateTbody();});pgBtns.appendChild(pb);}
+          var startP=Math.max(0,pg-2),endP=Math.min(totalPg-1,startP+4);
+          for(var pi=startP;pi<=endP;pi++){(function(pn){var pb2=document.createElement('button');pb2.textContent=pn+1;pb2.style.cssText='padding:3px 8px;border-radius:5px;border:1px solid '+(pn===pg?'#166534':'#e5e7eb')+';background:'+(pn===pg?'#166534':'#fff')+';color:'+(pn===pg?'#fff':'#374151')+';font-size:12px;cursor:pointer;font-family:var(--font)';pb2.addEventListener('click',function(){state._biPage=pn;updateTbody();});pgBtns.appendChild(pb2);})(pi);}
+          if(pg<totalPg-1){var nb=el('button',{cls:'btn btn-sm btn-outline',text:'→'});nb.style.padding='3px 9px';nb.addEventListener('click',function(){state._biPage=pg+1;updateTbody();});pgBtns.appendChild(nb);}
           pgBarEl.appendChild(pgBtns);
         }
       }
-
-      // Build rows using innerHTML for speed (no DOM node per cell)
-      var html2='';
+      // Fast innerHTML render
+      var rowsHtml='';
       pageRows.forEach(function(bill){
+        if(!bill._id) bill._id=Math.random().toString(36).slice(2);
         var bg=!bill._include?'#fafafa':bill._dup?'#fffbeb':'#fff';
         var op=bill._include?'1':'0.55';
         var gradeStr=(bill.rows||[]).map(function(r){return(r.grade||'')+(r.weight?'('+r.weight+'kg)':'');}).filter(Boolean).join(', ')||'-';
         var totalWt=(bill.rows||[]).reduce(function(s,r){return s+(r.weight||0);},0);
-
-        var matchBadge='';
-        if(bill._partyMatch==='user_resolved') matchBadge='<span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">✅</span>';
-        else if(bill._partyMatch==='warn'||bill._partyMatch==='station_mismatch') matchBadge='<span style="background:#fee2e2;color:#dc2626;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">⚠</span>';
-        else if(bill._partyMatch==='fuzzy') matchBadge='<span style="background:#eff6ff;color:#1d4ed8;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">~</span>';
-        else if(bill._partyMatch==='new') matchBadge='<span style="background:#f0fdf4;color:#166534;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">+</span>';
-
-        var statusBadge=bill._dup
-          ? '<span style="background:#fef9c3;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">⚠ DUP</span>'
-          : bill._include
-            ? '<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">✓ NEW</span>'
-            : '<span style="background:#f3f4f6;color:#9ca3af;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">SKIP</span>';
-
-        var billId = bill._id || (bill._id=Math.random().toString(36).slice(2));
-        html2 += '<tr data-bid="'+billId+'" style="border-bottom:1px solid #f3f4f6;background:'+bg+';opacity:'+op+'">'+
-          '<td style="padding:6px 10px"><input type="checkbox" data-bid="'+billId+'"'+(bill._include?' checked':'')+' style="width:14px;height:14px;accent-color:#166534;cursor:pointer"></td>'+
+        var mb='';
+        if(bill._partyMatch==='user_resolved') mb='<span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">✅</span>';
+        else if(bill._partyMatch==='warn'||bill._partyMatch==='station_mismatch') mb='<span style="background:#fee2e2;color:#dc2626;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">⚠</span>';
+        else if(bill._partyMatch==='fuzzy') mb='<span style="background:#eff6ff;color:#1d4ed8;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">~</span>';
+        else if(bill._partyMatch==='new') mb='<span style="background:#f0fdf4;color:#166534;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;margin-left:3px">+</span>';
+        var stBadge=bill._dup?'<span style="background:#fef9c3;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">⚠ DUP</span>':bill._include?'<span style="background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">✓ NEW</span>':'<span style="background:#f3f4f6;color:#9ca3af;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">SKIP</span>';
+        rowsHtml+='<tr data-bid="'+bill._id+'" style="border-bottom:1px solid #f3f4f6;background:'+bg+';opacity:'+op+'">'+
+          '<td style="padding:6px 10px"><input type="checkbox" data-bid="'+bill._id+'"'+(bill._include?' checked':'')+' style="width:14px;height:14px;accent-color:#166534;cursor:pointer"></td>'+
           '<td style="padding:6px 10px;font-size:12px">'+bill.billNo+'</td>'+
-          '<td style="padding:6px 10px;font-size:12px">'+fmtDate(bill.date)+'</td>'+
-          '<td style="padding:6px 10px;font-size:12px;font-weight:600">'+bill.party+matchBadge+'</td>'+
-          '<td style="padding:6px 10px;font-size:12px">'+( bill.station||'-')+'</td>'+
+          '<td style="padding:6px 10px;font-size:11px">'+fmtDate(bill.date)+'</td>'+
+          '<td style="padding:6px 10px;font-size:12px;font-weight:600">'+bill.party+mb+'</td>'+
+          '<td style="padding:6px 10px;font-size:12px">'+(bill.station||'-')+'</td>'+
           '<td style="padding:6px 10px;font-size:11px">'+gradeStr+'</td>'+
           '<td style="padding:6px 10px;font-size:12px">'+(totalWt?totalWt+'kg':'-')+'</td>'+
           '<td style="padding:6px 10px;font-size:12px;color:#166534;font-weight:700">₹'+fmt(bill.netAmt)+'</td>'+
           '<td style="padding:6px 10px;font-size:12px">'+bill.billType+'</td>'+
           '<td style="padding:6px 10px;font-size:12px">'+(bill.broker||'-')+'</td>'+
-          '<td style="padding:6px 10px">'+statusBadge+'</td>'+
-          '</tr>';
+          '<td style="padding:6px 10px">'+stBadge+'</td></tr>';
       });
-      if(!pageRows.length) html2='<tr><td colspan="11" style="text-align:center;padding:30px;color:#9ca3af;font-size:13px">Koi bills nahi mili</td></tr>';
-      tbody.innerHTML=html2;
-
-      // Wire checkboxes via event delegation on tbody
+      if(!pageRows.length) rowsHtml='<tr><td colspan="11" style="text-align:center;padding:30px;color:#9ca3af">Koi bills nahi mili</td></tr>';
+      tbody.innerHTML=rowsHtml;
+      // Checkbox delegation
       tbody.addEventListener('change',function(e){
         if(e.target.type==='checkbox'){
           var bid=e.target.getAttribute('data-bid');
           var row=state.rows.find(function(r){return r._id===bid;});
-          if(row){
-            row._include=e.target.checked;
-            var tr=e.target.closest('tr');
-            if(tr){tr.style.opacity=e.target.checked?'1':'0.55';tr.style.background=e.target.checked?(row._dup?'#fffbeb':'#fff'):'#fafafa';}
-            updateHeader();
-          }
+          if(row){row._include=e.target.checked;var tr=e.target.closest('tr');if(tr){tr.style.opacity=e.target.checked?'1':'0.55';tr.style.background=e.target.checked?(row._dup?'#fffbeb':'#fff'):'#fafafa';}updateH();}
         }
-      },{once:false});
+      });
     }
-
-    // ── Filter change handler ──
-    function onFilterChange(){
-      state.biSearch=srch.value; state.biStatus=stFil.value;
-      state.biBroker=brFil.value; state.biStation=stnFil.value;
-      state.biSort=sortSel.value; state._biPage=0;
-      updateHeader(); updateTbody();
-    }
-    srch.addEventListener('input',function(){clearTimeout(state._biT);state._biT=setTimeout(onFilterChange,250);});
-    stFil.addEventListener('change',onFilterChange);
-    brFil.addEventListener('change',onFilterChange);
-    stnFil.addEventListener('change',onFilterChange);
-    sortSel.addEventListener('change',onFilterChange);
-    clrBtn2.addEventListener('click',function(){
-      state.biSearch='';state.biStatus='';state.biBroker='';state.biStation='';state.biSort='date_desc';state._biPage=0;
-      srch.value='';stFil.value='';brFil.value='';stnFil.value='';sortSel.value='date_desc';
-      onFilterChange();
-    });
-
-    // Initial render
-    updateHeader(); updateTbody();
-
+    function onFilter(){state.biSearch=srch.value;state.biStatus=stFil.value;state.biBroker=brFil.value;state.biStation=stnFil.value;state.biSort=sortSel.value;state._biPage=0;updateH();updateTbody();}
+    srch.addEventListener('input',function(){clearTimeout(state._biT);state._biT=setTimeout(onFilter,250);});
+    stFil.addEventListener('change',onFilter);brFil.addEventListener('change',onFilter);stnFil.addEventListener('change',onFilter);sortSel.addEventListener('change',onFilter);
+    clrBtn2.addEventListener('click',function(){state.biSearch='';state.biStatus='';state.biBroker='';state.biStation='';state.biSort='date_desc';state._biPage=0;srch.value='';stFil.value='';brFil.value='';stnFil.value='';sortSel.value='date_desc';onFilter();});
+    updateH();updateTbody();
     return tCard;
   }
 
@@ -10993,8 +10644,6 @@ function pgBillImport() {
     state.rows=[];
     go('all-bills');
   }
-  // render table on load if rows exist
-  if(state.rows&&state.rows.length) renderImportTable();
   return wrap;
 }
 
@@ -11714,7 +11363,7 @@ function pgInterest() {
     state.dateTo=gv('int-dto')||'';
     state.showPaid=document.getElementById('int-show-paid').checked;
     DB.setObj('intCfg',cfg2);
-    refresh();
+    refresh(); // full refresh needed for settings change
   });
   setB.appendChild(applyBtn);setCard.appendChild(setB);wrap.appendChild(setCard);
 
@@ -11726,10 +11375,10 @@ function pgInterest() {
   var partySel=document.createElement('select');partySel.className='inp-sm';partySel.style.width='200px';
   var defOpt=document.createElement('option');defOpt.value='';defOpt.textContent='-- All Parties --';partySel.appendChild(defOpt);
   allPartiesInt.forEach(function(p){var opt=document.createElement('option');opt.value=p;opt.textContent=p;if(p===state.partyFilter)opt.selected=true;partySel.appendChild(opt);});
-  partySel.addEventListener('change',function(){state.partyFilter=this.value;state.selectedBills=new Set();refresh();});
+  partySel.addEventListener('change',function(){state.partyFilter=this.value;state.selectedBills=new Set();pageState.int._intPg=0;renderIntPage();});
   var pSearch=el('input',{cls:'inp-sm',type:'text',placeholder:'Search party...',value:state.partyFilter||'',style:'width:150px'});
   var pTimer=null;
-  pSearch.addEventListener('input',function(){state.partyFilter=this.value;partySel.value='';var pos=this.selectionStart;var self=this;clearTimeout(pTimer);pTimer=setTimeout(function(){refresh();setTimeout(function(){var e=document.querySelector('[placeholder="Search party..."]');if(e){e.focus();try{e.setSelectionRange(pos,pos);}catch(ex){}}},10);},150);});
+  pSearch.addEventListener('input',function(){state.partyFilter=this.value;partySel.value='';var pos=this.selectionStart;clearTimeout(pTimer);pTimer=setTimeout(function(){pageState.int._intPg=0;renderIntPage();},200);});
   var viewLedgerBtn=el('button',{cls:'btn btn-outline btn-sm',text:'View Ledger'});
   viewLedgerBtn.addEventListener('click',function(){var party=partySel.value||state.partyFilter;if(!party){toast('Pehle party select karo!','err');return;}pageState.ledgerParty=party;pageState.ledgerReturnPage='interest';go('ledger');});
   var intPrintBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Print'});
@@ -11834,7 +11483,19 @@ function pgInterest() {
   }
 
   // ── RENDER EACH PARTY ──
-  Object.keys(partyMap).sort().forEach(function(party){
+  // Paginated party list
+  var INT_PG=10; if(!pageState.int._intPg) pageState.int._intPg=0;
+  var allIntKeys=Object.keys(partyMap).sort();
+  var _intDiv=document.createElement('div'); wrap.appendChild(_intDiv);
+  function renderIntPage(){
+    _intDiv.innerHTML='';
+    var pg=pageState.int._intPg||0;
+    var totalIPg=Math.max(1,Math.ceil(allIntKeys.length/INT_PG));
+    if(pg>=totalIPg)pg=0; pageState.int._intPg=pg;
+    var pageKeys=allIntKeys.slice(pg*INT_PG,(pg+1)*INT_PG);
+    if(!pageKeys.length){_intDiv.innerHTML='<div style="text-align:center;padding:40px;color:#9ca3af">Koi bills nahi hain</div>';return;}
+    var grandTotBal=0,grandTotInt=0;
+    pageKeys.forEach(function(party){
     var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
     var partyCard=document.createElement('div');partyCard.className='card';partyCard.style.marginBottom='10px';
 
@@ -11983,121 +11644,17 @@ function pgInterest() {
     });
     tfoot.appendChild(tftr);tbl.appendChild(tbody);tbl.appendChild(tfoot);
     tOuter.appendChild(tbl);partyCard.appendChild(tOuter);
-    wrap.appendChild(partyCard);
-    grandTotBal+=partyTotBal;grandTotInt+=partyTotInt;
-  });
-
-  // Grand total card
-  if(Object.keys(partyMap).length>0){
-    var gtCard=document.createElement('div');
-    gtCard.style.cssText='background:#fff7ed;border:2px solid var(--amber);border-radius:var(--radius-lg);padding:16px 20px;display:flex;gap:24px;flex-wrap:wrap;margin-top:8px';
-    gtCard.innerHTML='<div><div style="font-size:10px;color:#92400e;text-transform:uppercase;font-weight:700;margin-bottom:4px">Total Outstanding</div><div style="font-size:22px;font-weight:700;color:var(--red)">\u20b9'+fmt(grandTotBal)+'</div></div>'+
-      '<div><div style="font-size:10px;color:#92400e;text-transform:uppercase;font-weight:700;margin-bottom:4px">Total Interest</div><div style="font-size:22px;font-weight:700;color:var(--amber)">\u20b9'+fmt(grandTotInt)+'</div></div>'+
-      '<div><div style="font-size:10px;color:#92400e;text-transform:uppercase;font-weight:700;margin-bottom:4px">Total Payable (O/S + Int.)</div><div style="font-size:22px;font-weight:700;color:var(--brand)">\u20b9'+fmt(grandTotBal+grandTotInt)+'</div></div>';
-    wrap.appendChild(gtCard);
-  }
-
-  if(!Object.keys(partyMap).length){
-    var emDiv=document.createElement('div');emDiv.style.cssText='text-align:center;padding:40px;color:#9ca3af';
-    emDiv.innerHTML='<div style="font-size:32px;margin-bottom:8px">✓</div><div style="font-size:15px;font-weight:600">Koi bills nahi filter mein!</div><div style="font-size:12px;margin-top:4px">Settings mein "Include Paid Bills" check karo ya filter change karo.</div>';
-    wrap.appendChild(emDiv);
-  }
-
-  // ── PRINT STATEMENT ──
-  function printInterestStatement(){
-    var h='<!DOCTYPE html><html><head><title>Interest Statement</title>'+
-      '<style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px;color:#111}'+
-      'h2{color:#1a6b3c;margin:0 0 4px}.co{font-size:10px;color:#6b7280;margin-bottom:12px}'+
-      'h3{color:#374151;margin:10px 0 3px;border-bottom:1px solid #e5e7eb;padding-bottom:3px;font-size:12px}'+
-      'table{width:100%;border-collapse:collapse;margin-bottom:10px}'+
-      'th{background:#1a6b3c;color:#fff;padding:5px 8px;font-size:10px;text-align:left}'+
-      'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'+
-      '.paid{color:#166534;font-size:9px;background:#dcfce7;padding:1px 5px;border-radius:8px;font-weight:700}'+
-      '.total{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'+
-      '.grand{background:#fff7ed;padding:12px;border:2px solid #d97706;border-radius:6px;margin-top:10px;display:flex;gap:20px}'+
-      '.grand-item{text-align:center}.grand-label{font-size:9px;text-transform:uppercase;color:#92400e;font-weight:700}'+
-      '.grand-val{font-size:18px;font-weight:700}'+
-      '.pay-row{background:#f0fdf4}.gross-badge{background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700}'+
-      '@media print{.no-print{display:none}}</style></head><body>';
-    h+='<div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">Print</button></div>';
-    h+='<h2>'+cfg.company+'</h2><div class="co">'+cfg.address+' | '+cfg.phone+'</div>';
-    h+='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px">'+
-      'Interest Rate: <strong>'+rate+'% p.a.</strong> | Free Days: <strong>'+freeDays+' days</strong> | As of: <strong>'+asOfStr+'</strong>'+
-      (state.showPaid?' | Including paid bills':'')+'</div>';
-    var gBal=0,gInt=0;
-    Object.keys(partyMap).sort().forEach(function(party){
-      h+='<h3>'+party+'</h3>';
-      h+='<table><thead><tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th class="num">Balance</th><th>Payments</th><th>Period</th><th class="num">Int Days</th><th class="num">Interest</th></tr></thead><tbody>';
-      var pBal=0,pInt=0;
-      partyMap[party].forEach(function(b){
-        var s=getBillStatus(b);var calc=calcBillInterest(b);
-        var totIntDays2=calc.schedule.reduce(function(s2,e){return s2+e.intDays;},0);
-        pBal+=s.bal;pInt+=calc.interest;
-        var period=fmtDate(b.date)+' \u2192 '+fmtDate(calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));
-        // Build payment info with Gross ref
-        var payInfo='<span style="color:#9ca3af;font-size:9px">—</span>';
-        if(calc.bPays.length>0){
-          payInfo=calc.bPays.map(function(p){
-            var gRef='';
-            if(p.grossAmt&&p.grossAmt>0){
-              var igp=(grossPayments||[]).find(function(g){return (p.gpId&&g.id===p.gpId)||(g.party===party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);});
-              if(igp){
-                var bnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
-                gRef=' <span class="gross-badge">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+bnos+')</span>';
-              } else {
-                gRef=' <span class="gross-badge">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';
-              }
-            }
-            return '<div style="font-size:10px;margin-bottom:2px">'+fmtDate(p.origDate)+' \u20b9'+fmt(p.amount)+(p.mode?' ('+p.mode+')':'')+gRef+'</div>';
-          }).join('');
-        }
-        h+='<tr><td>'+(b.billNo||'-')+(calc.isPaid?' <span class="paid">PAID</span>':'')+'</td>'+
-          '<td>'+fmtDate(b.date)+'</td><td class="num">\u20b9'+fmt(b.netAmt)+'</td>'+
-          '<td class="num" style="color:'+(s.bal>0.5?'#dc2626':'#166534')+'">'+( s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR')+'</td>'+
-          '<td style="font-size:10px">'+payInfo+'</td>'+
-          '<td style="font-size:10px;white-space:nowrap">'+period+'</td>'+
-          '<td class="num">'+totIntDays2+'d</td>'+
-          '<td class="num" style="color:#d97706;font-weight:700">'+(calc.interest>0.5?'\u20b9'+fmt(calc.interest):'—')+'</td></tr>';
-      });
-      h+='<tr class="total"><td colspan="4">Subtotal</td><td colspan="3"></td><td class="num">\u20b9'+fmt(pInt)+'</td></tr></tbody></table>';
-      gBal+=pBal;gInt+=pInt;
+      _intDiv.appendChild(partyCard);
     });
-    h+='<div class="grand">'+
-      '<div class="grand-item"><div class="grand-label">Total Outstanding</div><div class="grand-val" style="color:#dc2626">\u20b9'+fmt(gBal)+'</div></div>'+
-      '<div class="grand-item"><div class="grand-label">Total Interest</div><div class="grand-val" style="color:#d97706">\u20b9'+fmt(gInt)+'</div></div>'+
-      '<div class="grand-item"><div class="grand-label">Grand Total Payable</div><div class="grand-val" style="color:#1a6b3c">\u20b9'+fmt(gBal+gInt)+'</div></div></div>';
-    h+='</body></html>';
-    var w=window.open('','_blank','width=900,height=700');if(!w){toast('Popup blocked','err');return;}
-    w.document.write(h);w.document.close();
+    if(totalIPg>1){
+      var iPgBar=document.createElement('div');iPgBar.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-top:8px;flex-wrap:wrap;gap:8px';
+      iPgBar.innerHTML='<span style="font-size:12px;color:#6b7280">Parties '+(pg*INT_PG+1)+'-'+Math.min((pg+1)*INT_PG,allIntKeys.length)+' of '+allIntKeys.length+'</span>';
+      var iPgBtns=document.createElement('div');iPgBtns.style.cssText='display:flex;gap:4px;flex-wrap:wrap';
+      for(var ipi=0;ipi<totalIPg;ipi++){(function(pn){var pb=document.createElement('button');pb.textContent=pn+1;pb.style.cssText='padding:4px 10px;border-radius:6px;border:1px solid '+(pn===pg?'#166534':'#e5e7eb')+';background:'+(pn===pg?'#166534':'#fff')+';color:'+(pn===pg?'#fff':'#374151')+';font-size:12px;cursor:pointer;font-family:var(--font)';pb.addEventListener('click',function(){pageState.int._intPg=pn;renderIntPage();});iPgBtns.appendChild(pb);})(ipi);}
+      iPgBar.appendChild(iPgBtns);_intDiv.appendChild(iPgBar);
+    }
   }
-
-  // ── EXCEL EXPORT ──
-  function exportInterestExcel(){
-    var wb=XLSX.utils.book_new();var rows=[];
-    Object.keys(partyMap).sort().forEach(function(party){
-      partyMap[party].forEach(function(b){
-        var s=getBillStatus(b);var calc=calcBillInterest(b);
-        var totIntDays=calc.schedule.reduce(function(s2,e){return s2+e.intDays;},0);
-        var period=fmtDate(b.date)+' → '+fmtDate(calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));
-        rows.push({Party:party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),Status:s.status.toUpperCase(),
-          'Net Amt':b.netAmt,'Balance':s.bal,'Period':period,'Interest Days':totIntDays,
-          'Interest (\u20b9)':calc.interest,'Total Payable':s.bal+calc.interest});
-      });
-    });
-    var ws=XLSX.utils.json_to_sheet(rows);
-    ws['!cols']=[{wch:22},{wch:8},{wch:12},{wch:10},{wch:12},{wch:12},{wch:24},{wch:12},{wch:12},{wch:14}];
-    XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
-    XLSX.writeFile(wb,'InterestStatement_'+today()+'.xlsx');
-    toast('Interest Excel exported!');
-  }
-
-  // Sum bar
-  var intSum=document.createElement('div');
-  intSum.style.cssText='padding:9px 16px;background:#fffbeb;border-top:2px solid #fde68a;font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3';
-  var _iDue=bills.filter(function(b){return getBillStatus(b).status!=='paid';});
-  intSum.innerHTML='<span>Due Bills: <strong>'+_iDue.length+'</strong></span>'+
-    '<span>Total Outstanding: <strong style="color:#dc2626">&#8377;'+fmt(_iDue.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</strong></span>';
-  wrap.appendChild(intSum);
+  renderIntPage();
   return wrap;
 }
 
@@ -12120,11 +11677,11 @@ function pgAgeing() {
 
   var pSel2=document.createElement('select');pSel2.className='inp-sm';pSel2.style.width='180px';
   [['','All Parties']].concat(allParties2.map(function(p){return [p,p];})).forEach(function(o){var opt=document.createElement('option');opt.value=o[0];opt.textContent=o[1];if(o[0]===state.partyFilter)opt.selected=true;pSel2.appendChild(opt);});
-  pSel2.addEventListener('change',function(){state.partyFilter=this.value;refresh();});
+  pSel2.addEventListener('change',function(){state.partyFilter=this.value;renderAgeDetail(null);});
 
   var bSel2=document.createElement('select');bSel2.className='inp-sm';bSel2.style.width='160px';
   [['','All Brokers']].concat(allBrokers2.map(function(b){return [b,b];})).forEach(function(o){var opt=document.createElement('option');opt.value=o[0];opt.textContent=o[1];if(o[0]===state.brokerFilter)opt.selected=true;bSel2.appendChild(opt);});
-  bSel2.addEventListener('change',function(){state.brokerFilter=this.value;refresh();});
+  bSel2.addEventListener('change',function(){state.brokerFilter=this.value;renderAgeDetail(null);});
 
   fBar.appendChild(el('span',{text:'Party:',style:'font-size:12px;color:#6b7280'}));fBar.appendChild(pSel2);
   fBar.appendChild(el('span',{text:'Broker:',style:'font-size:12px;color:#6b7280'}));fBar.appendChild(bSel2);
@@ -12151,132 +11708,110 @@ function pgAgeing() {
     buckets.forEach(function(bk){if(d>=bk.min&&d<=bk.max)bk.bills.push(b);});
   });
 
-  // Summary cards
-  var sumGrid=document.createElement('div');sumGrid.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px';
+  // Summary cards — click to show detail
+  var _ageDetailDiv=document.createElement('div');
+  var sumGrid=document.createElement('div');sumGrid.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px';
   buckets.forEach(function(bk){
     var tot=bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     var d=document.createElement('div');
-    d.style.cssText='background:'+bk.bg+';border:1px solid '+bk.color+';border-radius:10px;padding:14px;cursor:pointer';
+    d.style.cssText='background:'+bk.bg+';border:2px solid '+bk.color+';border-radius:10px;padding:14px;cursor:pointer;transition:box-shadow .15s';
     d.innerHTML='<div style="font-size:11px;font-weight:700;color:'+bk.color+';text-transform:uppercase;margin-bottom:6px">'+bk.label+'</div>'+
-      '<div style="font-size:20px;font-weight:700;color:'+bk.color+'">\u20b9'+fmt(tot)+'</div>'+
-      '<div style="font-size:11px;color:'+bk.color+';opacity:.7;margin-top:3px">'+bk.bills.length+' bills</div>';
+      '<div style="font-size:20px;font-weight:700;color:'+bk.color+'">₹'+fmt(tot)+'</div>'+
+      '<div style="font-size:11px;color:'+bk.color+';margin-top:3px">'+bk.bills.length+' bills — <strong>click to view</strong></div>';
+    d.addEventListener('mouseenter',function(){d.style.boxShadow='0 4px 16px rgba(0,0,0,.12)';});
+    d.addEventListener('mouseleave',function(){d.style.boxShadow='none';});
+    d.addEventListener('click',(function(bucket){return function(){renderAgeDetail(bucket);};})(bk));
     sumGrid.appendChild(d);
   });
   wrap.appendChild(sumGrid);
+  var _ageHintDiv=document.createElement('div');
+  _ageHintDiv.id='_ageHint';
+  _ageHintDiv.style.cssText='text-align:center;padding:24px;color:#9ca3af;font-size:13px';
+  _ageHintDiv.innerHTML='⬆ Koi bucket click karo detail dekhne ke liye';
+  wrap.appendChild(_ageHintDiv);
+  wrap.appendChild(_ageDetailDiv);
 
-  // Detailed table per bucket
-  buckets.forEach(function(bk){
-    if(!bk.bills.length)return;
-    var sec=document.createElement('div');sec.className='card';sec.style.marginBottom='10px';
-    var sh=document.createElement('div');sh.className='card-head';
-    sh.innerHTML='<h4 style="color:'+bk.color+'">'+bk.label+' <span style="background:'+bk.bg+';color:'+bk.color+';padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px">'+bk.bills.length+' bills</span></h4>'+
-      '<span style="color:'+bk.color+';font-size:13px;font-weight:700">\u20b9'+fmt(bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</span>';
-    sec.appendChild(sh);
-    var tOuter=document.createElement('div');tOuter.style.overflow='auto';
-    var tbl=document.createElement('table');tbl.style.width='100%';
-    var thead=document.createElement('thead');var htr=document.createElement('tr');htr.style.background='#f9fafb';
-    ['Bill#','Date','Party','Broker','Grade','Bill Amt','Received','Balance','Days','Action'].forEach(function(h){
-      var th=document.createElement('th');
-      var sk2=ageSortMap[h];
-      th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap'+(sk2?';cursor:pointer':'');
-      if(sk2){
-        var arr2=bkSortKey===sk2?(bkSortDir>0?'↑':'↓'):'⇅';
-        th.innerHTML=h+' <span style="font-size:8px;opacity:'+(bkSortKey===sk2?'1':'0.3')+'">'+arr2+'</span>';
-        (function(key2,bk2){th.addEventListener('click',function(){bk2.sortDir=bk2.sortKey===key2?-bk2.sortDir||1:1;bk2.sortKey=key2;refresh();});})(sk2,bk);
-      } else { th.textContent=h; }
-      htr.appendChild(th);
-    });
-    thead.appendChild(htr);tbl.appendChild(thead);
-    var tbody=document.createElement('tbody');
-    bk.bills.sort(function(a,b2){return getDays(b2)-getDays(a);}).forEach(function(b,ri){
-      var s=getBillStatus(b);var days=getDays(b);
-      var tr2=document.createElement('tr');tr2.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(ri%2?'#fafafa':'#fff');
-      var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
-      [b.billNo||'-',fmtDate(b.date),b.party,b.broker||'-',grade,
-       {html:'\u20b9'+fmt(b.netAmt)},{html:'<span style="color:#166534">\u20b9'+fmt(s.recv)+'</span>'},
-       {html:'<strong style="color:'+bk.color+'">\u20b9'+fmt(s.bal)+'</strong>'},
-       {html:'<span style="color:'+bk.color+';font-weight:700">'+days+'d</span>'},
-       'action'
-      ].forEach(function(cv,ci){
-        var td=document.createElement('td');td.style.cssText='padding:7px 10px;font-size:12px';
-        if(ci>=5&&ci<=8)td.style.textAlign='right';
-        if(cv==='action'){
-          var pb=el('button',{cls:'btn btn-xs btn-green',text:'Pay'});
-          pb.addEventListener('click',function(){openPayModal(b.id);});
-          td.appendChild(pb);
-          var wb2=el('button',{cls:'btn btn-xs btn-outline',text:'WA',style:'margin-left:4px'});
-          wb2.addEventListener('click',function(){sendWA(b);});
-          td.appendChild(wb2);
-        } else if(typeof cv==='object'&&cv.html){td.innerHTML=cv.html;}
-        else td.textContent=cv;
-        tr2.appendChild(td);
+  function renderAgeDetail(bk) {
+    // If called with null, just re-compute buckets (filter changed)
+    if(!bk) {
+      var dueBills3=bills.filter(function(b){
+        if(getBillStatus(b).status==='paid')return false;
+        if(state.partyFilter&&b.party!==state.partyFilter)return false;
+        if(state.brokerFilter&&(b.broker||'')!==state.brokerFilter)return false;
+        return true;
       });
-      tbody.appendChild(tr2);
-    });
-    tbl.appendChild(tbody);tOuter.appendChild(tbl);sec.appendChild(tOuter);
-    wrap.appendChild(sec);
-  });
-
-  function printAgeing(){
-    var h='<!DOCTYPE html><html><head><title>Ageing Analysis</title>'+
-      '<style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h2{color:#166534;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-bottom:14px}'+
-      'th{background:#374151;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}'+
-      '.bucket-h{font-size:13px;font-weight:700;margin:12px 0 4px;padding:6px 10px;border-radius:4px}'+
-      '.num{text-align:right}.summary{display:flex;gap:12px;margin-bottom:14px}'+
-      '.sum-box{flex:1;padding:10px;border-radius:6px;text-align:center}</style></head><body>';
-    h+='<div class="no-print" style="margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button></div>';
-    h+='<h2>'+cfg.company+' — Ageing Analysis</h2>';
-    h+='<div style="font-size:10px;color:#6b7280;margin-bottom:10px">'+today()+' | '+cfg.phone+'</div>';
-    var colors=['#166534','#d97706','#dc2626','#7c3aed'];
-    var bgs=['#f0fdf4','#fffbeb','#fff1f2','#f5f3ff'];
-    h+='<div class="summary">';
-    buckets.forEach(function(bk,bi){
-      var tot=bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-      h+='<div class="sum-box" style="background:'+bgs[bi]+';border:1px solid '+colors[bi]+'">'+
-        '<div style="font-size:9px;font-weight:700;color:'+colors[bi]+'">'+bk.label+'</div>'+
-        '<div style="font-size:16px;font-weight:700;color:'+colors[bi]+'">\u20b9'+fmt(tot)+'</div>'+
-        '<div style="font-size:10px;color:'+colors[bi]+'">'+bk.bills.length+' bills</div></div>';
-    });
-    h+='</div>';
-    buckets.forEach(function(bk,bi){
-      if(!bk.bills.length)return;
-      h+='<div class="bucket-h" style="background:'+bgs[bi]+';color:'+colors[bi]+'">'+bk.label+' ('+bk.bills.length+' bills)</div>';
-      h+='<table><thead><tr><th>Bill#</th><th>Date</th><th>Party</th><th>Broker</th><th class="num">Net Amt</th><th class="num">Received</th><th class="num">Balance</th><th class="num">Days</th></tr></thead><tbody>';
-      var bkSorted=bk.bills.slice().sort(function(a,b2){
-      var sk2=bk.sortKey||'days',sd2=bk.sortDir||1;
-      var av2,bv2;
-      if(sk2==='date'){av2=toISO(a.date||'');bv2=toISO(b2.date||'');}
-      else if(sk2==='netAmt'){av2=a.netAmt||0;bv2=b2.netAmt||0;}
-      else if(sk2==='bal'){av2=getBillStatus(a).bal;bv2=getBillStatus(b2).bal;}
-      else if(sk2==='days'){av2=getDays(a);bv2=getDays(b2);}
-      else if(sk2==='billNo'){av2=parseInt(a.billNo)||0;bv2=parseInt(b2.billNo)||0;}
-      else{av2=String(a[sk2]||'');bv2=String(b2[sk2]||'');}
-      if(typeof av2==='number')return(av2-bv2)*sd2;
-      return String(av2).localeCompare(String(bv2))*sd2;
-    });
-        bkSorted.forEach(function(b){
-        var s=getBillStatus(b);var d=getDays(b);
-        h+='<tr><td>'+b.billNo+'</td><td>'+fmtDate(b.date)+'</td><td><strong>'+b.party+'</strong></td><td>'+( b.broker||'-')+'</td>'+
-          '<td class="num">\u20b9'+fmt(b.netAmt)+'</td><td class="num" style="color:#166534">\u20b9'+fmt(s.recv)+'</td>'+
-          '<td class="num" style="color:'+colors[bi]+';font-weight:700">\u20b9'+fmt(s.bal)+'</td>'+
-          '<td class="num" style="color:'+colors[bi]+';font-weight:700">'+d+'d</td></tr>';
+      var today4=new Date();
+      buckets.forEach(function(bkt){bkt.bills=[];});
+      dueBills3.forEach(function(b){
+        var d2=Math.floor((today4-new Date(toISO(b.date||today())))/86400000);
+        buckets.forEach(function(bkt){if(d2>=bkt.min&&d2<=bkt.max)bkt.bills.push(b);});
       });
-      h+='</tbody></table>';
-    });
-    h+='</body></html>';
-    var w=window.open('','_blank');if(!w){toast('Please allow popups in browser!','err');return;}
-    w.document.write(h);w.document.close();
-  }
-
-  function exportAgeingExcel(){
-    var wb3=XLSX.utils.book_new();
-    buckets.forEach(function(bk){
-      if(!bk.bills.length)return;
-      var rows3=bk.bills.map(function(b){var s=getBillStatus(b);return{Party:b.party,'Bill#':b.billNo,Date:fmtDate(b.date),Broker:b.broker||'','Net Amt':b.netAmt,Received:s.recv,Balance:s.bal,Days:getDays(b)};});
-      var ws=XLSX.utils.json_to_sheet(rows3);
-      XLSX.utils.book_append_sheet(wb3,ws,bk.label.replace(/[^a-zA-Z0-9]/g,'_'));
-    });
-    XLSX.writeFile(wb3,'Ageing_'+today()+'.xlsx');toast('Ageing exported!');
+      // Update summary cards
+      var cards=sumGrid.querySelectorAll('div');
+      buckets.forEach(function(bkt,i){
+        if(cards[i]){
+          var tot2=bkt.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+          cards[i].querySelector('div:nth-child(2)').textContent='₹'+fmt(tot2);
+          cards[i].querySelector('div:nth-child(3)').innerHTML=bkt.bills.length+' bills — <strong>click to view</strong>';
+        }
+      });
+      _ageDetailDiv.innerHTML='';
+      _ageHintDiv.style.display='block';
+      return;
+    }
+    _ageHintDiv.style.display='none';
+    _ageDetailDiv.innerHTML='';
+    if(!bk.bills.length){
+      _ageDetailDiv.innerHTML='<div style="text-align:center;padding:30px;color:#9ca3af">No bills in this bucket</div>';
+      return;
+    }
+    var PAGE_AGE=100,pgAge=0;
+    function renderAgePage(){
+      _ageDetailDiv.innerHTML='';
+      var sorted=bk.bills.slice().sort(function(a,b2){return getDays(b2)-getDays(a);});
+      var totalPgA=Math.max(1,Math.ceil(sorted.length/PAGE_AGE));
+      var pageB=sorted.slice(pgAge*PAGE_AGE,(pgAge+1)*PAGE_AGE);
+      var sec=document.createElement('div');sec.className='card';
+      var sh=document.createElement('div');sh.className='card-head';
+      sh.innerHTML='<h4 style="color:'+bk.color+'">'+bk.label+' <span style="background:'+bk.bg+';color:'+bk.color+';padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px">'+bk.bills.length+' bills</span></h4>'+
+        '<span style="color:'+bk.color+';font-size:13px;font-weight:700">₹'+fmt(bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</span>';
+      sec.appendChild(sh);
+      var tOuter=document.createElement('div');tOuter.style.overflow='auto';
+      var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+      tbl.innerHTML='<thead><tr style="background:#f9fafb">'+
+        ['Bill#','Date','Party','Broker','Grade','Bill Amt','Received','Balance','Days','Action'].map(function(h){
+          return '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left">'+h+'</th>';
+        }).join('')+'</tr></thead>';
+      var tbody=document.createElement('tbody');
+      var rowsHtml='';
+      pageB.forEach(function(b){
+        var s=getBillStatus(b);var days=getDays(b);
+        var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
+        rowsHtml+='<tr style="border-bottom:1px solid #f3f4f6">'+
+          '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+b.billNo+'</td>'+
+          '<td style="padding:6px 10px">'+fmtDate(b.date)+'</td>'+
+          '<td style="padding:6px 10px;font-weight:600">'+b.party+'</td>'+
+          '<td style="padding:6px 10px">'+(b.broker||'-')+'</td>'+
+          '<td style="padding:6px 10px;font-size:11px">'+grade+'</td>'+
+          '<td style="padding:6px 10px;text-align:right">₹'+fmt(b.netAmt)+'</td>'+
+          '<td style="padding:6px 10px;text-align:right;color:#166534">₹'+fmt(s.recv)+'</td>'+
+          '<td style="padding:6px 10px;text-align:right;font-weight:700;color:'+bk.color+'">₹'+fmt(s.bal)+'</td>'+
+          '<td style="padding:6px 10px;text-align:center;font-weight:700;color:'+bk.color+'">'+days+'d</td>'+
+          '<td style="padding:6px 10px"><a href="#" style="color:#166534;font-size:11px;font-weight:600" onclick="pageState.ledgerParty=\''+b.party+'\';go(\'ledger\')">Ledger</a></td>'+
+          '</tr>';
+      });
+      tbody.innerHTML=rowsHtml;
+      tbl.appendChild(tbody);tOuter.appendChild(tbl);sec.appendChild(tOuter);
+      if(totalPgA>1){
+        var pgBarA=document.createElement('div');pgBarA.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280';
+        pgBarA.innerHTML='<span>'+(pgAge*PAGE_AGE+1)+'-'+Math.min((pgAge+1)*PAGE_AGE,sorted.length)+' of '+sorted.length+'</span>';
+        var pgBtnsA=document.createElement('div');pgBtnsA.style.cssText='display:flex;gap:4px';
+        for(var pi2=0;pi2<totalPgA;pi2++){(function(pn){var pb=document.createElement('button');pb.textContent=pn+1;pb.style.cssText='padding:2px 8px;border-radius:5px;border:1px solid '+(pn===pgAge?'#166534':'#e5e7eb')+';background:'+(pn===pgAge?'#166534':'#fff')+';color:'+(pn===pgAge?'#fff':'#374151')+';font-size:11px;cursor:pointer;font-family:var(--font)';pb.addEventListener('click',function(){pgAge=pn;renderAgePage();});pgBtnsA.appendChild(pb);})(pi2);}
+        pgBarA.appendChild(pgBtnsA);sec.appendChild(pgBarA);
+      }
+      _ageDetailDiv.appendChild(sec);
+    }
+    renderAgePage();
   }
 
   return wrap;
