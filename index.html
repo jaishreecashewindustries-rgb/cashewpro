@@ -3571,7 +3571,10 @@ function pgAllBills() {
   amtMin.addEventListener('change',amtChanged);amtMax.addEventListener('change',amtChanged);
   amtDiv.appendChild(amtMin);amtDiv.appendChild(document.createTextNode('–'));amtDiv.appendChild(amtMax);
   toolbar.appendChild(amtDiv);
-  toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'Excel',onclick:exportBillsExcel}));
+  var _custExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'📊 Export Excel'});
+  _custExportBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
+  _custExportBtn.addEventListener('click',function(){ openCustomExportDialog(getData()); });
+  toolbar.appendChild(_custExportBtn);
   var htmlExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Styled PDF'});
   htmlExportBtn.title='Colored HTML — print/save as PDF';
   htmlExportBtn.addEventListener('click',function(){exportStyledReport(getData());});
@@ -3864,6 +3867,383 @@ function deleteBill(id) {
   toast('Bill deleted');
   refresh();
 }
+
+// ══════════════════════════════════════════════════════
+// CUSTOMIZABLE EXCEL EXPORT
+// ══════════════════════════════════════════════════════
+function openCustomExportDialog(filteredBills) {
+  var body = document.createElement('div');
+  body.style.cssText = 'font-family:var(--font);min-width:340px';
+
+  // Section selector
+  body.innerHTML =
+    '<div style="font-size:12px;color:#6b7280;margin-bottom:12px">Jo columns chahiye select karo. Filtered bills export honge ('+(filteredBills.length)+' bills).</div>'+
+
+    '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">BILL COLUMNS</div>'+
+    '<div id="_expBillCols" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:12px"></div>'+
+
+    '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">PAYMENT COLUMNS</div>'+
+    '<div id="_expPayCols" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:12px"></div>'+
+
+    '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">OPTIONS</div>'+
+    '<div id="_expOpts" style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px"></div>';
+
+  // Bill columns
+  var billColDefs = [
+    {id:'billNo',    label:'Bill No',         def:true},
+    {id:'date',      label:'Date',            def:true},
+    {id:'party',     label:'Party Name',      def:true},
+    {id:'station',   label:'Station',         def:true},
+    {id:'broker',    label:'Broker',          def:true},
+    {id:'transport', label:'Transport',       def:false},
+    {id:'grade',     label:'Grade(s)',        def:true},
+    {id:'weight',    label:'Weight (kg)',     def:true},
+    {id:'rate',      label:'Rate',            def:false},
+    {id:'taxable',   label:'Taxable Value',   def:false},
+    {id:'cgst',      label:'CGST',            def:false},
+    {id:'sgst',      label:'SGST',            def:false},
+    {id:'packing',   label:'Bardhana',        def:false},
+    {id:'roundoff',  label:'Round Off',       def:false},
+    {id:'netAmt',    label:'Net Amount',      def:true},
+    {id:'stp',       label:'STP Rate',        def:true},
+    {id:'remarks',   label:'Price Remarks',   def:true},
+    {id:'billType',  label:'Pay Mode',        def:true},
+    {id:'partyGstin',label:'Party GSTIN',     def:false},
+    {id:'recv',      label:'Total Received',  def:true},
+    {id:'balance',   label:'Outstanding',     def:true},
+    {id:'status',    label:'Status',          def:true},
+  ];
+
+  var payColDefs = [
+    {id:'payDate',   label:'Payment Date',   def:true},
+    {id:'payAmt',    label:'Amount Received',def:true},
+    {id:'cash',      label:'Cash',           def:true},
+    {id:'cheque',    label:'Cheque',         def:true},
+    {id:'chequeNo',  label:'Cheque No.',     def:true},
+    {id:'neft',      label:'NEFT/UPI',       def:true},
+    {id:'rebate',    label:'Rebate',         def:true},
+    {id:'receiptNo', label:'R.No.',          def:true},
+    {id:'payRemarks',label:'Pay Remarks',    def:false},
+    {id:'payMode',   label:'Pay Type',       def:false},
+  ];
+
+  var optDefs = [
+    {id:'oneRowPerBill', label:'Ek row per bill (Payment summary mode)', def:true},
+    {id:'separateSheet', label:'Payment alag sheet mein bhi do', def:false},
+    {id:'onlyDue',       label:'Sirf outstanding bills (paid exclude)', def:false},
+    {id:'autoFilter',    label:'Excel mein AutoFilter lagao', def:true},
+  ];
+
+  function mkChk(containerId, defs) {
+    var cont = document.getElementById(containerId);
+    if(!cont) return;
+    defs.forEach(function(d){
+      var wrap = document.createElement('label');
+      wrap.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#fff;user-select:none';
+      var chk = document.createElement('input');
+      chk.type='checkbox'; chk.id='_exp_'+d.id; chk.checked=d.def;
+      chk.style.cssText='width:14px;height:14px;accent-color:#166534;cursor:pointer;flex-shrink:0';
+      var lbl = document.createElement('span'); lbl.textContent=d.label;
+      wrap.appendChild(chk); wrap.appendChild(lbl);
+      wrap.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;}});
+      cont.appendChild(wrap);
+    });
+  }
+  mkChk('_expBillCols', billColDefs);
+  mkChk('_expPayCols', payColDefs);
+
+  var optCont = document.getElementById('_expOpts');
+  if(optCont) optDefs.forEach(function(d){
+    var wrap = document.createElement('label');
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#f9fafb;border:1px solid #e5e7eb;user-select:none';
+    var chk = document.createElement('input');
+    chk.type='checkbox'; chk.id='_exp_'+d.id; chk.checked=d.def;
+    chk.style.cssText='width:14px;height:14px;accent-color:#166534;cursor:pointer;flex-shrink:0';
+    var lbl = document.createElement('span'); lbl.textContent=d.label;
+    wrap.appendChild(chk); wrap.appendChild(lbl);
+    wrap.addEventListener('click',function(e){if(e.target!==chk){chk.checked=!chk.checked;}});
+    optCont.appendChild(wrap);
+  });
+
+  function gc(id){ var el=document.getElementById('_exp_'+id); return el&&el.checked; }
+
+  openModal('📊 Custom Excel Export', body, [
+    { label:'⬇ Download Excel', cls:'btn-green', fn: function(){
+      closeModal();
+      doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc);
+    }},
+    { label:'Cancel', fn: closeModal }
+  ]);
+}
+
+function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
+  var onlyDue    = gc('onlyDue');
+  var oneRow     = gc('oneRowPerBill');
+  var sepSheet   = gc('separateSheet');
+  var autoFilter = gc('autoFilter');
+
+  var sourceBills = onlyDue
+    ? filteredBills.filter(function(b){ return getBillStatus(b).status !== 'paid'; })
+    : filteredBills;
+
+  if(!sourceBills.length){ toast('Koi bills nahi hain!','err'); return; }
+
+  // ── Build data rows ──
+  var billHeaders = [];
+  billColDefs.forEach(function(c){ if(gc(c.id)) billHeaders.push(c.label); });
+
+  var payHeaders = [];
+  if(oneRow){
+    if(gc('payDate'))    payHeaders.push('Last Pay Date');
+    if(gc('payAmt'))     payHeaders.push('Total Received');
+    if(gc('cash'))       payHeaders.push('Cash');
+    if(gc('cheque'))     payHeaders.push('Cheque');
+    if(gc('chequeNo'))   payHeaders.push('Cheque No.');
+    if(gc('neft'))       payHeaders.push('NEFT/UPI');
+    if(gc('rebate'))     payHeaders.push('Rebate');
+    if(gc('receiptNo'))  payHeaders.push('R.No.');
+    if(gc('payRemarks')) payHeaders.push('Pay Remarks');
+  } else {
+    payColDefs.forEach(function(c){ if(gc(c.id)) payHeaders.push(c.label); });
+  }
+  var headers = billHeaders.concat(payHeaders);
+
+  // Colour scheme
+  var CLR_HDR_BG  = 'FF1A6B3C'; // dark green
+  var CLR_HDR_FG  = 'FFFFFFFF'; // white
+  var CLR_SUB_BG  = 'FFE8F5EE'; // light green
+  var CLR_PAY_BG  = 'FFEFF6FF'; // light blue
+  var CLR_PAY_HDR = 'FF1D4ED8'; // blue header
+  var CLR_DUE     = 'FFDC2626'; // red for outstanding
+  var CLR_PAID    = 'FF166534'; // green for paid
+  var CLR_ALT     = 'FFF9FAFB'; // alternating row
+
+  // Build XLSX workbook using XLSX + cell-level styling (using sheetjs pro approach)
+  // Since we use free XLSX, we use HTML → sheet approach for coloring
+  // Build HTML table and convert
+
+  function buildHTMLTable(rows, hdrs, isBill) {
+    var hdrBg   = isBill ? '#1a6b3c' : '#1d4ed8';
+    var subBg   = isBill ? '#e8f5ee' : '#eff6ff';
+    var html2 = '<table>';
+
+    // Company header row
+    var cfg3 = DB.getObj('settings',{});
+    var coName = cfg3.companyName || 'JAI SHREE CASHEW INDUSTRIES';
+    html2 += '<tr><td colspan="'+hdrs.length+'" style="background:#1a6b3c;color:#fff;font-size:14px;font-weight:bold;text-align:center;padding:8px">'+coName+'</td></tr>';
+    html2 += '<tr><td colspan="'+hdrs.length+'" style="background:#2d7d50;color:#fff;font-size:11px;text-align:center;padding:4px">Bills Report — Exported: '+fmtDate(today())+'</td></tr>';
+    html2 += '<tr><td colspan="'+hdrs.length+'" style="padding:4px"></td></tr>';
+
+    // Column headers
+    html2 += '<tr>';
+    hdrs.forEach(function(h, i){
+      var isPayCol = i >= billHeaders.length;
+      var bg = isPayCol ? '#1d4ed8' : '#1a6b3c';
+      html2 += '<th style="background:'+bg+';color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap">'+h+'</th>';
+    });
+    html2 += '</tr>';
+
+    // Data rows
+    rows.forEach(function(row, ri){
+      var isContinuation = row._cont;
+      var isPaid = row._status === 'paid';
+      var isDue  = row._status !== 'paid' && row._status;
+      var rowBg  = isContinuation ? '#f8faff' : (ri%2===0 ? '#fff' : '#f9fafb');
+      if(isContinuation) rowBg = '#f0f9ff';
+
+      html2 += '<tr>';
+      hdrs.forEach(function(h, ci){
+        var val = row[h] != null ? row[h] : '';
+        var isNum = typeof val === 'number';
+        var isAmt = h.includes('Amount') || h.includes('Net') || h.includes('Received') || h.includes('Balance') || h.includes('Outstanding') || h.includes('Cash') || h.includes('Cheque') || h.includes('NEFT') || h.includes('Rebate') || h === 'Taxable Value' || h === 'CGST' || h === 'SGST' || h === 'Bardhana';
+        var isStatus = h === 'Status';
+        var isPayCol = ci >= billHeaders.length;
+
+        var cellBg = isPayCol && !isContinuation ? '#f0f6ff' : (isContinuation ? '#f0f9ff' : rowBg);
+        var cellColor = '#111827';
+        var fontWeight = 'normal';
+        var textAlign = isNum ? 'right' : 'left';
+
+        if(isStatus){
+          if(val==='PAID')   { cellBg='#dcfce7'; cellColor='#166534'; fontWeight='bold'; }
+          else if(val==='PARTIAL') { cellBg='#fef9c3'; cellColor='#92400e'; fontWeight='bold'; }
+          else if(val)       { cellBg='#fee2e2'; cellColor='#dc2626'; fontWeight='bold'; }
+        }
+        if(h==='Outstanding' || h==='Balance'){
+          if(parseFloat(val)>0.5){ cellColor='#dc2626'; fontWeight='bold'; }
+          else if(parseFloat(val)<=0.5 && val!==''){ cellColor='#166534'; fontWeight='bold'; }
+        }
+        if(h==='Net Amount' || h==='Bill Amount'){ fontWeight='bold'; }
+        if(isContinuation && ci < billHeaders.length) { cellColor = '#d1d5db'; } // dim bill cols in continuation rows
+
+        var dispVal = val;
+        if(isAmt && typeof val==='number' && val > 0) dispVal = '₹'+val.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+        else if(isAmt && typeof val==='number') dispVal = val===0?'—':dispVal;
+
+        html2 += '<td style="background:'+cellBg+';color:'+cellColor+';font-weight:'+fontWeight+';text-align:'+textAlign+';padding:6px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+dispVal+'</td>';
+      });
+      html2 += '</tr>';
+    });
+
+    // Totals row
+    html2 += '<tr>';
+    hdrs.forEach(function(h, ci){
+      var isAmt = h.includes('Amount') || h.includes('Net') || h==='Total Received' || h.includes('Balance') || h.includes('Outstanding') || h==='Cash' || h==='Cheque' || h==='NEFT/UPI' || h==='Rebate';
+      var val = '';
+      if(ci===0) val = 'TOTAL ('+sourceBills.length+' bills)';
+      if(isAmt){
+        var tot = rows.filter(function(r){return !r._cont;}).reduce(function(s,r){ return s+(parseFloat(r[h])||0); }, 0);
+        val = tot>0 ? '₹'+tot.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+      }
+      html2 += '<td style="background:#1a6b3c;color:#fff;font-weight:bold;padding:7px 9px;font-size:11px;border:1px solid rgba(255,255,255,.2);text-align:'+(ci>0&&isAmt?'right':'left')+'">'+val+'</td>';
+    });
+    html2 += '</tr>';
+
+    html2 += '</table>';
+    return html2;
+  }
+
+  // Build data rows array
+  function bv(b, s, colId){
+    var gradeStr = (b.rows||[]).map(function(r){ return r.grade; }).join(', ');
+    var wt = (b.rows||[]).reduce(function(s2,r){ return s2+(r.weight||0); }, 0);
+    switch(colId){
+      case 'billNo':    return b.billNo||'';
+      case 'date':      return fmtDate(b.date);
+      case 'party':     return b.party||'';
+      case 'station':   return b.station||'';
+      case 'broker':    return b.broker||'';
+      case 'transport': return b.transport||'';
+      case 'grade':     return gradeStr;
+      case 'weight':    return wt;
+      case 'rate':      return (b.rows||[]).map(function(r){return r.rate||0;}).filter(Boolean).join(', ');
+      case 'taxable':   return b.taxable||0;
+      case 'cgst':      return b.cgst||0;
+      case 'sgst':      return b.sgst||0;
+      case 'packing':   return b.packing||0;
+      case 'roundoff':  return b.round||0;
+      case 'netAmt':    return b.netAmt||0;
+      case 'stp':       return b.stp||0;
+      case 'remarks':   return b.remarks||'';
+      case 'billType':  return (b.billType||'credit').toUpperCase();
+      case 'partyGstin':return b.partyGstin||'';
+      case 'recv':      return s.recv;
+      case 'balance':   return s.bal;
+      case 'status':    return s.status.toUpperCase();
+      default: return '';
+    }
+  }
+
+  var dataRows = [];
+  sourceBills.forEach(function(b){
+    var s = getBillStatus(b);
+    var bPays = payments.filter(function(p){ return p.billId===b.id; });
+    var lastPay = bPays.length ? bPays[bPays.length-1] : null;
+    var cashAmt=0,chequeAmt=0,neftAmt=0,chequeNo='',receiptNo='',payRemarks='';
+    bPays.forEach(function(p){
+      var mode=(p.mode||'').toLowerCase();
+      if(mode==='cash') cashAmt+=(p.amount||0);
+      else if(mode==='cheque'||mode==='chq'){chequeAmt+=(p.amount||0);if(p.chequeNo)chequeNo=p.chequeNo;}
+      else neftAmt+=(p.amount||0);
+      if(p.receiptNo)receiptNo=p.receiptNo;
+      if(p.remarks)payRemarks=p.remarks;
+    });
+
+    if(oneRow || !bPays.length){
+      var row = {_status: s.status};
+      billColDefs.forEach(function(c){ if(gc(c.id)) row[c.label]=bv(b,s,c.id); });
+      if(oneRow){
+        if(gc('payDate'))    row['Last Pay Date']=lastPay?fmtDate(lastPay.date):'';
+        if(gc('payAmt'))     row['Total Received']=s.recv;
+        if(gc('cash'))       row['Cash']=cashAmt||'';
+        if(gc('cheque'))     row['Cheque']=chequeAmt||'';
+        if(gc('chequeNo'))   row['Cheque No.']=chequeNo;
+        if(gc('neft'))       row['NEFT/UPI']=neftAmt||'';
+        if(gc('rebate'))     row['Rebate']=s.rebate||0;
+        if(gc('receiptNo'))  row['R.No.']=receiptNo;
+        if(gc('payRemarks')) row['Pay Remarks']=payRemarks;
+      }
+      dataRows.push(row);
+    } else {
+      // One row per payment
+      var isFirst = true;
+      if(!bPays.length){
+        var row2 = {_status:s.status};
+        billColDefs.forEach(function(c){ if(gc(c.id)) row2[c.label]=bv(b,s,c.id); });
+        payColDefs.forEach(function(c){ if(gc(c.id)) row2[c.label]=''; });
+        dataRows.push(row2);
+      } else {
+        bPays.forEach(function(p){
+          var row3 = {_status:s.status, _cont:!isFirst};
+          billColDefs.forEach(function(c){ if(gc(c.id)) row3[c.label]=isFirst?bv(b,s,c.id):''; });
+          payColDefs.forEach(function(c){
+            if(gc(c.id)){
+              var mode=(p.mode||'').toLowerCase();
+              switch(c.id){
+                case 'payDate':    row3[c.label]=fmtDate(p.date); break;
+                case 'payAmt':     row3[c.label]=p.amount||0; break;
+                case 'cash':       row3[c.label]=mode==='cash'?p.amount||0:''; break;
+                case 'cheque':     row3[c.label]=mode.includes('cheque')?p.amount||0:''; break;
+                case 'chequeNo':   row3[c.label]=p.chequeNo||''; break;
+                case 'neft':       row3[c.label]=!mode.includes('cash')&&!mode.includes('cheque')?p.amount||0:''; break;
+                case 'rebate':     row3[c.label]=p.rebate||0; break;
+                case 'receiptNo':  row3[c.label]=p.receiptNo||''; break;
+                case 'payRemarks': row3[c.label]=p.remarks||''; break;
+                case 'payMode':    row3[c.label]=p.mode||''; break;
+              }
+            }
+          });
+          dataRows.push(row3);
+          isFirst=false;
+        });
+      }
+    }
+  });
+
+  // Build HTML table → convert to sheet
+  var htmlTable = buildHTMLTable(dataRows, headers, true);
+  var wb = XLSX.utils.book_new();
+  var ws1 = XLSX.utils.table_to_sheet(
+    (function(){ var d=document.createElement('div');d.innerHTML=htmlTable;return d.querySelector('table'); })()
+  );
+  // Set col widths
+  ws1['!cols'] = headers.map(function(h){
+    if(h.includes('Party')||h.includes('Remarks')) return {wch:28};
+    if(h.includes('Amount')||h.includes('Received')||h.includes('Balance')||h.includes('Outstanding')) return {wch:16};
+    if(h.includes('Date')) return {wch:13};
+    if(h.includes('Grade')||h.includes('Broker')||h.includes('Station')) return {wch:18};
+    return {wch:Math.max(h.length+4,10)};
+  });
+  XLSX.utils.book_append_sheet(wb, ws1, 'Bills Report');
+
+  // Separate payments sheet
+  if(sepSheet){
+    var payRows2=[];
+    sourceBills.forEach(function(b){
+      payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
+        var mode=(p.mode||'').toLowerCase();
+        payRows2.push({'Bill No':b.billNo||'','Date':fmtDate(b.date),'Party':b.party||'',
+          'Bill Amt':b.netAmt||0,'Pay Date':fmtDate(p.date),
+          'Cash':mode==='cash'?p.amount||0:'',
+          'Cheque':mode.includes('cheque')?p.amount||0:'',
+          'NEFT/UPI':!mode.includes('cash')&&!mode.includes('cheque')?p.amount||0:'',
+          'Cheque No.':p.chequeNo||'','R.No.':p.receiptNo||'',
+          'Rebate':p.rebate||0,'Mode':p.mode||'','Remarks':p.remarks||''});
+      });
+    });
+    if(payRows2.length){
+      var htmlPay='<table><tr>'+['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks'].map(function(h){return '<th style="background:#1d4ed8;color:#fff;font-weight:bold;padding:6px 10px;font-size:11px">'+h+'</th>';}).join('')+'</tr>'+
+        payRows2.map(function(r,i){return '<tr>'+Object.values(r).map(function(v,ci){var isNum=typeof v==='number';return '<td style="background:'+(i%2?'#f0f6ff':'#fff')+';padding:5px 9px;font-size:11px;text-align:'+(isNum?'right':'left')+'">'+v+'</td>';}).join('')+'</tr>';}).join('')+'</table>';
+      var wsPay=XLSX.utils.table_to_sheet((function(){var d=document.createElement('div');d.innerHTML=htmlPay;return d.querySelector('table');})());
+      XLSX.utils.book_append_sheet(wb,wsPay,'Payments');
+    }
+  }
+
+  var fname='BillsReport_'+today().replace(/-/g,'')+'_'+sourceBills.length+'bills.xlsx';
+  XLSX.writeFile(wb,fname);
+  toast('✅ '+sourceBills.length+' bills exported — '+headers.length+' columns!');
+}
+
 
 function exportBillsExcel() {
   var wb = XLSX.utils.book_new();
@@ -11509,15 +11889,10 @@ function pgInterest() {
     var tOuter=document.createElement('div');tOuter.style.overflow='auto';
     var tbl=document.createElement('table');tbl.style.width='100%';
     var thead=document.createElement('thead');var htr=document.createElement('tr');htr.style.background='#f9fafb';
-    ['','Bill#','Date','Net Amt','Balance','Payment Dates (editable)','Period','Int Days','Interest (\u20b9)','Action'].forEach(function(h){
+    ['','Bill#','Date','Net Amt','Balance','Payment Dates (editable)','Period','Int Days','Interest (₹)','Action'].forEach(function(h){
       var th=document.createElement('th');
-      var sk2=ageSortMap[h];
-      th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap'+(sk2?';cursor:pointer':'');
-      if(sk2){
-        var arr2=bkSortKey===sk2?(bkSortDir>0?'↑':'↓'):'⇅';
-        th.innerHTML=h+' <span style="font-size:8px;opacity:'+(bkSortKey===sk2?'1':'0.3')+'">'+arr2+'</span>';
-        (function(key2,bk2){th.addEventListener('click',function(){bk2.sortDir=bk2.sortKey===key2?-bk2.sortDir||1:1;bk2.sortKey=key2;refresh();});})(sk2,bk);
-      } else { th.textContent=h; }
+      th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left';
+      th.textContent=h;
       htr.appendChild(th);
     });
     thead.appendChild(htr);tbl.appendChild(thead);
@@ -11594,7 +11969,7 @@ function pgInterest() {
           pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef;
           if(p.adjDate){
             var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date';
-            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];refresh();});
+            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});
             pRow.appendChild(revert);
           }
           pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
