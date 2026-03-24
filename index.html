@@ -1815,6 +1815,7 @@ var NAV = [
   { id: 'bill-import', icon: 'import',    label: 'Bill Import' },
   { id: 'party-master',icon: 'book',      label: '🏢 Party Master' },
   { id: 'receipt-ledger', icon: 'list',   label: 'Receipt Ledger' },
+  { id: 'party-payments',icon: 'dollar',  label: '💳 Party Payment View' },
   { id: 'ai-rules',    icon: 'cpu',       label: 'AI Import Rules' },
   { id: 'interest',    icon: 'percent',   label: 'Interest Calculator' },
   { id: 'ageing',      icon: 'aging',     label: 'Ageing Analysis' },
@@ -2901,6 +2902,7 @@ function render(page) {
     'suspense':       pgSuspense,
     'ledger':         pgLedger,
     'receipt-ledger': pgReceiptLedger,
+    'party-payments': pgPartyPaymentView,
     'bank-upload':    pgBankUpload,
     'bill-import':    pgBillImport,
     'party-master':   pgPartyMaster,
@@ -10284,6 +10286,9 @@ function pgBankUpload() {
     }
     histSave('Bank Upload: ' + rowsFiltered.length + ' payments', 'payment');
 
+    // ── Session ID for bulk undo (20 min window) ──
+    var sessionId = 'BU-' + Date.now();
+
     // GP-DDMMYY-SEQ
     var gpDateSeq={};
     function makeGrossId(date) {
@@ -10315,7 +10320,8 @@ function pgBankUpload() {
             id:makeGrossId(r.date),party:r.party,date:r.date,
             grossAmt:r.grossAmt,mode:r.mode||'NEFT',
             chequeNo:r.chequeNo||'',receiptNo:r.receiptNo||'',
-            remarks:r.remarks||'',bills:billsList
+            remarks:r.remarks||'',bills:billsList,
+            bankSessionId:sessionId
           });
         }
         r._saved=true;
@@ -10323,14 +10329,10 @@ function pgBankUpload() {
     });
 
     // Step 2: All non-HEADER rows -> payments[] (for bill status)
-    // Build groupId->HEADER map so DETAIL rows inherit parent's grossAmt/mode/cheque
     var headerByGroupId={};
     headerRows.forEach(function(r){ headerByGroupId[r._id]=r; });
-    // Build groupId->gpId map for DETAIL rows to reference their GP record
     var gpIdByGroupId={};
     headerRows.forEach(function(r){
-      var gp=grossPayments[grossPayments.length-1];// last added for this header
-      // Find the GP we just created for this header
       var myGp=(grossPayments||[]).slice().reverse().find(function(g){
         return g.party===r.party&&g.date===r.date&&g.grossAmt===r.grossAmt;
       });
@@ -10343,10 +10345,9 @@ function pgBankUpload() {
           advances.push({id:uid(),party:row.party,amount:row.netAmt||row.grossAmt,
             date:row.date,mode:row.mode||'NEFT',chequeNo:row.chequeNo||'',receiptNo:row.receiptNo||'',
             remarks:'Advance'+(row.remarks?' - '+row.remarks:'')+(row.billNo?' (Bill ref:'+row.billNo+')':''),
-            linked:false,createdAt:new Date().toISOString()});
+            linked:false,createdAt:new Date().toISOString(),bankSessionId:sessionId});
           advCnt++;
         } else if(row.billId) {
-          // DETAIL rows inherit parent HEADER's grossAmt, mode, cheque
           var parentHdr=row.rowType==='DETAIL'?(headerByGroupId[row.groupId]||null):null;
           var effGrossAmt=parentHdr?(parentHdr.grossAmt||0):(row.grossAmt||0);
           var effMode=parentHdr?(parentHdr.mode||row.mode||'NEFT'):(row.mode||'NEFT');
@@ -10358,7 +10359,8 @@ function pgBankUpload() {
             grossAmt:effGrossAmt,rowType:row.rowType||'SINGLE',
             groupId:row.groupId||'',
             gpId:row.rowType==='DETAIL'?(gpIdByGroupId[row.groupId||'']||''):'',
-            remarks:(row.remarks?row.remarks:'Bank Upload')+(effCheque?' Chq:'+effCheque:'')+(effReceipt?' Rcpt:'+effReceipt:'')});
+            remarks:(row.remarks?row.remarks:'Bank Upload')+(effCheque?' Chq:'+effCheque:'')+(effReceipt?' Rcpt:'+effReceipt:''),
+            bankSessionId:sessionId});
         }
         row._saved=true; cnt++;
       } catch(ex){payErr++;}
@@ -10375,8 +10377,13 @@ function pgBankUpload() {
     if(payErr) msg+=', '+payErr+' errors';
     msg+=')';
     toast(msg);
+
+    // ── 20-minute UNDO banner ──
+    showBankUndoBanner(sessionId, cnt, gpCnt);
+
     if(showRefresh) refresh(); else refresh();
   }
+
 
   // ─────────────────────────────────────────────────
   // TEMPLATE GUIDE TAB
@@ -19594,6 +19601,729 @@ function pgReceiptLedger() {
     tblWrap.appendChild(tbl);
   }
   buildTable();
+  return wrap;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// BANK UPLOAD UNDO BANNER — 20 minute countdown
+// ═══════════════════════════════════════════════════════════════
+var _buUndoTimer = null;
+function showBankUndoBanner(sessionId, cnt, gpCnt) {
+  // Remove any existing banner
+  var old = document.getElementById('bu-undo-banner');
+  if(old) { old.remove(); clearInterval(_buUndoTimer); }
+
+  var TOTAL_SECS = 20 * 60; // 20 minutes
+  var remaining = TOTAL_SECS;
+
+  var banner = document.createElement('div');
+  banner.id = 'bu-undo-banner';
+  banner.style.cssText = [
+    'position:fixed','bottom:24px','left:50%','transform:translateX(-50%)',
+    'z-index:9999','background:#1e3a5f','color:#fff',
+    'border-radius:14px','padding:14px 20px',
+    'box-shadow:0 8px 32px rgba(0,0,0,.35)',
+    'display:flex','align-items:center','gap:14px',
+    'min-width:380px','max-width:95vw','font-family:var(--font)'
+  ].join(';');
+
+  function fmtTime(s) {
+    var m = Math.floor(s/60), sec = s%60;
+    return (m<10?'0':'')+m+':'+(sec<10?'0':'')+sec;
+  }
+
+  banner.innerHTML =
+    '<div style="flex:1">' +
+      '<div style="font-size:13px;font-weight:700;margin-bottom:3px">✅ Bank Upload Saved — '+cnt+' entries'+(gpCnt?' ('+gpCnt+' gross)':'')+'</div>' +
+      '<div style="font-size:11px;opacity:.8;margin-bottom:6px">Galti hui? Poori upload undo karo</div>' +
+      '<div style="background:rgba(255,255,255,.15);border-radius:6px;height:5px;overflow:hidden">' +
+        '<div id="bu-undo-bar" style="height:100%;background:#4ade80;border-radius:6px;width:100%;transition:width 1s linear"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="text-align:center;flex-shrink:0">' +
+      '<div id="bu-undo-timer" style="font-size:22px;font-weight:700;font-family:monospace;color:#4ade80;min-width:56px">'+fmtTime(remaining)+'</div>' +
+      '<div style="font-size:9px;opacity:.6;margin-bottom:6px">UNDO ACTIVE</div>' +
+      '<button id="bu-undo-btn" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">↩ UNDO UPLOAD</button>' +
+    '</div>' +
+    '<button id="bu-undo-close" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:14px;align-self:flex-start;flex-shrink:0">✕</button>';
+
+  document.body.appendChild(banner);
+
+  function tick() {
+    remaining--;
+    var pct = (remaining / TOTAL_SECS * 100).toFixed(1);
+    var bar = document.getElementById('bu-undo-bar');
+    var timer = document.getElementById('bu-undo-timer');
+    var btn = document.getElementById('bu-undo-btn');
+    if(bar) bar.style.width = pct + '%';
+    if(timer) {
+      timer.textContent = fmtTime(remaining);
+      // Color shift: green → amber → red as time runs out
+      if(remaining < 120) timer.style.color = '#ef4444';
+      else if(remaining < 300) timer.style.color = '#fbbf24';
+    }
+    if(remaining <= 0) {
+      clearInterval(_buUndoTimer);
+      if(btn) { btn.disabled = true; btn.textContent = '⏱ Expired'; btn.style.background = '#6b7280'; }
+      setTimeout(function(){ var b=document.getElementById('bu-undo-banner'); if(b) b.remove(); }, 3000);
+    }
+  }
+
+  _buUndoTimer = setInterval(tick, 1000);
+
+  // Undo button
+  document.getElementById('bu-undo-btn').addEventListener('click', function(){
+    var body = document.createElement('div');
+    body.innerHTML =
+      '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:13px;color:#dc2626;font-weight:600">⚠️ Yeh action poori bank upload session undo karega!</div>' +
+      '<div style="font-size:12px;color:#374151;margin-bottom:8px">Session ID: <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">'+sessionId+'</code></div>' +
+      '<div style="font-size:13px;color:#374151">Isse delete hoga:<br>' +
+        '• <strong>'+cnt+'</strong> payments<br>' +
+        '• <strong>'+gpCnt+'</strong> gross payment records<br>' +
+        '• Related advance entries<br>' +
+        '<span style="color:#6b7280;font-size:11px">(Bills ki original status restore ho jaayegi)</span>' +
+      '</div>';
+    openModal('Bank Upload Undo Confirm', body, [{
+      label: '↩ Haan, Poora Undo Karo',
+      cls: 'btn-red',
+      fn: function(){
+        closeModal();
+        doBankSessionUndo(sessionId);
+        clearInterval(_buUndoTimer);
+        var b = document.getElementById('bu-undo-banner');
+        if(b) b.remove();
+      }
+    }]);
+  });
+
+  // Close button
+  document.getElementById('bu-undo-close').addEventListener('click', function(){
+    clearInterval(_buUndoTimer);
+    banner.remove();
+  });
+}
+
+function doBankSessionUndo(sessionId) {
+  if(!sessionId) { toast('Session ID nahi mila','err'); return; }
+  var pBefore = payments.length;
+  var gpBefore = (grossPayments||[]).length;
+  var advBefore = advances.length;
+
+  payments = payments.filter(function(p){ return p.bankSessionId !== sessionId; });
+  grossPayments = (grossPayments||[]).filter(function(g){ return g.bankSessionId !== sessionId; });
+  advances = advances.filter(function(a){ return a.bankSessionId !== sessionId; });
+
+  var pDel = pBefore - payments.length;
+  var gpDel = gpBefore - (grossPayments||[]).length;
+  var advDel = advBefore - advances.length;
+
+  invalidateBillStatusCache();
+  DB.set('payments', payments);
+  DB.set('grossPayments', grossPayments);
+  DB.set('advances', advances);
+  invalidateBillStatusCache();
+
+  toast('✅ Undo complete! '+pDel+' payments, '+gpDel+' gross, '+advDel+' advances delete hue');
+  refresh();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE 2 — EDIT / RELINK / REVERSE for Gross + All Payment Types
+// ═══════════════════════════════════════════════════════════════
+
+// ── Edit Gross Payment ──
+function openGrossEditModal(gpId) {
+  var g = (grossPayments||[]).find(function(x){ return x.id===gpId; });
+  if(!g) { toast('Gross payment nahi mila','err'); return; }
+
+  var body = document.createElement('div');
+  var g2 = document.createElement('div'); g2.className='grid g2'; g2.style.marginBottom='12px';
+
+  function mkF2(lbl,val,type,id){
+    var d=document.createElement('div');d.className='fg';
+    var l=document.createElement('label');l.textContent=lbl;
+    var i=document.createElement('input');i.className='inp';i.type=type||'text';i.value=val||'';i.id=id;
+    d.appendChild(l);d.appendChild(i);return d;
+  }
+  function mkFS2(lbl,opts,val,id){
+    var d=document.createElement('div');d.className='fg';
+    var l=document.createElement('label');l.textContent=lbl;
+    var s=document.createElement('select');s.className='inp';s.id=id;
+    opts.forEach(function(o){var op=document.createElement('option');op.value=o;op.textContent=o;if(o===val)op.selected=true;s.appendChild(op);});
+    d.appendChild(l);d.appendChild(s);return d;
+  }
+
+  g2.appendChild(mkF2('Party',g.party,'text','ge-party'));
+  g2.appendChild(mkF2('Date',g.date,'date','ge-date'));
+  g2.appendChild(mkF2('Gross Amount ₹',g.grossAmt,'number','ge-amt'));
+  g2.appendChild(mkFS2('Mode',['NEFT','RTGS','CHEQUE','UPI','CASH','IMPS'],g.mode,'ge-mode'));
+  g2.appendChild(mkF2('Cheque No',g.chequeNo,'text','ge-chq'));
+  g2.appendChild(mkF2('Receipt No',g.receiptNo,'text','ge-rcpt'));
+  var remD=document.createElement('div');remD.className='fg';remD.style.gridColumn='span 2';
+  remD.innerHTML='<label>Remarks</label>';
+  var remI=document.createElement('input');remI.className='inp';remI.id='ge-rem';remI.value=g.remarks||'';
+  remD.appendChild(remI);
+
+  // Bills sub-table
+  var billsLbl=document.createElement('div');
+  billsLbl.style.cssText='font-size:12px;font-weight:700;color:var(--text-2);margin:12px 0 6px';
+  billsLbl.textContent='↳ Linked Bills (edit amounts / bill numbers)';
+
+  var billsDiv=document.createElement('div');billsDiv.id='ge-bills-div';
+  function renderBillRows(){
+    billsDiv.innerHTML='';
+    (g.bills||[]).forEach(function(bi,idx){
+      var row=document.createElement('div');
+      row.style.cssText='display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:6px;padding:8px;background:#f8faff;border-radius:6px;border:1px solid #dbeafe';
+      // Bill No select
+      var bnD=document.createElement('div');bnD.className='fg';
+      var bnL=document.createElement('label');bnL.textContent='Bill No';
+      var bnS=document.createElement('select');bnS.className='inp';bnS.style.fontSize='12px';
+      var allBillOpts=bills.filter(function(b){return b.party===g.party;});
+      if(!allBillOpts.length) allBillOpts=bills;
+      var blankOp=document.createElement('option');blankOp.value='';blankOp.textContent='— Select Bill —';bnS.appendChild(blankOp);
+      allBillOpts.forEach(function(b){
+        var op=document.createElement('option');op.value=b.id;
+        var st=getBillStatus(b);
+        op.textContent='#'+b.billNo+' (Bal:₹'+fmt(st.bal)+')';
+        if(b.id===bi.billId||b.billNo===bi.billNo) op.selected=true;
+        bnS.appendChild(op);
+      });
+      bnS.addEventListener('change',function(){
+        var sel=bills.find(function(b){return b.id===this.value;}.bind(this));
+        if(sel){g.bills[idx].billId=sel.id;g.bills[idx].billNo=sel.billNo;}
+      });
+      bnD.appendChild(bnL);bnD.appendChild(bnS);
+
+      var amtD=document.createElement('div');amtD.className='fg';
+      var amtL=document.createElement('label');amtL.textContent='Amount ₹';
+      var amtI=document.createElement('input');amtI.className='inp';amtI.type='number';amtI.value=bi.amount||0;amtI.style.fontSize='12px';
+      amtI.addEventListener('input',function(){g.bills[idx].amount=parseFloat(this.value)||0;});
+      amtD.appendChild(amtL);amtD.appendChild(amtI);
+
+      var rebD=document.createElement('div');rebD.className='fg';
+      var rebL=document.createElement('label');rebL.textContent='Rebate ₹';
+      var rebI=document.createElement('input');rebI.className='inp';rebI.type='number';rebI.value=bi.rebate||0;rebI.style.fontSize='12px';
+      rebI.addEventListener('input',function(){g.bills[idx].rebate=parseFloat(this.value)||0;});
+      rebD.appendChild(rebL);rebD.appendChild(rebI);
+
+      var delD=document.createElement('div');delD.style.paddingTop='18px';
+      var delB=document.createElement('button');delB.className='btn btn-red btn-sm';delB.textContent='✕';
+      delB.addEventListener('click',function(){g.bills.splice(idx,1);renderBillRows();});
+      delD.appendChild(delB);
+
+      row.appendChild(bnD);row.appendChild(amtD);row.appendChild(rebD);row.appendChild(delD);
+      billsDiv.appendChild(row);
+    });
+
+    // Add bill button
+    var addB=document.createElement('button');addB.className='btn btn-outline btn-sm';addB.textContent='+ Bill Add Karo';
+    addB.style.marginTop='6px';
+    addB.addEventListener('click',function(){g.bills.push({billId:'',billNo:'',amount:0,rebate:0,interest:0});renderBillRows();});
+    billsDiv.appendChild(addB);
+  }
+  renderBillRows();
+
+  body.appendChild(g2);body.appendChild(remD);body.appendChild(billsLbl);body.appendChild(billsDiv);
+
+  openModal('✏️ Edit Gross Payment — '+g.id, body, [{
+    label:'💾 Save Changes',
+    fn: function(){
+      g.party=(document.getElementById('ge-party')||{}).value||g.party;
+      g.date=(document.getElementById('ge-date')||{}).value||g.date;
+      g.grossAmt=parseFloat((document.getElementById('ge-amt')||{}).value)||g.grossAmt;
+      g.mode=(document.getElementById('ge-mode')||{}).value||g.mode;
+      g.chequeNo=(document.getElementById('ge-chq')||{}).value||'';
+      g.receiptNo=(document.getElementById('ge-rcpt')||{}).value||'';
+      g.remarks=(document.getElementById('ge-rem')||{}).value||'';
+      g.editedAt=new Date().toISOString();
+      // Sync linked payments' mode/date/cheque
+      payments.forEach(function(p){
+        if(p.gpId===g.id){
+          p.date=g.date;p.mode=g.mode;p.chequeNo=g.chequeNo;p.receiptNo=g.receiptNo;
+        }
+      });
+      DB.set('grossPayments',grossPayments);
+      DB.set('payments',payments);
+      invalidateBillStatusCache();
+      closeModal();
+      toast('✅ Gross payment updated!');
+      refresh();
+    }
+  }], true);
+}
+
+// ── Edit Single/Partial/Detail Payment ──
+function openPaymentEditModal(payId) {
+  var p = payments.find(function(x){ return x.id===payId; });
+  if(!p) { toast('Payment nahi mila','err'); return; }
+  var b = bills.find(function(x){ return x.id===p.billId; })||{};
+
+  var body = document.createElement('div');
+
+  // Info bar
+  var info=document.createElement('div');
+  info.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px';
+  info.innerHTML='<strong>'+b.party+'</strong> — Bill <strong>#'+(b.billNo||'?')+'</strong> | Type: <strong>'+(p.rowType||'SINGLE')+'</strong>';
+  body.appendChild(info);
+
+  var grid=document.createElement('div');grid.className='grid g2';grid.style.marginBottom='10px';
+  function mkF3(lbl,val,type,id,extra){
+    var d=document.createElement('div');d.className='fg';
+    var l=document.createElement('label');l.textContent=lbl;
+    var i=document.createElement('input');i.className='inp';i.type=type||'text';i.value=val!==undefined&&val!==null?val:'';i.id=id;
+    if(extra)Object.keys(extra).forEach(function(k){i.setAttribute(k,extra[k]);});
+    d.appendChild(l);d.appendChild(i);return d;
+  }
+  function mkFS3(lbl,opts,val,id){
+    var d=document.createElement('div');d.className='fg';
+    var l=document.createElement('label');l.textContent=lbl;
+    var s=document.createElement('select');s.className='inp';s.id=id;
+    opts.forEach(function(o){var op=document.createElement('option');op.value=o;op.textContent=o;if(o===val)op.selected=true;s.appendChild(op);});
+    d.appendChild(l);d.appendChild(s);return d;
+  }
+
+  // Bill Relink
+  var relinkD=document.createElement('div');relinkD.className='fg';relinkD.style.gridColumn='span 2';
+  var relinkL=document.createElement('label');relinkL.textContent='Bill Re-link (wrong bill hai toh change karo)';
+  var relinkS=document.createElement('select');relinkS.className='inp';relinkS.id='pe-bill';
+  var relinkParty=b.party||'';
+  var relinkBills=bills.filter(function(x){return x.party===relinkParty;});
+  if(!relinkBills.length) relinkBills=bills;
+  var rBO=document.createElement('option');rBO.value='';rBO.textContent='— Bill select karo —';relinkS.appendChild(rBO);
+  relinkBills.forEach(function(x){
+    var st=getBillStatus(x);
+    var op=document.createElement('option');op.value=x.id;
+    op.textContent='#'+x.billNo+' — '+x.party+' (Bal:₹'+fmt(st.bal)+')';
+    if(x.id===p.billId)op.selected=true;
+    relinkS.appendChild(op);
+  });
+  relinkD.appendChild(relinkL);relinkD.appendChild(relinkS);
+
+  [mkF3('Amount ₹',p.amount,'number','pe-amt'),
+   mkF3('Rebate ₹',p.rebate||0,'number','pe-reb'),
+   mkF3('Interest ₹',p.interest||0,'number','pe-int'),
+   mkF3('Date',p.date,'date','pe-date'),
+   mkFS3('Mode',['NEFT','RTGS','CHEQUE','UPI','CASH','IMPS'],p.mode||'NEFT','pe-mode'),
+   mkF3('Cheque No',p.chequeNo,'text','pe-chq'),
+   mkF3('Receipt No',p.receiptNo,'text','pe-rcpt')
+  ].forEach(function(f){grid.appendChild(f);});
+
+  var remD2=document.createElement('div');remD2.className='fg';remD2.style.gridColumn='span 2';
+  remD2.innerHTML='<label>Remarks</label>';
+  var remI2=document.createElement('input');remI2.className='inp';remI2.id='pe-rem';remI2.value=p.remarks||'';
+  remD2.appendChild(remI2);
+
+  body.appendChild(relinkD);
+  body.appendChild(grid);
+  body.appendChild(remD2);
+
+  // Reverse section
+  var hr=document.createElement('hr');hr.className='divider';
+  var revDiv=document.createElement('div');
+  revDiv.style.cssText='background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;margin-top:4px';
+  revDiv.innerHTML='<div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:8px">↩ Payment Reverse</div>'+
+    '<div style="font-size:11px;color:#6b7280;margin-bottom:8px">Galti hui thi toh poora payment reverse karo — bill ki outstanding restore ho jaayegi</div>';
+  var revReasonD=document.createElement('div');revReasonD.className='fg';
+  revReasonD.innerHTML='<label style="font-size:11px;color:#dc2626">Reverse ka Reason</label>';
+  var revReasonI=document.createElement('input');revReasonI.className='inp';revReasonI.id='pe-rev-reason';revReasonI.placeholder='e.g. Wrong bill link, Duplicate entry...';
+  revReasonD.appendChild(revReasonI);
+  revDiv.appendChild(revReasonD);
+  body.appendChild(hr);body.appendChild(revDiv);
+
+  openModal('✏️ Edit Payment — '+(b.party||'?')+' ₹'+fmt(p.amount), body, [
+    {
+      label:'💾 Save Edit',
+      fn: function(){
+        var newBillId=(document.getElementById('pe-bill')||{}).value||p.billId;
+        p.billId=newBillId||p.billId;
+        p.amount=parseFloat((document.getElementById('pe-amt')||{}).value)||p.amount;
+        p.rebate=parseFloat((document.getElementById('pe-reb')||{}).value)||0;
+        p.interest=parseFloat((document.getElementById('pe-int')||{}).value)||0;
+        p.date=(document.getElementById('pe-date')||{}).value||p.date;
+        p.mode=(document.getElementById('pe-mode')||{}).value||p.mode;
+        p.chequeNo=(document.getElementById('pe-chq')||{}).value||'';
+        p.receiptNo=(document.getElementById('pe-rcpt')||{}).value||'';
+        p.remarks=(document.getElementById('pe-rem')||{}).value||'';
+        p.editedAt=new Date().toISOString();
+        invalidateBillStatusCache();
+        DB.set('payments',payments);
+        closeModal();toast('✅ Payment updated!');refresh();
+      }
+    },
+    {
+      label:'↩ Reverse This Payment',
+      cls:'btn-red',
+      fn: function(){
+        var reason=(document.getElementById('pe-rev-reason')||{}).value||'';
+        if(!reason.trim()){toast('Reverse ka reason likhna zaroori hai!','err');return;}
+        p.status='REVERSED';
+        p.reversedAt=new Date().toISOString();
+        p.reversalReason=reason;
+        invalidateBillStatusCache();
+        DB.set('payments',payments);
+        closeModal();toast('↩ Payment reversed! Bill balance restore hua.');refresh();
+      }
+    }
+  ], true);
+}
+
+// ── Delete Gross Payment with linked payments ──
+function deleteGrossPayment(gpId) {
+  var g = (grossPayments||[]).find(function(x){ return x.id===gpId; });
+  if(!g) return;
+  var linkedPays = payments.filter(function(p){ return p.gpId===gpId; });
+  var body=document.createElement('div');
+  body.innerHTML=
+    '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:13px;color:#dc2626;font-weight:600">⚠️ Gross payment aur '+linkedPays.length+' linked payments delete honge!</div>'+
+    '<div style="font-size:12px;color:#374151">'+
+      '<strong>'+g.party+'</strong> — ₹'+fmt(g.grossAmt)+' — '+fmtDate(g.date)+'<br>'+
+      'Bills: '+(g.bills||[]).map(function(b){return '#'+b.billNo;}).join(', ')+'<br><br>'+
+      '<span style="color:#6b7280">Bill ki outstanding balance wapas restore ho jaayegi</span>'+
+    '</div>';
+  openModal('Gross Payment Delete', body, [{
+    label:'🗑 Haan, Delete Karo',
+    cls:'btn-red',
+    fn:function(){
+      grossPayments=grossPayments.filter(function(x){return x.id!==gpId;});
+      payments=payments.filter(function(p){return p.gpId!==gpId;});
+      invalidateBillStatusCache();
+      DB.set('grossPayments',grossPayments);
+      DB.set('payments',payments);
+      closeModal();toast('🗑 Gross payment deleted');refresh();
+    }
+  }]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE 3 — PARTY PAYMENT VIEW PAGE
+// ═══════════════════════════════════════════════════════════════
+function pgPartyPaymentView() {
+  var state = pageState.partyPay = pageState.partyPay || { party:'', sel:new Set() };
+  var wrap = document.createElement('div');
+
+  // Header
+  var hdr=document.createElement('div');hdr.style.cssText='margin-bottom:14px';
+  hdr.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#166534;margin:0">💳 Party Payment View</h3>'+
+    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Party wise Gross + Detail + Single/Partial payments — Edit, Re-link, Reverse, Delete</p>';
+  wrap.appendChild(hdr);
+
+  // ── Party selector bar ──
+  var allParties=Array.from(new Set(
+    (grossPayments||[]).map(function(g){return g.party;}).concat(
+      payments.filter(function(p){return p.rowType!=='DETAIL';}).map(function(p){
+        var b=bills.find(function(x){return x.id===p.billId;});return b?b.party:'';
+      })
+    )
+  )).filter(Boolean).sort();
+
+  var topBar=document.createElement('div');
+  topBar.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px';
+
+  var partySelect=document.createElement('select');partySelect.className='inp-sm';partySelect.style.minWidth='220px';
+  var defOpt=document.createElement('option');defOpt.value='';defOpt.textContent='— Party chuniye —';partySelect.appendChild(defOpt);
+  allParties.forEach(function(p){
+    var o=document.createElement('option');o.value=p;o.textContent=p;
+    if(p===state.party)o.selected=true;
+    partySelect.appendChild(o);
+  });
+  partySelect.addEventListener('change',function(){state.party=this.value;state.sel=new Set();rebuildAll();});
+
+  // Search
+  var searchI=document.createElement('input');searchI.className='inp-sm';searchI.type='text';searchI.placeholder='Party name khojo...';searchI.style.width='160px';
+  if(state.party) searchI.value=state.party;
+  searchI.addEventListener('input',function(){
+    var q=this.value.trim().toUpperCase();
+    Array.from(partySelect.options).forEach(function(o){o.selected=o.value.toUpperCase()===q;});
+    if(q){state.party=q;state.sel=new Set();rebuildAll();}
+  });
+
+  // Bulk Delete
+  var bulkDelBtn=document.createElement('button');bulkDelBtn.className='btn btn-red btn-sm';
+  bulkDelBtn.innerHTML='🗑 Delete Selected (<span id="ppv-sc">0</span>)';
+  bulkDelBtn.style.display='none';
+  bulkDelBtn.addEventListener('click',function(){
+    var selArr=Array.from(state.sel);
+    if(!selArr.length){toast('Kuch select nahi','err');return;}
+    var gpIds=selArr.filter(function(id){return id.startsWith('GP-');});
+    var payIds=selArr.filter(function(id){return !id.startsWith('GP-');});
+    var body2=document.createElement('div');
+    body2.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px;font-size:13px;color:#dc2626;font-weight:600">⚠️ '+selArr.length+' selected items delete honge!</div>'+
+      '<div style="font-size:12px;color:#374151">'+
+        (gpIds.length?'• '+gpIds.length+' Gross Payments (aur unke linked detail payments bhi)<br>':'')+
+        (payIds.length?'• '+payIds.length+' Single/Partial Payments<br>':'')+
+        '<br><span style="color:#6b7280">Bill balance restore ho jaayega</span>'+
+      '</div>';
+    openModal('Bulk Delete Confirm',body2,[{
+      label:'🗑 Delete Karo',cls:'btn-red',
+      fn:function(){
+        gpIds.forEach(function(gpId){
+          grossPayments=grossPayments.filter(function(x){return x.id!==gpId;});
+          payments=payments.filter(function(p){return p.gpId!==gpId;});
+        });
+        payIds.forEach(function(pid){
+          payments=payments.filter(function(x){return x.id!==pid;});
+        });
+        invalidateBillStatusCache();
+        DB.set('grossPayments',grossPayments);DB.set('payments',payments);
+        state.sel=new Set();
+        closeModal();toast('🗑 '+selArr.length+' items deleted');refresh();
+      }
+    }]);
+  });
+
+  topBar.appendChild(partySelect);topBar.appendChild(searchI);topBar.appendChild(bulkDelBtn);
+  wrap.appendChild(topBar);
+
+  // ── Summary stats ──
+  var statsDiv=document.createElement('div');statsDiv.id='ppv-stats';wrap.appendChild(statsDiv);
+
+  // ── Table container ──
+  var tableDiv=document.createElement('div');tableDiv.id='ppv-table';wrap.appendChild(tableDiv);
+
+  function updateSelCount(){
+    var sc=document.getElementById('ppv-sc');if(sc)sc.textContent=state.sel.size;
+    bulkDelBtn.style.display=state.sel.size>0?'':'none';
+  }
+
+  function rebuildAll(){
+    var party=state.party;
+    statsDiv.innerHTML='';tableDiv.innerHTML='';
+    if(!party){
+      tableDiv.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-4);font-size:14px">⬆ Party select karo</div>';
+      return;
+    }
+
+    // Get all gross payments for party
+    var partyGross=(grossPayments||[]).filter(function(g){return g.party===party;})
+      .sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+
+    // Get single/partial payments for party
+    var partySingle=payments.filter(function(p){
+      if(p.rowType==='DETAIL')return false;
+      var b=bills.find(function(x){return x.id===p.billId;});
+      return b&&b.party===party;
+    }).filter(function(p){return p.status!=='REVERSED';})
+     .sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+
+    // Reversed payments
+    var partyReversed=payments.filter(function(p){
+      var b=bills.find(function(x){return x.id===p.billId;});
+      return b&&b.party===party&&p.status==='REVERSED';
+    });
+
+    // Stats
+    var grossTotal=partyGross.reduce(function(s,g){return s+(g.grossAmt||0);},0);
+    var singleTotal=partySingle.reduce(function(s,p){return s+(p.amount||0);},0);
+    var rebTotal=partySingle.reduce(function(s,p){return s+(p.rebate||0);},0);
+    var statsGrid=document.createElement('div');
+    statsGrid.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px';
+    [
+      {l:'Gross Payments',v:partyGross.length,s:'₹'+fmt(grossTotal),c:'#1d4ed8',bg:'#eff6ff'},
+      {l:'Single/Partial',v:partySingle.length,s:'₹'+fmt(singleTotal),c:'#166534',bg:'#f0fdf4'},
+      {l:'Total Received',v:partyGross.length+partySingle.length,s:'₹'+fmt(grossTotal+singleTotal),c:'#7c3aed',bg:'#f5f3ff'},
+      {l:'Rebate Given',v:'',s:'₹'+fmt(rebTotal),c:'#d97706',bg:'#fffbeb'}
+    ].forEach(function(sd){
+      var d=document.createElement('div');
+      d.style.cssText='background:'+sd.bg+';border:1px solid '+sd.c+'40;border-radius:10px;padding:12px 14px';
+      d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+sd.c+';text-transform:uppercase;margin-bottom:4px">'+sd.l+'</div>'+
+        (sd.v!==''?'<div style="font-size:20px;font-weight:700;color:'+sd.c+'">'+sd.v+'</div>':'')+
+        '<div style="font-size:13px;font-weight:600;color:'+sd.c+'">'+sd.s+'</div>';
+      statsGrid.appendChild(d);
+    });
+    statsDiv.appendChild(statsGrid);
+
+    if(!partyGross.length&&!partySingle.length){
+      tableDiv.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-4);font-size:13px">'+party+' ke liye koi payment nahi mila</div>';
+      return;
+    }
+
+    // ── Select All row ──
+    var selAllRow=document.createElement('div');
+    selAllRow.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;font-size:12px;color:var(--text-2)';
+    var selAllChk=document.createElement('input');selAllChk.type='checkbox';selAllChk.style.cssText='accent-color:var(--brand);width:15px;height:15px;cursor:pointer';
+    selAllChk.addEventListener('change',function(){
+      if(this.checked){
+        partyGross.forEach(function(g){state.sel.add(g.id);});
+        partySingle.forEach(function(p){state.sel.add(p.id);});
+      } else {
+        state.sel.clear();
+      }
+      updateSelCount();
+      rebuildAll();
+    });
+    selAllRow.appendChild(selAllChk);
+    selAllRow.appendChild(document.createTextNode('Sabhi select karo ('+partyGross.length+' gross + '+partySingle.length+' payments)'));
+    tableDiv.appendChild(selAllRow);
+
+    // ── GROSS PAYMENTS ──
+    if(partyGross.length){
+      var gHdr=document.createElement('div');
+      gHdr.style.cssText='font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.5px;padding:6px 0;margin-top:4px';
+      gHdr.textContent='▸ GROSS PAYMENTS ('+partyGross.length+')';
+      tableDiv.appendChild(gHdr);
+
+      partyGross.forEach(function(g){
+        var card=document.createElement('div');
+        card.style.cssText='background:#dbeafe;border:1px solid #93c5fd;border-radius:10px;margin-bottom:8px;overflow:hidden';
+        if(state.sel.has(g.id)) card.style.outline='2px solid #3b82f6';
+
+        // Gross header row
+        var gRow=document.createElement('div');
+        gRow.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;flex-wrap:wrap';
+
+        var chk=document.createElement('input');chk.type='checkbox';chk.style.cssText='accent-color:#1d4ed8;width:15px;height:15px;cursor:pointer;flex-shrink:0';
+        chk.checked=state.sel.has(g.id);
+        chk.addEventListener('change',function(){
+          if(this.checked)state.sel.add(g.id);else state.sel.delete(g.id);
+          updateSelCount();
+          card.style.outline=this.checked?'2px solid #3b82f6':'';
+        });
+
+        var gInfo=document.createElement('div');gInfo.style.cssText='flex:1;min-width:200px';
+        gInfo.innerHTML=
+          '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;margin-right:6px">GROSS</span>'+
+          '<strong style="font-size:13px;color:#1e3a5f">'+g.party+'</strong>'+
+          '<span style="font-size:12px;color:#374151;margin-left:8px">'+fmtDate(g.date)+'</span>'+
+          '<span style="font-size:14px;font-weight:700;color:#1d4ed8;margin-left:10px">₹'+fmt(g.grossAmt)+'</span>'+
+          '<span style="font-size:11px;color:#6b7280;margin-left:8px">'+g.mode+(g.chequeNo?' | Chq:'+g.chequeNo:'')+(g.receiptNo?' | Rcpt:'+g.receiptNo:'')+'</span>';
+        if(g.bankSessionId){
+          gInfo.innerHTML+='<span style="background:#eff6ff;color:#1d4ed8;border-radius:4px;padding:1px 5px;font-size:9px;margin-left:6px">'+g.bankSessionId.substring(0,12)+'</span>';
+        }
+
+        // Action buttons
+        var acts=document.createElement('div');acts.style.cssText='display:flex;gap:4px;flex-shrink:0';
+        var editB=document.createElement('button');editB.className='btn btn-outline btn-xs';editB.textContent='✏ Edit';
+        editB.addEventListener('click',function(){openGrossEditModal(g.id);});
+        var delB=document.createElement('button');delB.className='btn btn-xs';
+        delB.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;padding:3px 8px;font-size:11px;border-radius:5px;cursor:pointer';
+        delB.textContent='🗑 Delete';
+        delB.addEventListener('click',function(){deleteGrossPayment(g.id);});
+        acts.appendChild(editB);acts.appendChild(delB);
+
+        gRow.appendChild(chk);gRow.appendChild(gInfo);gRow.appendChild(acts);
+        card.appendChild(gRow);
+
+        // Detail bills rows
+        if((g.bills||[]).length){
+          var billsWrap=document.createElement('div');billsWrap.style.cssText='border-top:1px solid #93c5fd;background:#eff6ff;padding:6px 12px';
+          (g.bills||[]).forEach(function(bi,bidx){
+            var detPay=payments.find(function(px){return px.gpId===g.id&&(px.billId===bi.billId||(bills.find(function(bx){return bx.id===px.billId&&bx.billNo===bi.billNo;})));});
+            var bObj=bills.find(function(x){return x.id===bi.billId||x.billNo===bi.billNo;});
+            var detRow=document.createElement('div');
+            detRow.style.cssText='display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #dbeafe;flex-wrap:wrap';
+            if(detPay&&state.sel.has(detPay.id)) detRow.style.background='#dbeafe';
+
+            var detChk=document.createElement('input');detChk.type='checkbox';detChk.style.cssText='accent-color:#1d4ed8;width:13px;height:13px;cursor:pointer;margin-left:16px;flex-shrink:0';
+            if(detPay){detChk.checked=state.sel.has(detPay.id);detChk.addEventListener('change',function(){if(this.checked)state.sel.add(detPay.id);else state.sel.delete(detPay.id);updateSelCount();});}else{detChk.disabled=true;}
+
+            var detInfo=document.createElement('div');detInfo.style.cssText='flex:1;font-size:12px;color:#1e3a5f';
+            detInfo.innerHTML='<span style="opacity:.6;margin-right:4px">↳</span>'+
+              '<strong>Bill #'+bi.billNo+'</strong>'+
+              (bObj?'<span style="color:#6b7280;font-size:11px"> — '+bObj.party+'</span>':'')+
+              ' <span style="font-weight:700;color:#1d4ed8">₹'+fmt(bi.amount||0)+'</span>'+
+              (bi.rebate>0?' <span style="color:#d97706;font-size:11px">Reb:₹'+fmt(bi.rebate)+'</span>':'')+
+              (detPay&&detPay.status==='REVERSED'?'<span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 5px;font-size:9px;margin-left:6px">REVERSED</span>':'');
+
+            var detActs=document.createElement('div');detActs.style.cssText='display:flex;gap:3px;flex-shrink:0';
+            if(detPay&&detPay.status!=='REVERSED'){
+              var detEditB=document.createElement('button');detEditB.className='btn btn-xs btn-outline';detEditB.textContent='✏';detEditB.title='Edit / Re-link';
+              detEditB.addEventListener('click',(function(pid){return function(){openPaymentEditModal(pid);};})(detPay.id));
+              detActs.appendChild(detEditB);
+            }
+            detRow.appendChild(detChk);detRow.appendChild(detInfo);detRow.appendChild(detActs);
+            billsWrap.appendChild(detRow);
+          });
+          card.appendChild(billsWrap);
+        }
+        tableDiv.appendChild(card);
+      });
+    }
+
+    // ── SINGLE / PARTIAL PAYMENTS ──
+    if(partySingle.length){
+      var spHdr=document.createElement('div');
+      spHdr.style.cssText='font-size:11px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.5px;padding:6px 0;margin-top:10px';
+      spHdr.textContent='▸ SINGLE / PARTIAL PAYMENTS ('+partySingle.length+')';
+      tableDiv.appendChild(spHdr);
+
+      partySingle.forEach(function(p){
+        var b=bills.find(function(x){return x.id===p.billId;})||{};
+        var typeColors={SINGLE:'#374151:#f3f4f6',PARTIAL:'#92400e:#fef3c7',BILLTOBILL:'#0891b2:#ecfeff'};
+        var tc=(typeColors[p.rowType||'SINGLE']||typeColors.SINGLE).split(':');
+
+        var card2=document.createElement('div');
+        card2.style.cssText='background:#fff;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:6px;padding:10px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+        if(state.sel.has(p.id)) card2.style.outline='2px solid #166534';
+
+        var chk2=document.createElement('input');chk2.type='checkbox';chk2.style.cssText='accent-color:var(--brand);width:15px;height:15px;cursor:pointer;flex-shrink:0';
+        chk2.checked=state.sel.has(p.id);
+        chk2.addEventListener('change',function(){
+          if(this.checked)state.sel.add(p.id);else state.sel.delete(p.id);
+          updateSelCount();
+          card2.style.outline=this.checked?'2px solid #166534':'';
+        });
+
+        var pInfo=document.createElement('div');pInfo.style.cssText='flex:1;font-size:12.5px;min-width:200px';
+        pInfo.innerHTML=
+          '<span style="background:'+tc[1]+';color:'+tc[0]+';border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;margin-right:6px">'+(p.rowType||'SINGLE')+'</span>'+
+          '<strong>Bill #'+(b.billNo||'?')+'</strong>'+
+          '<span style="font-size:14px;font-weight:700;color:#166534;margin-left:8px">₹'+fmt(p.amount||0)+'</span>'+
+          (p.rebate>0?'<span style="color:#d97706;font-size:11px;margin-left:6px">Reb:₹'+fmt(p.rebate)+'</span>':'')+
+          (p.interest>0?'<span style="color:#7c3aed;font-size:11px;margin-left:6px">Int:₹'+fmt(p.interest)+'</span>':'')+
+          '<span style="color:#6b7280;font-size:11px;margin-left:8px">'+fmtDate(p.date)+' | '+(p.mode||'-')+(p.chequeNo?' | Chq:'+p.chequeNo:'')+'</span>'+
+          (p.bankSessionId?'<span style="background:#f0fdf4;color:#166534;border-radius:4px;padding:1px 5px;font-size:9px;margin-left:6px">'+p.bankSessionId.substring(0,12)+'</span>':'');
+
+        var pActs=document.createElement('div');pActs.style.cssText='display:flex;gap:4px;flex-shrink:0';
+        var pEditB=document.createElement('button');pEditB.className='btn btn-outline btn-xs';pEditB.textContent='✏ Edit / Re-link';
+        pEditB.addEventListener('click',(function(pid){return function(){openPaymentEditModal(pid);};})(p.id));
+        var pDelB=document.createElement('button');pDelB.className='btn btn-xs';
+        pDelB.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;padding:3px 8px;font-size:11px;border-radius:5px;cursor:pointer';
+        pDelB.textContent='🗑';
+        pDelB.title='Delete this payment';
+        pDelB.addEventListener('click',(function(pid,pref){
+          return function(){
+            var bd=document.createElement('div');
+            bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:10px;margin-bottom:8px;font-size:12px;color:#dc2626">₹'+fmt(pref.amount||0)+' — '+fmtDate(pref.date)+' delete hoga</div><div style="font-size:11px;color:#6b7280">Bill outstanding restore ho jaayega</div>';
+            openModal('Payment Delete',bd,[{label:'🗑 Delete',cls:'btn-red',fn:function(){
+              payments=payments.filter(function(x){return x.id!==pid;});
+              invalidateBillStatusCache();DB.set('payments',payments);
+              closeModal();toast('🗑 Payment deleted');refresh();
+            }}]);
+          };
+        })(p.id,p));
+        pActs.appendChild(pEditB);pActs.appendChild(pDelB);
+
+        card2.appendChild(chk2);card2.appendChild(pInfo);card2.appendChild(pActs);
+        tableDiv.appendChild(card2);
+      });
+    }
+
+    // ── REVERSED PAYMENTS ──
+    if(partyReversed.length){
+      var revHdr=document.createElement('div');
+      revHdr.style.cssText='font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.5px;padding:6px 0;margin-top:10px;opacity:.6';
+      revHdr.textContent='↩ REVERSED PAYMENTS ('+partyReversed.length+' — not counted in totals)';
+      tableDiv.appendChild(revHdr);
+      partyReversed.forEach(function(p){
+        var b2=bills.find(function(x){return x.id===p.billId;})||{};
+        var rCard=document.createElement('div');
+        rCard.style.cssText='background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:4px;padding:8px 12px;font-size:11.5px;color:#6b7280;display:flex;align-items:center;gap:8px;flex-wrap:wrap;opacity:.7';
+        rCard.innerHTML='<span style="background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700">REVERSED</span>'+
+          '<span>Bill #'+(b2.billNo||'?')+'</span>'+
+          '<span>₹'+fmt(p.amount||0)+'</span>'+
+          '<span>'+fmtDate(p.date)+'</span>'+
+          (p.reversalReason?'<span style="font-style:italic">Reason: '+p.reversalReason+'</span>':'')+
+          '<span style="margin-left:auto;font-size:10px">'+fmtDate(p.reversedAt)+'</span>';
+        tableDiv.appendChild(rCard);
+      });
+    }
+
+    updateSelCount();
+  }
+
+  rebuildAll();
   return wrap;
 }
 
