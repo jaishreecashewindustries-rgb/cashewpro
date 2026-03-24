@@ -6611,7 +6611,7 @@ function pgPartyLedger(party) {
           ebtn.addEventListener('click',function(){
             var pid=this.getAttribute('data-pid');
             var p2=payments.find(function(x){return x.id===pid;});
-            if(p2)openEditPayment(p2);
+            if(p2){pageState._editPayReturnPage='ledger';openEditPayment(p2);}
           });
         });
         var delBtns=eTd.querySelectorAll('.del-pay-btn');
@@ -11872,7 +11872,7 @@ function pgDuplicates() {
       invalidateBillStatusCache();DB.set('payments',payments); toast('Payment deleted');
     },
     function(p){ // edit
-      openEditPayment(p);
+      pageState._editPayReturnPage='duplicates';openEditPayment(p);
     }
   );
   if(dupPaySec) wrap.appendChild(dupPaySec);
@@ -11888,7 +11888,7 @@ function pgDuplicates() {
       {l:'Amount', val:function(p){return '\u20b9'+fmt(p.amount||0);}, num:true},
     ],
     function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Payment deleted');},
-    function(p){openEditPayment(p);}
+    function(p){pageState._editPayReturnPage='duplicates';openEditPayment(p);}
   );
   if(dupChqPaySec) wrap.appendChild(dupChqPaySec);
 
@@ -11904,7 +11904,7 @@ function pgDuplicates() {
       {l:'Mode', val:function(p){return p.mode||'-';}},
     ],
     function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Payment deleted');},
-    function(p){openEditPayment(p);}
+    function(p){pageState._editPayReturnPage='duplicates';openEditPayment(p);}
   );
   if(dupRcptSec) wrap.appendChild(dupRcptSec);
 
@@ -12006,13 +12006,16 @@ function openEditPayment(p) {
   }
 
   // Info bar
+  var gpInfo='';
+  if(p.gpId){var gpX=grossPayments.find(function(g){return g.id===p.gpId;});if(gpX)gpInfo=' &nbsp;|&nbsp; <span style="color:#1d4ed8;font-weight:700">GROSS: '+p.gpId+' \u20b9'+fmt(gpX.grossAmt||0)+'</span>';}
   var info=document.createElement('div');
   info.style.cssText='grid-column:span 2;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:4px';
-  info.innerHTML='<strong>Bill:</strong> '+(b.billNo||'-')+' &nbsp;|&nbsp; <strong>Party:</strong> '+(b.party||'-')+' &nbsp;|&nbsp; <strong>Bill Amt:</strong> \u20b9'+fmt(b.netAmt||0);
+  info.innerHTML='<strong>Bill:</strong> '+(b.billNo||'-')+' &nbsp;|&nbsp; <strong>Party:</strong> '+(b.party||'-')+' &nbsp;|&nbsp; <strong>Bill Amt:</strong> \u20b9'+fmt(b.netAmt||0)+gpInfo;
   body.appendChild(info);
 
   [mkF3('Amount (\u20b9)','ep-amt','number',p.amount||0),
    mkF3('Rebate (\u20b9)','ep-reb','number',p.rebate||0),
+   mkF3('Interest (\u20b9)','ep-int','number',p.interest||0),
    mkF3('Date','ep-date','text',fmtDate(p.date),'DD-MM-YYYY'),
    mkFS3('Mode','ep-mode',['NEFT','RTGS','CHEQUE','IMPS','UPI','CASH'],p.mode||'NEFT'),
    mkF3('Cheque No','ep-chq','text',p.chequeNo||'','Optional'),
@@ -12025,15 +12028,28 @@ function openEditPayment(p) {
     if(!amt){toast('Amount required!','err');return;}
     p.amount=amt;
     p.rebate=parseFloat(gv('ep-reb'))||0;
+    p.interest=parseFloat(gv('ep-int'))||0;
     p.date=gv('ep-date');
     p.mode=gv('ep-mode');
     p.chequeNo=gv('ep-chq');
     p.receiptNo=gv('ep-rcpt');
     p.remarks=gv('ep-rmk');
+    // Sync grossPayments[].bills[] if this payment is part of a gross group
+    if(p.gpId){
+      var gp=grossPayments.find(function(g){return g.id===p.gpId;});
+      if(gp&&gp.bills){
+        var gb=gp.bills.find(function(x){return x.billId===p.billId;});
+        if(gb){gb.amount=p.amount;gb.rebate=p.rebate||0;gb.interest=p.interest||0;}
+        DB.set('grossPayments',grossPayments);
+      }
+    }
     invalidateBillStatusCache();DB.set('payments',payments);
     toast('Payment updated!');
     closeModal();
-    go('duplicates');
+    // Return to the page edit was triggered from, not always duplicates
+    var _retPg=pageState._editPayReturnPage||null;
+    pageState._editPayReturnPage=null;
+    if(_retPg)go(_retPg);else refresh();
   }}]);
 }
 
@@ -12053,7 +12069,10 @@ function openEditCheque(c) {
     c.party=(gv('ec-party')||'').toUpperCase().trim();
     c.chequeNo=gv('ec-chqno');c.bank=gv('ec-bank');
     c.amount=parseFloat(gv('ec-amt'))||0;c.date=gv('ec-date');c.status=gv('ec-status');
-    DB.set('cheques',cheques);toast('Cheque updated!');closeModal();go('duplicates');
+    DB.set('cheques',cheques);toast('Cheque updated!');closeModal();
+    var _retChq=pageState._editChequeReturnPage||null;
+    pageState._editChequeReturnPage=null;
+    if(_retChq)go(_retChq);else go('duplicates');
   }}]);
 }
 
@@ -19873,17 +19892,37 @@ function openGrossEditModal(gpId) {
       g.receiptNo=(document.getElementById('ge-rcpt')||{}).value||'';
       g.remarks=(document.getElementById('ge-rem')||{}).value||'';
       g.editedAt=new Date().toISOString();
-      // Sync linked payments' mode/date/cheque
-      payments.forEach(function(p){
-        if(p.gpId===g.id){
-          p.date=g.date;p.mode=g.mode;p.chequeNo=g.chequeNo;p.receiptNo=g.receiptNo;
-        }
+
+      // ── Full sync: g.bills[] → payments[] ──────────────────────────────
+      // Step 1: Remove all existing linked payment records for this gross group
+      payments = payments.filter(function(p){ return p.gpId !== g.id; });
+
+      // Step 2: Re-create payment records from updated g.bills[]
+      (g.bills||[]).forEach(function(bi){
+        if(!bi.billId) return; // skip empty rows
+        payments.push({
+          id: uid(),
+          billId: bi.billId,
+          amount: bi.amount || 0,
+          rebate: bi.rebate || 0,
+          interest: bi.interest || 0,
+          date: g.date,
+          mode: g.mode,
+          chequeNo: g.chequeNo,
+          receiptNo: g.receiptNo,
+          grossAmt: g.grossAmt,
+          rowType: 'DETAIL',
+          groupId: g.id,
+          gpId: g.id,
+          remarks: 'Gross Payment ' + g.id
+        });
       });
+
       DB.set('grossPayments',grossPayments);
       DB.set('payments',payments);
       invalidateBillStatusCache();
       closeModal();
-      toast('✅ Gross payment updated!');
+      toast('✅ Gross payment updated — ' + (g.bills||[]).length + ' bills synced!');
       refresh();
     }
   }], true);
@@ -19982,6 +20021,15 @@ function openPaymentEditModal(payId) {
         p.receiptNo=(document.getElementById('pe-rcpt')||{}).value||'';
         p.remarks=(document.getElementById('pe-rem')||{}).value||'';
         p.editedAt=new Date().toISOString();
+        // Sync back to grossPayments[].bills[] if this is a DETAIL payment
+        if(p.gpId){
+          var gpSync=grossPayments.find(function(g){return g.id===p.gpId;});
+          if(gpSync&&gpSync.bills){
+            var gbSync=gpSync.bills.find(function(x){return x.billId===p.billId||x.billId===newBillId;});
+            if(gbSync){gbSync.billId=p.billId;gbSync.amount=p.amount;gbSync.rebate=p.rebate;gbSync.interest=p.interest;}
+            DB.set('grossPayments',grossPayments);
+          }
+        }
         invalidateBillStatusCache();
         DB.set('payments',payments);
         closeModal();toast('✅ Payment updated!');refresh();
