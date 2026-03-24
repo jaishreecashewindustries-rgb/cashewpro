@@ -1485,7 +1485,9 @@ function _buildPaymentIndex() {
 
 // ── AUTO CARRY FORWARD: Party ke purane bills ki excess ko next bills mein apply karta hai ──
 // Party ke sab bills date order mein sort karke running balance calculate karta hai.
-// Agar kisi bill mein excess payment hai, woh automatically next bill mein carry forward hoti hai.
+// FIXED: SINGLE payment apni exact amount SIRF us bill pe apply hoti hai jis bill se linked hai.
+// Excess (payment > bill outstanding) carry forward hoti hai NEXT bill ke liye as credit.
+// Payment amount kabhi divide ya split nahi hoti — jo amount upload ki woh wahi rahti hai.
 function getPartyCarryForward(party) {
   // Party ke sab bills date-wise ascending order mein
   var partyBills = bills.filter(function(b) { return b.party === party; })
@@ -1494,7 +1496,7 @@ function getPartyCarryForward(party) {
       return da < db ? -1 : da > db ? 1 : (parseInt(a.billNo)||0) - (parseInt(b.billNo)||0);
     });
 
-  // carryMap: billId → amount of carry forward credit available for that bill
+  // carryMap: billId → amount of carry forward credit available FOR that bill (from previous bills' excess)
   var carryMap = {};
   var runningCredit = 0;
 
@@ -1505,7 +1507,7 @@ function getPartyCarryForward(party) {
   partyUnlinkedAdv.forEach(function(a) { runningCredit += (a.amount || 0); });
 
   partyBills.forEach(function(b) {
-    // Is bill ke direct payments
+    // Is bill ke direct payments — sirf amount + rebate + interest
     var bPays = _paymentIndex[b.id] || [];
     var directPaid = bPays.reduce(function(s, p) {
       return s + (p.amount || 0) + (p.rebate || 0) + (p.interest || 0);
@@ -1514,18 +1516,20 @@ function getPartyCarryForward(party) {
     var bAdv = _advanceIndex[b.id] || [];
     var linkedAdv = bAdv.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
 
-    // Running credit se is bill ke liye kitna available hai
+    // Is bill ke liye pichle bills se kitna credit carry forward hua — yahi carryMap mein store hoga
     carryMap[b.id] = runningCredit;
 
-    // Total for this bill
+    // Bill ki total receipt = direct payments + advances + carry forward credit
     var total = directPaid + linkedAdv + runningCredit;
     var billAmt = b.netAmt || 0;
 
     if (total >= billAmt) {
-      // Bill clear — excess carry forward to next
-      runningCredit = total - billAmt;
+      // Bill poora clear — excess credit NEXT bill ke liye carry forward
+      // FIXED: excess = jo total mila - bill ki value. Yeh NEXT bill ka credit hai.
+      // Payment amount split nahi hoti — sirf credit balance carry hota hai.
+      runningCredit = Math.max(0, total - billAmt);
     } else {
-      // Bill partially paid — no carry forward
+      // Bill partially paid — koi carry forward nahi
       runningCredit = 0;
     }
   });
@@ -19095,59 +19099,85 @@ function pgAIRules() {
     '== BUSINESS WORKING RULES (PERMANENT — DO NOT CHANGE) ==',
     '',
     '1. BILL NO. IS MASTER KEY',
-    '   - Every payment must be matched to the exact Bill No. written in the payment sheet',
-    '   - Do not guess or auto-allocate to any bill not written against that payment',
-    '   - Do not use balance or extra payment for bills not written in that payment row',
+    '   - Har payment exactly usi Bill No. se match karni hai jo payment sheet mein likhi hai',
+    '   - Kisi dusre bill pe auto-allocate ya guess BILKUL MAT KARO',
+    '   - Jo bill number nahi likha, us par koi payment apply nahi hogi — chahe balance ho',
     '',
-    '2. GROSS PAYMENT RULE (IS_GROSS = YES)',
-    '   - If multiple bill numbers written → it is a GROSS payment',
-    '   - Use HEADER row for gross total, DETAIL row for each bill',
-    '   - Distribute gross amount to written bill numbers only',
-    '   - Do not forward balance to any other bill',
+    '2. SINGLE PAYMENT RULE — SABSE IMPORTANT',
+    '   - SINGLE = ek payment ek bill ke liye. Seedha aur simple.',
+    '   - NET_AMT WAHI LIKHNA HAI JO PARTY NE ACTUALLY BHEJA HAI — bill ki outstanding se zyada ya kam ho sakta hai',
+    '   - Agar payment > bill outstanding → balance/credit NEXT BILL ke liye CARRY FORWARD hoga AUTOMATICALLY',
+    '   - Payment amount KABHI SPLIT YA DIVIDE MAT KARNA — jo upload ki wahi amount us bill pe rahegi',
+    '   - Example: Bill 196 outstanding ₹40,623 hai aur party ne ₹2,00,000 bheja → NET_AMT = 200000 likhna hai',
+    '     App khud baaki ₹1,59,377 next bill pe carry forward karega',
+    '   - GALAT: Payment ko bills mein divide karna (jaise 40623 + 159377 = 200000 alag bills pe)',
+    '   - SAHI: Ek row mein poori payment amount likhna — carry forward app ka kaam hai',
     '',
-    '3. INSTALLMENT PAYMENT RULE',
-    '   - If REMARKS contains INSTALLMENT → it is a partial/installment payment',
-    '   - IS_GROSS = NO for installment payments',
-    '   - Use PARTIAL row type in bank upload',
-    '   - Multiple payments on same bill = installments, all go as PARTIAL',
+    '3. CARRY FORWARD SYSTEM (APP AUTOMATICALLY KARTA HAI)',
+    '   - Jab kisi bill pe payment > outstanding → excess credit next bill mein automatically jaati hai',
+    '   - Yeh APP ka kaam hai — AI/upload file mein carry forward manually calculate ya split MAT KARNA',
+    '   - Bills bill-number order mein sort hoti hain carry forward ke liye',
+    '   - Opening balance bhi carry forward system mein include hota hai',
     '',
-    '4. REBATE RULE',
-    '   - Tolerance: 2% of single bill amount',
-    '   - If payment is short by ≤2% → treat as REBATE (write off)',
-    '   - For gross payments → apply tolerance on gross total',
-    '   - Journal entry: Dr Party A/c, Cr Rebate Allowed A/c',
+    '4. GROSS PAYMENT RULE (IS_GROSS = YES)',
+    '   - Agar ek payment mein multiple bills hain → GROSS payment hai',
+    '   - HEADER row mein total gross amount, DETAIL row mein har bill ka amount',
+    '   - Gross amount sirf likhe hue bills mein distribute karo',
+    '   - Kisi unlisted bill pe balance forward MAT KARO',
     '',
-    '5. INTEREST RULE',
-    '   - Tolerance: 5% of single bill amount',
-    '   - If payment exceeds bill by ≤5% → treat as INTEREST EARNED',
-    '   - Journal entry: Dr Party A/c, Cr Interest Received A/c',
+    '5. INSTALLMENT / PARTIAL PAYMENT RULE',
+    '   - Agar REMARKS mein INSTALLMENT likha ho → partial payment hai',
+    '   - Bank upload mein PARTIAL row type use karo',
+    '   - Ek bill pe multiple payments = installments, sab PARTIAL jayenge',
     '',
-    '6. CHEQUE NUMBER FORMAT',
-    '   - Zero-pad to minimum 6 digits: 178 → 000178, 13224 → 013224',
-    '   - Numbers ≥6 digits kept as-is: 524857 → 524857',
+    '6. REBATE RULE',
+    '   - Tolerance: bill amount ka 2%',
+    '   - Payment bill se ≤2% kam ho → REBATE treat karo (write off)',
+    '   - Gross payments ke liye gross total par tolerance apply karo',
     '',
-    '7. RECEIPT NO.',
-    '   - Use exactly as shown in FINAL_PAYMENTS sheet',
-    '   - Do not modify or generate receipt numbers',
+    '7. INTEREST RULE',
+    '   - Tolerance: bill amount ka 5%',
+    '   - Payment bill se ≤5% zyada ho → INTEREST EARNED treat karo',
+    '   - Agar zyada ho (>5%) → SINGLE payment mein NET_AMT mein hi likhna hai, carry forward hoga',
     '',
-    '8. REMARKS FIELD',
-    '   - Copy EXACTLY from FINAL_PAYMENTS sheet — do not change or generate',
-    '   - For DETAIL rows: write "X Bills linked with GROSS" (X = number of bills)',
+    '8. CHEQUE NUMBER FORMAT',
+    '   - Minimum 6 digits mein zero-pad karo: 178 → 000178, 13224 → 013224',
+    '   - 6 ya zyada digits ho toh as-is rakho: 524857 → 524857',
     '',
-    '9. SKIP PARTIES',
-    '   - Skip parties with: duplicate rows, advance >5%, UNMATCHED status',
-    '   - List skipped parties separately with reason',
+    '9. RECEIPT NO.',
+    '   - Exactly FINAL_PAYMENTS sheet se copy karo',
+    '   - Modify ya generate MAT KARNA',
     '',
-    '10. DO NOT MIX BILLS',
-    '    - If payment A is for Bill 101, it cannot be applied to Bill 102',
-    '    - Even if Bill 101 is overpaid, excess does NOT go to Bill 102',
+    '10. REMARKS FIELD',
+    '    - FINAL_PAYMENTS sheet se exactly copy karo — change ya generate MAT KARNA',
+    '    - DETAIL rows ke liye: "X Bills linked with GROSS" likhna (X = bill count)',
     '',
-    '== BANK UPLOAD FORMAT (HEADER ROW FOR GROSS) ==',
-    'ROW_TYPE | DATE | PARTY_NAME | BILL_NO | PAYMENT_MODE | CHEQUE_NO | RECEIPT_NO | GROSS_AMT | NET_AMT | REBATE | INTEREST | REMARKS',
-    'HEADER   | date | party      |         | mode         | cheque    | receipt    | total_amt |         |        |          | remarks from payment sheet',
-    'DETAIL   | date | party      | bill_no | mode         |           |            |           | net_amt | rebate | interest | X Bills linked with GROSS',
-    'SINGLE   | date | party      | bill_no | mode         | cheque    | receipt    |           | net_amt | rebate | interest | remarks from payment sheet',
-    'PARTIAL  | date | party      | bill_no | mode         | cheque    | receipt    |           | net_amt |        |          | remarks from payment sheet',
+    '11. SKIP PARTIES',
+    '    - Duplicate rows, advance >5%, UNMATCHED status wale parties skip karo',
+    '    - Skipped parties alag list mein reason ke saath batao',
+    '',
+    '12. PAYMENT AMOUNT INTEGRITY — GOLDEN RULE',
+    '    - Jo amount party ne bheja, WAHI amount upload file mein likhna hai',
+    '    - App kabhi payment amount change nahi karti — sirf bill ke against adjust karti hai',
+    '    - Agar bill outstanding ₹50,000 hai aur payment ₹2,00,000 aaya → NET_AMT = 200000',
+    '    - Baaki ₹1,50,000 app khud next bills pe carry karega',
+    '',
+    '== BANK UPLOAD FORMAT ==',
+    'ROW_TYPE | DATE       | PARTY_NAME | BILL_NO | PAYMENT_MODE | CHEQUE_NO | RECEIPT_NO | GROSS_AMT | NET_AMT | REBATE | INTEREST | REMARKS',
+    'HEADER   | DD/MM/YYYY | party name |         | NEFT/RTGS    | cheque    | receipt    | total_amt |         |        |          | remarks',
+    'DETAIL   | DD/MM/YYYY | party name | bill_no | (blank)      |           |            |           | net_amt | rebate | interest | X Bills linked with GROSS',
+    'SINGLE   | DD/MM/YYYY | party name | bill_no | NEFT/UPI     | cheque    | receipt    |           | net_amt | rebate | interest | remarks',
+    'PARTIAL  | DD/MM/YYYY | party name | bill_no | NEFT/UPI     | cheque    | receipt    |           | net_amt |        |          | remarks',
+    '',
+    '== SINGLE PAYMENT EXAMPLE (CORRECT) ==',
+    'Party ne Bill 196 ke liye ₹2,00,000 bheja (bill outstanding ₹40,623 hai):',
+    'SINGLE | 23/05/2025 | HADOTI ENTERPRISES | 196 | NEFT | | | | 200000 | | | ',
+    '→ App ₹40,623 Bill 196 pe apply karega, ₹1,59,377 next bill ka credit banega',
+    '',
+    '== SINGLE PAYMENT EXAMPLE (GALAT — YEH MAT KARO) ==',
+    'SINGLE | 23/05/2025 | HADOTI ENTERPRISES | 196 | NEFT | | | | 40623 | | |  ← GALAT',
+    'SINGLE | 23/05/2025 | HADOTI ENTERPRISES | 200 | NEFT | | | | 159377 | | |  ← GALAT',
+    '→ Payment divide karna BILKUL GALAT HAI',
   ].join('\n');
 
   var defaultFormatRules = [
@@ -19340,6 +19370,11 @@ function pgAIRules() {
     var cur_perm = localStorage.getItem(PERMANENT_RULES_KEY)||defaultPermanentRules;
     var cur_fmt  = localStorage.getItem(FORMAT_RULES_KEY)||defaultFormatRules;
     var fullPrompt = 'You are helping me with data import for my cashew trading business app (CashewPro).\n\n'+
+      '⚠️ CRITICAL RULE — SINGLE PAYMENT:\n'+
+      'SINGLE payment mein NET_AMT = party ne jo actual amount bheja woh likhna hai.\n'+
+      'Chahe woh amount bill ki outstanding se zyada ya kam ho.\n'+
+      'App khud carry forward system se next bill pe excess adjust karti hai.\n'+
+      'Payment amount kabhi split ya divide mat karna — ek bill ke liye ek row, ek amount.\n\n'+
       cur_perm+'\n\n'+cur_fmt+'\n\n'+
       '== APP CONTEXT ==\n'+
       'Company: '+(cfg.company||'Jai Shree Cashew Industries')+'\n'+
