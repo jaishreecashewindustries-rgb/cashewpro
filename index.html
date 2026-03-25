@@ -1489,6 +1489,9 @@ function _buildPaymentIndex() {
 // Excess (payment > bill outstanding) carry forward hoti hai NEXT bill ke liye as credit.
 // Payment amount kabhi divide ya split nahi hoti — jo amount upload ki woh wahi rahti hai.
 function getPartyCarryForward(party) {
+  // Ensure payment/advance indexes are built before we use them
+  if (!_paymentIndex) _buildPaymentIndex();
+
   // Party ke sab bills date-wise ascending order mein
   var partyBills = bills.filter(function(b) { return b.party === party; })
     .sort(function(a, b) {
@@ -5378,10 +5381,11 @@ function openPhoneBook() {
 function exportDueExcel() {
   var data = bills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b) {
     var s = getBillStatus(b);
-    return { Date:b.date, Party:b.party, Broker:b.broker,
-             Grade:(b.rows||[]).map(function(r){return r.grade;}).join(', '),
-             BillAmt:b.netAmt, Received:s.recv, Balance:s.bal,
-             Days:Math.floor((new Date()-new Date(b.date))/86400000) };
+    return { 'Bill No':b.billNo||'', Date:b.date, Party:b.party, Broker:b.broker||'',
+             Grade:(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'',
+             BillAmt:b.netAmt, Received:s.recv, Balance:s.bal, Status:s.status.toUpperCase(),
+             Days:Math.floor((new Date()-new Date(b.date))/86400000),
+             Remarks:b.remarks||'' };
   });
   var ws = XLSX.utils.json_to_sheet(data);
   var wb = XLSX.utils.book_new();
@@ -14449,25 +14453,27 @@ function buildBackupData() {
       timestamp: ts,
       label:     (cfg.company||'CashewPro')+' Backup '+today()+' '+pad(now.getHours())+':'+pad(now.getMinutes()),
       counts: {
-        bills:     bills.length,
-        payments:  payments.length,
-        cheques:   cheques.length,
-        advances:  advances.length,
-        expenses:  expenses.length,
-        returns:   returns_.length,
-        purchases: purchases.length,
-        suspense:  suspense.length,
+        bills:         bills.length,
+        payments:      payments.length,
+        cheques:       cheques.length,
+        advances:      advances.length,
+        expenses:      expenses.length,
+        returns:       returns_.length,
+        purchases:     purchases.length,
+        suspense:      suspense.length,
+        grossPayments: (grossPayments||[]).length,
       }
     },
-    bills:     bills,
-    payments:  payments,
-    cheques:   cheques,
-    advances:  advances,
-    expenses:  expenses,
-    returns:   returns_,
-    purchases: purchases,
-    suspense:  suspense,
-    settings:  cfg,
+    bills:         bills,
+    payments:      payments,
+    cheques:       cheques,
+    advances:      advances,
+    expenses:      expenses,
+    returns:       returns_,
+    purchases:     purchases,
+    suspense:      suspense,
+    grossPayments: grossPayments || [],
+    settings:      cfg,
   };
 }
 
@@ -14739,11 +14745,12 @@ function restoreFromJSON(file) {
 
     var meta = data._meta||{};
     var backupDate = meta.timestamp ? meta.timestamp.replace('T',' ').substring(0,16) : 'Unknown date';
-    var backupBills    = (data.bills||[]).length;
-    var backupPayments = (data.payments||[]).length;
-    var backupAdvances = (data.advances||[]).length;
-    var currentBills   = bills.length;
-    var currentPayments= payments.length;
+    var backupBills        = (data.bills||[]).length;
+    var backupPayments     = (data.payments||[]).length;
+    var backupAdvances     = (data.advances||[]).length;
+    var backupGrossPayments= (data.grossPayments||[]).length;
+    var currentBills       = bills.length;
+    var currentPayments    = payments.length;
 
     // Show clear preview dialog
     var previewMsg =
@@ -14755,9 +14762,10 @@ function restoreFromJSON(file) {
       '  Date    : '+backupDate+'\n'+
       '  Company : '+(meta.company||'—')+'\n\n'+
       'BACKUP CONTAINS:\n'+
-      '  Bills    : '+backupBills+'\n'+
-      '  Payments : '+backupPayments+'\n'+
-      '  Advances : '+backupAdvances+'\n\n'+
+      '  Bills         : '+backupBills+'\n'+
+      '  Payments      : '+backupPayments+'\n'+
+      '  Gross Payments: '+backupGrossPayments+'\n'+
+      '  Advances      : '+backupAdvances+'\n\n'+
       'CURRENT DATA (will be replaced):\n'+
       '  Bills    : '+currentBills+'\n'+
       '  Payments : '+currentPayments+'\n\n'+
@@ -14773,14 +14781,15 @@ function restoreFromJSON(file) {
 
     setTimeout(function(){
       saveUndo('Before Restore');
-      bills     = data.bills     || [];
-      payments  = data.payments  || [];
-      cheques   = data.cheques   || [];
-      advances  = data.advances  || [];
-      expenses  = data.expenses  || [];
-      returns_  = data.returns   || data.returns_ || [];
-      purchases = data.purchases || [];
-      suspense  = data.suspense  || [];
+      bills         = data.bills         || [];
+      payments      = data.payments      || [];
+      cheques       = data.cheques       || [];
+      advances      = data.advances      || [];
+      expenses      = data.expenses      || [];
+      returns_      = data.returns       || data.returns_ || [];
+      purchases     = data.purchases     || [];
+      suspense      = data.suspense      || [];
+      grossPayments = data.grossPayments || [];
       if(data.settings) { Object.assign(cfg, data.settings); DB.setObj('settings',cfg); }
 
       // Save directly to Firestore (bypass localStorage size limit)
@@ -14796,13 +14805,15 @@ function restoreFromJSON(file) {
       DB.set('cheques',cheques); DB.set('advances',advances);
       DB.set('expenses',expenses); DB.set('returns',returns_);
       DB.set('purchases',purchases); DB.set('suspense',suspense);
+      DB.set('grossPayments',grossPayments);
       saveDirectFS('bills', bills); saveDirectFS('payments', payments);
       saveDirectFS('cheques', cheques); saveDirectFS('advances', advances);
       saveDirectFS('expenses', expenses); saveDirectFS('returns', returns_);
       saveDirectFS('purchases', purchases); saveDirectFS('suspense', suspense);
+      saveDirectFS('grossPayments', grossPayments);
 
       saveBackupToHistory('Restored from: '+(meta.label||file.name||'backup'));
-      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length);
+      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length+', Gross Payments: '+grossPayments.length);
       refresh();
     }, 1500);
   };
