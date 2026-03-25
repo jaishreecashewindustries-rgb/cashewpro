@@ -19436,6 +19436,8 @@ function pgAIRules() {
   });
   buGB.appendChild(buPre);buGB.appendChild(copyBuBtn);
   buGuideCard.appendChild(buGB);wrap.appendChild(buGuideCard);
+
+  function makeSection(title, storageKey, content, isFormat) {
     var card = document.createElement('div');
     card.className = 'card';
     card.style.marginBottom = '14px';
