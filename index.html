@@ -1518,6 +1518,8 @@ function getPartyCarryForward(party) {
     var directRebInt = bPays.reduce(function(s, p) {
       return s + (p.rebate || 0) + (p.interest || 0);
     }, 0);
+    // Interest alag nikalo — yeh is bill ka charge tha, carry forward mein count nahi hona chahiye
+    var directInterest = bPays.reduce(function(s, p) { return s + (p.interest || 0); }, 0);
     // Linked advances
     var bAdv = _advanceIndex[b.id] || [];
     var linkedAdv = bAdv.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
@@ -1528,11 +1530,12 @@ function getPartyCarryForward(party) {
     // Bill ki total settlement = cash + rebate/interest + advances + carry forward credit
     var totalForClearance = directCash + directRebInt + linkedAdv + runningCredit;
     // Carry forward ke liye sirf actual cash + advances count karein (rebate/interest nahi)
-    var totalCashForCarry = directCash + linkedAdv + runningCredit;
+    // Interest bhi minus karo — interest is bill ka payment tha, next bill ke liye credit nahi
+    var totalCashForCarry = directCash + linkedAdv + runningCredit - directInterest;
     var billAmt = b.netAmt || 0;
 
     if (totalForClearance >= billAmt - 0.5) {
-      // Bill poora clear — sirf actual cash excess carry forward hota hai
+      // Bill poora clear — sirf actual cash excess (interest minus karke) carry forward hota hai
       // Rebate/interest se jo bill settle hua woh carry forward mein count nahi
       runningCredit = Math.max(0, totalCashForCarry - billAmt);
     } else {
