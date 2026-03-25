@@ -19166,6 +19166,25 @@ function pgAIRules() {
     '    - Agar bill outstanding ₹50,000 hai aur payment ₹2,00,000 aaya → NET_AMT = 200000',
     '    - Baaki ₹1,50,000 app khud next bills pe carry karega',
     '',
+    '13. PAYMENT UPLOAD FIFO RULE — GROSS GROUPS',
+    '    - Multiple HEADER groups mein same bill REPEAT nahi hoga',
+    '    - Bills FIFO order mein clear hoti hain: pehle oldest bill, phir next',
+    '    - HEADER GROSS AMT = us group ke saare DETAIL NET AMTs ka exact sum',
+    '    - REBATE case (party ne kam diya): NET = payment portion, REBATE = bill - payment',
+    '    - INTEREST case (party ne zyada diya): NET = payment, INTEREST = payment - principal',
+    '    - GALAT: Har header group mein same bills repeat karna',
+    '    - SAHI: Bills sequentially clear karo across groups',
+    '',
+    '14. BANK STATEMENT UPLOAD RULES',
+    '    - 3 files chahiye: ICICI PDF + DueList(Date,Party,Broker,Grade,BillAmt,Received,Balance,Days) + PartyMaster(PARTY_NAME,DELIVERY_STATION,BROKER)',
+    '    - Sirf CR (Credit/Deposit) transactions process karo',
+    '    - Skip: Internal transfers (JAISHREEAGRO, PANSARI ENTERPRISES), loan dues, charges',
+    '    - Party match: bank remarks se naam extract karo, fuzzy match karo DueList/PartyMaster se',
+    '    - CLG/ entries = CHEQUE mode, cheque number remarks mein hota hai',
+    '    - NEFT/RTGS/IMPS/UPI/CASH mode remarks se detect karo',
+    '    - Output: same 13-column Payment Upload format, SINGLE rows',
+    '    - Unmatched transactions alag sheet mein list karo with reasons',
+    '',
     '== BANK UPLOAD FORMAT ==',
     'ROW_TYPE | DATE       | PARTY_NAME | BILL_NO | PAYMENT_MODE | CHEQUE_NO | RECEIPT_NO | GROSS_AMT | NET_AMT | REBATE | INTEREST | REMARKS',
     'HEADER   | DD/MM/YYYY | party name |         | NEFT/RTGS    | cheque    | receipt    | total_amt |         |        |          | remarks',
@@ -19193,14 +19212,77 @@ function pgAIRules() {
     'Bill No: numeric, sequential',
     'Amount = Taxable + CGST + SGST + Bardhana + Round Off',
     '',
-    '-- PAYMENT/RECEIPT FILE FORMAT (FINAL_PAYMENTS) --',
+    '-- PAYMENT UPLOAD FILE FORMAT (CashewPro Bank Upload) --',
+    '13 Columns: ROW_TYPE | DATE | PARTY NAME | BILL NO | PAYMENT MODE | CHEQUE NO | RECEIPT NO | GROSS AMT | NET AMT | REBATE | INTEREST | REMARKS | GROSS ID',
+    '',
+    'ROW TYPES:',
+    '  HEADER  = Gross payment row. Fill: DATE, PARTY NAME, PAYMENT MODE, CHEQUE NO, RECEIPT NO, GROSS AMT, GROSS ID. Blank: BILL NO, NET AMT, REBATE, INTEREST.',
+    '  DETAIL  = Bill under a gross group. Fill: DATE, PARTY NAME, BILL NO, NET AMT, REBATE, INTEREST, GROSS ID. Blank: GROSS AMT.',
+    '  SINGLE  = Direct single bill payment. Fill: DATE, PARTY NAME, BILL NO, PAYMENT MODE, CHEQUE NO, RECEIPT NO, NET AMT, REBATE, INTEREST.',
+    '',
+    'FIFO RULE (MOST IMPORTANT):',
+    '  - Jab ek party ke multiple HEADERs hain (installments), SAME bill number REPEAT nahi hona chahiye across groups.',
+    '  - Correct tarika: Bills sequentially clear karo — Bill 1 pehle, phir Bill 2, phir Bill 3.',
+    '  - Example: 4 headers (150000+150000+100000+76435=476435) aur 3 bills (9861+311048+155526=476435):',
+    '    Header 1 (150000): DETAIL Bill 60 net=9861, DETAIL Bill 95 net=140139',
+    '    Header 2 (150000): DETAIL Bill 95 net=150000',
+    '    Header 3 (100000): DETAIL Bill 95 net=20909, DETAIL Bill 136 net=79091',
+    '    Header 4 (76435):  DETAIL Bill 136 net=76435',
+    '  - GALAT: Har header mein same 3 bills repeat karna (9861+311048+155526 har baar)',
+    '',
+    'REBATE RULE (party ne kam diya):',
+    '  - GROSS < sum of bills = rebate case',
+    '  - DETAIL NET AMT = payment portion, REBATE = bill portion - payment portion',
+    '  - Formula: NET + REBATE = Bill Amount',
+    '  - GROSS AMT of HEADER = sum of all DETAIL NET AMTs (always)',
+    '',
+    'INTEREST RULE (party ne zyada diya):',
+    '  - GROSS > sum of bills = interest case',
+    '  - DETAIL NET AMT = payment portion (including interest), INTEREST = payment - bill principal',
+    '  - Formula: NET - INTEREST = Bill Principal',
+    '  - GROSS AMT of HEADER = sum of all DETAIL NET AMTs (always)',
+    '',
+    'VALIDATION:',
+    '  - HEADER GROSS AMT must always equal sum of linked DETAIL NET AMTs exactly',
+    '  - Include a "Changes Summary" sheet listing all modified groups',
+    '  - Font: Aptos Narrow 11pt, dark blue headers (#1F3864), alternating rows',
+    '',
+    '-- BANK STATEMENT UPLOAD (ICICI + DueList + PartyMaster) --',
+    '',
+    'INPUT FILES REQUIRED (3):',
+    '  1. ICICI Bank Statement PDF',
+    '     - Only process CR (Credit/Deposit) transactions',
+    '     - Skip: Internal transfers (JAISHREEAGRO, PANSARI ENTERPRISES), loan payments, UPI without party name, charges/fees',
+    '',
+    '  2. DueList Excel',
+    '     Columns: Date | Party | Broker | Grade | BillAmt | Received | Balance | Days',
+    '     - Use Balance column to identify outstanding bills',
+    '     - Match bank CR party name to DueList Party column via fuzzy match',
+    '',
+    '  3. PartyMaster Excel',
+    '     Columns: PARTY_NAME | DELIVERY_STATION | BROKER | PARTY_GSTIN | NOTES',
+    '     - Use for party name standardization',
+    '',
+    'MATCHING RULES:',
+    '  - Extract party name from bank transaction remarks (after NEFT/RTGS/IMPS/CLG)',
+    '  - Fuzzy match: ignore spaces, common words (TRADERS, ENTERPRISES, COMPANY, STORE, BHANDAR)',
+    '  - CLG/ entries = CHEQUE payment, extract cheque number from remarks',
+    '  - IMPS/MMT = IMPS mode | NEFT = NEFT | RTGS = RTGS | UPI/ = UPI | BY CASH = CASH',
+    '',
+    'OUTPUT:',
+    '  - Same 13-column Payment Upload format above',
+    '  - SINGLE row per matched transaction',
+    '  - Unmatched transactions listed separately in "Unmatched" sheet',
+    '  - Summary sheet with match stats',
+    '',
+    '-- PAYMENT/RECEIPT FILE FORMAT (FINAL_PAYMENTS — old format) --',
     'Columns: DATE | PARTY NAME | CREDIT (\u20b9) | MODE | CHEQUE NO | BILL NO | IS_GROSS | REMARKS | RECEIPT NO',
     'DATE format: DD-MM-YYYY',
     'IS_GROSS: YES or NO',
     'Multiple bill nos: comma separated (e.g. 23, 52)',
     'REMARKS: as-is (e.g. GROSS:441646, INSTALLMENT|GROSS_GROUP:125000)',
     '',
-    '-- BANK STATEMENT FORMAT --',
+    '-- BANK STATEMENT FORMAT (raw) --',
     'Columns: Date | Description/Narration | Debit | Credit | Balance',
     'Date format: DD/MM/YYYY or DD-MM-YYYY',
     'Match payment to party by narration/UTR/cheque number',
@@ -19296,7 +19378,64 @@ function pgAIRules() {
   biGB.appendChild(guidePre);biGB.appendChild(copyGuideBtn);
   biGuideCard.appendChild(biGB);wrap.appendChild(biGuideCard);
 
-  function makeSection(title, storageKey, content, isFormat) {
+  // ─── Bank Upload Guide Card ───
+  var buGuideCard=document.createElement('div');buGuideCard.className='card';buGuideCard.style.marginBottom='14px';
+  var buGH=document.createElement('div');buGH.className='card-head';
+  buGH.innerHTML='<h4 style="color:#1d4ed8">🏦 Bank Statement Upload — AI Guide</h4>'+
+    '<span style="font-size:11px;color:#6b7280">ICICI PDF + DueList + PartyMaster → Payment Upload file</span>';
+  buGuideCard.appendChild(buGH);
+  var buGB=document.createElement('div');buGB.style.padding='12px 16px';
+
+  var buGuideText=
+    '=== CashewPro — BANK STATEMENT TO PAYMENT UPLOAD GUIDE ===\n\n'+
+    'INPUT FILES (3 required):\n'+
+    '1. ICICI Bank Statement PDF (CR transactions only)\n'+
+    '2. DueList Excel: Date | Party | Broker | Grade | BillAmt | Received | Balance | Days\n'+
+    '3. PartyMaster Excel: PARTY_NAME | DELIVERY_STATION | BROKER\n\n'+
+    'OUTPUT: 13-column Payment Upload Excel file\n'+
+    'Columns: ROW_TYPE | DATE | PARTY NAME | BILL NO | PAYMENT MODE | CHEQUE NO | RECEIPT NO | GROSS AMT | NET AMT | REBATE | INTEREST | REMARKS | GROSS ID\n\n'+
+    'STEP 1 — EXTRACT CR TRANSACTIONS FROM PDF:\n'+
+    '  - Only take Deposit/Credit rows\n'+
+    '  - Skip: JAISHREEAGRO (internal), PANSARI ENTERPRISES (internal), loan dues, charges, UPI without party name\n\n'+
+    'STEP 2 — DETECT PAYMENT MODE:\n'+
+    '  - NEFT... → NEFT\n'+
+    '  - RTGS... → RTGS\n'+
+    '  - CLG/PARTYNAME/CHEQUENO/... → CHEQUE (extract cheque number)\n'+
+    '  - MMT/IMPS/... → IMPS\n'+
+    '  - UPI/... → UPI\n'+
+    '  - BY CASH → CASH\n\n'+
+    'STEP 3 — MATCH TO DueList PARTY:\n'+
+    '  - Extract party name from bank remarks\n'+
+    '  - Fuzzy match: normalize spaces, ignore TRADERS/ENTERPRISES/COMPANY/STORE/BHANDAR\n'+
+    '  - Use PartyMaster for exact name standardization\n'+
+    '  - If no match → mark as UNMATCHED in separate sheet\n\n'+
+    'STEP 4 — BUILD PAYMENT ROWS:\n'+
+    '  - Each matched CR = one SINGLE row\n'+
+    '  - DATE = transaction date (DD/MM/YYYY)\n'+
+    '  - PARTY NAME = matched party from PartyMaster\n'+
+    '  - BILL NO = leave blank (app will match via DueList)\n'+
+    '  - PAYMENT MODE = detected from Step 2\n'+
+    '  - CHEQUE NO = from CLG entries\n'+
+    '  - NET AMT = CR amount\n'+
+    '  - REBATE/INTEREST = 0 (will be adjusted after matching)\n\n'+
+    'STEP 5 — OUTPUT SHEETS:\n'+
+    '  1. Payment Upload (main 13-col sheet)\n'+
+    '  2. Unmatched (CR transactions with no party match)\n'+
+    '  3. Skipped (internal/irrelevant transactions)\n'+
+    '  4. Summary (total CR, matched, unmatched counts)\n\n'+
+    'IMPORTANT: Do NOT split payments across bills. Upload as-is, app handles allocation.';
+
+  var buPre=document.createElement('pre');
+  buPre.style.cssText='white-space:pre-wrap;font-size:11px;font-family:monospace;line-height:1.6;color:#374151;background:#f9fafb;padding:12px;border-radius:6px;border:1px solid #e5e7eb;max-height:280px;overflow-y:auto;margin:0 0 10px 0';
+  buPre.textContent=buGuideText;
+  var copyBuBtn=el('button',{cls:'btn btn-green btn-sm',text:'📋 Copy Bank Upload Guide'});
+  copyBuBtn.addEventListener('click',function(){
+    navigator.clipboard.writeText(buGuideText).then(function(){toast('✅ Bank Upload Guide copied!');}).catch(function(){
+      var ta2=document.createElement('textarea');ta2.value=buGuideText;document.body.appendChild(ta2);ta2.select();document.execCommand('copy');document.body.removeChild(ta2);toast('✅ Copied!');
+    });
+  });
+  buGB.appendChild(buPre);buGB.appendChild(copyBuBtn);
+  buGuideCard.appendChild(buGB);wrap.appendChild(buGuideCard);
     var card = document.createElement('div');
     card.className = 'card';
     card.style.marginBottom = '14px';
