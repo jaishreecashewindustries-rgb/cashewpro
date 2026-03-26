@@ -3661,6 +3661,17 @@ function pgAllBills() {
   _colToggleBtn.style.cssText+='background:#f5f3ff;border-color:#c4b5fd;color:#7c3aed;font-weight:700';
   _colToggleBtn.addEventListener('click',function(){ openColCustomizeDialog(); });
   toolbar.appendChild(_colToggleBtn);
+  var _resetWidthBtn=el('button',{cls:'btn btn-outline btn-sm',text:'↔ Reset Widths'});
+  _resetWidthBtn.title='Column widths reset karo (drag karke resize ho sakti hai)';
+  _resetWidthBtn.style.cssText+='background:#fff7ed;border-color:#fed7aa;color:#c2410c;font-size:11px';
+  _resetWidthBtn.addEventListener('click',function(){
+    try{localStorage.removeItem('_abColWidths');}catch(e){}
+    _abColWidths={};
+    // Remove inline width from all th in thead
+    if(thead){thead.querySelectorAll('th').forEach(function(th){th.style.minWidth='';th.style.maxWidth='';th.style.width='';});}
+    toast('Column widths reset!');
+  });
+  toolbar.appendChild(_resetWidthBtn);
 
   var _custExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'📊 Export Excel'});
   _custExportBtn.style.cssText+='background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700';
@@ -3697,6 +3708,26 @@ function pgAllBills() {
   tbl.appendChild(thead);tbl.appendChild(tbody);tblWrap.appendChild(tbl);tblOuter.appendChild(tblWrap);
 
   // Load column prefs from localStorage
+  // ── Column width persistence ──
+  var _abColWidths={};
+  try{_abColWidths=JSON.parse(localStorage.getItem('_abColWidths')||'{}');}catch(e){}
+  function _saveColWidth(id,w){_abColWidths[id]=w;try{localStorage.setItem('_abColWidths',JSON.stringify(_abColWidths));}catch(e){}}
+  function _addResizeHandle(th, colId){
+    var resizer=document.createElement('div');
+    resizer.style.cssText='position:absolute;right:0;top:0;height:100%;width:6px;cursor:col-resize;z-index:5;background:transparent;user-select:none;flex-shrink:0';
+    resizer.title='Drag to resize';
+    resizer.addEventListener('mousedown',function(e){
+      e.preventDefault();e.stopPropagation();
+      var startX=e.clientX,startW=th.offsetWidth;
+      var onMove=function(ev){var w=Math.max(40,startW+(ev.clientX-startX));th.style.minWidth=w+'px';th.style.maxWidth=w+'px';th.style.width=w+'px';};
+      var onUp=function(ev){var w=Math.max(40,startW+(ev.clientX-startX));_saveColWidth(colId,w);document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);};
+      document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);
+    });
+    th.style.position='relative';th.style.overflow='hidden';
+    if(_abColWidths[colId]){th.style.minWidth=_abColWidths[colId]+'px';th.style.maxWidth=_abColWidths[colId]+'px';th.style.width=_abColWidths[colId]+'px';}
+    th.appendChild(resizer);
+  }
+
   var _abColPrefs2 = null;
   try { _abColPrefs2 = JSON.parse(localStorage.getItem('_abColPrefs') || 'null'); } catch(e){}
   var _cp = _abColPrefs2 || {};
@@ -3790,6 +3821,7 @@ function pgAllBills() {
           }
         })(c);
       }
+      _addResizeHandle(th, c.id||c.k||c.l);
       htr.appendChild(th);
     });
     thead.appendChild(htr);
@@ -5315,9 +5347,103 @@ function pgDueList() {
   }
   function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);}
   rebuildAll();
+
+  // ── ADVANCE BALANCE SECTION (parties with no due bills but have carry-forward credit) ──
+  var advSection=document.createElement('div');
+  advSection.style.cssText='margin-top:0;border-top:2px solid #bfdbfe;';
+  (function buildAdvSection(){
+    advSection.innerHTML='';
+    // Find all parties who have carry-forward excess (overpaid bills) OR unlinked advances
+    var advParties=[];
+    var allPartyNames=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
+    allPartyNames.forEach(function(party){
+      // Unlinked advances
+      var unlinkedAdv=advances.filter(function(a){return a.party===party&&!a.linked;});
+      var advAmt=unlinkedAdv.reduce(function(s,a){return s+(a.amount||0);},0);
+      // Carry forward excess from paid bills
+      var partyBills=bills.filter(function(b){return b.party===party;}).sort(function(a,b2){return parseInt(a.billNo||0)-parseInt(b2.billNo||0);});
+      var excessAmt=0;
+      var cfMap={};
+      var carryFwd=0;
+      partyBills.forEach(function(b){
+        var billPayments=payments.filter(function(p){return p.billId===b.id&&(!p.status||p.status!=='REVERSED');});
+        var cash=billPayments.reduce(function(s,p){return s+(p.amount||0);},0);
+        var reb=billPayments.reduce(function(s,p){return s+(p.rebate||0);},0);
+        var paidNoInt=cash+reb+carryFwd;
+        var billAmt=b.netAmt||0;
+        if(paidNoInt>billAmt+0.5){
+          var excess2=paidNoInt-billAmt;
+          excessAmt+=excess2;
+          carryFwd=excess2;
+        } else {
+          carryFwd=0;
+        }
+      });
+      var totalCredit=advAmt+excessAmt;
+      // Only show if: has credit AND no pending due bills
+      var hasDueBills=partyBills.some(function(b){return getBillStatus(b).status!=='paid';});
+      if(totalCredit>0.5&&!hasDueBills){
+        advParties.push({party:party,advAmt:advAmt,excessAmt:excessAmt,totalCredit:totalCredit,unlinkedAdv:unlinkedAdv,bills:partyBills});
+      }
+    });
+    if(!advParties.length)return;
+
+    var advHdr=document.createElement('div');
+    advHdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:linear-gradient(90deg,#eff6ff,#f0fdf4);border-bottom:1px solid #bfdbfe';
+    advHdr.innerHTML='<div style="display:flex;align-items:center;gap:8px">'+
+      '<span style="font-size:16px">💰</span>'+
+      '<span style="font-size:13px;font-weight:700;color:#1d4ed8">Advance / Credit Balance Parties</span>'+
+      '<span style="background:#dbeafe;color:#1d4ed8;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:600">'+advParties.length+' parties</span>'+
+      '</div>'+
+      '<span style="font-size:11px;color:#6b7280">Yeh parties fully paid hain — inke paas credit balance hai</span>';
+    advSection.appendChild(advHdr);
+
+    var advTbl=document.createElement('table');
+    advTbl.style.cssText='width:100%;border-collapse:collapse;font-size:12.5px';
+    var advThead=document.createElement('thead');
+    advThead.innerHTML='<tr style="background:#eff6ff">'+
+      ['Party','Total Bills','Last Bill','Advance Amount','Carry-Fwd Credit','Total Credit Balance','Action'].map(function(h){
+        return '<th style="padding:7px 12px;text-align:'+(h==='Party'||h==='Action'?'left':'right')+';font-size:10.5px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid #bfdbfe">'+h+'</th>';
+      }).join('')+'</tr>';
+    advTbl.appendChild(advThead);
+    var advTbody=document.createElement('tbody');
+    advParties.forEach(function(ap,idx){
+      var tr=document.createElement('tr');
+      tr.style.cssText='background:'+(idx%2?'#f0f9ff':'#fff')+';border-bottom:1px solid #e0f2fe';
+      tr.addEventListener('mouseenter',function(){this.style.background='#dbeafe';});
+      tr.addEventListener('mouseleave',function(){this.style.background=idx%2?'#f0f9ff':'#fff';});
+      var lastBill=ap.bills.length?ap.bills[ap.bills.length-1]:null;
+      var td=function(html,right){var d=document.createElement('td');d.style.cssText='padding:8px 12px;'+(right?'text-align:right;font-family:var(--font-mono);':'');d.innerHTML=html;return d;};
+      tr.appendChild(td('<strong>'+ap.party+'</strong>'));
+      tr.appendChild(td(ap.bills.length+'',true));
+      tr.appendChild(td(lastBill?fmtDate(lastBill.date):'-',true));
+      tr.appendChild(td(ap.advAmt>0.5?'<span style="color:#1d4ed8;font-weight:600">₹'+fmt(ap.advAmt)+'</span>':'<span style="color:#9ca3af">-</span>',true));
+      tr.appendChild(td(ap.excessAmt>0.5?'<span style="color:#059669;font-weight:600">₹'+fmt(ap.excessAmt)+'</span>':'<span style="color:#9ca3af">-</span>',true));
+      tr.appendChild(td('<strong style="color:#1d4ed8;font-size:13px">₹'+fmt(ap.totalCredit)+'</strong>',true));
+      var actTd=document.createElement('td');actTd.style.cssText='padding:6px 12px';
+      var viewBtn=el('button',{cls:'btn btn-xs btn-blue',text:'View Ledger'});
+      viewBtn.addEventListener('click',(function(p){return function(){go('party-ledger');if(typeof pgPartyLedger==='function'){pageState.plParty=p;refresh();}else{go('party-ledger');}};})(ap.party));
+      var payNewBtn=el('button',{cls:'btn btn-xs btn-green',text:'New Bill',style:'margin-left:4px'});
+      payNewBtn.addEventListener('click',(function(p){return function(){go('new-bill');setTimeout(function(){var el2=document.getElementById('bf-party');if(el2){el2.value=p;el2.dispatchEvent(new Event('input'));}},100);};})(ap.party));
+      actTd.appendChild(viewBtn);actTd.appendChild(payNewBtn);
+      tr.appendChild(actTd);
+      advTbody.appendChild(tr);
+    });
+    // Total row
+    var totalCredit=advParties.reduce(function(s,ap){return s+ap.totalCredit;},0);
+    var tfoot=document.createElement('tfoot');
+    tfoot.innerHTML='<tr style="background:#dbeafe;font-weight:700;border-top:2px solid #93c5fd">'+
+      '<td style="padding:8px 12px;font-size:12px;color:#1d4ed8">TOTAL ADVANCE CREDIT ('+advParties.length+' parties)</td>'+
+      '<td colspan="4" style="padding:8px 12px"></td>'+
+      '<td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-size:14px;color:#1d4ed8">₹'+fmt(totalCredit)+'</td>'+
+      '<td style="padding:8px 12px"></td></tr>';
+    advTbl.appendChild(advTbody);advTbl.appendChild(tfoot);
+    advSection.appendChild(advTbl);
+  })();
+
   var card=document.createElement('div');card.className='card';card.style.cssText='display:flex;flex-direction:column;min-height:0';
   toolbar.style.cssText+=';position:sticky;top:0;z-index:10;background:#fafafa';
-  card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);
+  card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);card.appendChild(advSection);
   return card;
 }
 
@@ -10805,12 +10931,18 @@ function pgBillImport() {
       if(statusDivRef) statusDivRef.innerHTML='<div style="padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e">⏳ Party resolve: '+(hi+1)+'/'+rawHeaders.length+'</div>';
       var resolved=await resolveImportedPartyAsync(rh._rawParty,rh.station,rh.broker);
       var taxT=0,cgstT=0,sgstT=0;
-      rh.items.forEach(function(it){taxT+=it.taxable;var cg=Math.round(it.taxable*it.gstPct/200*100)/100;cgstT+=cg;sgstT+=cg;});
+      rh.items.forEach(function(it){taxT+=it.taxable;var cg=Math.round(it.taxable*(it.gstPct||5)/200*100)/100;cgstT+=cg;sgstT+=cg;});
+      // Packing/Bardhana par bhi GST lagti hai (same rate as items, default 18% for packing)
+      var packGstPct=18; var packGst=rh.packing?Math.round(rh.packing*packGstPct/200*100)/100:0;
+      // NOTE: agar packing ka GST bill mein already hai, toh double count nahi — use raw fields from header
       var netAmt=Math.round((taxT+cgstT+sgstT+rh.packing+rh.round)*100)/100;
+      // STP: single grade → direct; multi-grade → weighted avg by weight
+      var stpTotalWt=rh.items.reduce(function(s,it){return s+(it.weight||0);},0);
+      var billStp=rh.items.length===1?(rh.items[0].stp||0):(stpTotalWt>0?Math.round(rh.items.reduce(function(s,it){return s+(it.stp||0)*(it.weight||0);},0)/stpTotalWt*100)/100:0);
       var bill={billNo:rh.billNo,date:rh.date,party:resolved.name,_partyMatch:resolved.match,_partyReason:resolved.reason,
         partyGstin:rh.partyGstin,station:rh.station,broker:rh.broker,transport:rh.transport,
         billType:rh.billType,packing:rh.packing,round:rh.round,remarks:rh.remarks,rows:rh.items,
-        taxable:taxT,cgst:cgstT,sgst:sgstT,igst:0,netAmt:netAmt,stp:0,_include:true,_dup:false};
+        taxable:taxT,cgst:cgstT,sgst:sgstT,igst:0,netAmt:netAmt,stp:billStp,_include:true,_dup:false};
       bill._dup=bills.some(function(b){return b.billNo===bill.billNo&&b.party===bill.party;});
       if(bill._dup)bill._include=false;
       if(bill.party&&bill.netAmt>0)rows.push(bill);
