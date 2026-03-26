@@ -3760,6 +3760,13 @@ function pgAllBills() {
     {l:'SGST',       k:'sgst',      fk:'sgst',     num:true,                 id:'sgst',     def:false},
     {l:'Bardhana',   k:'packing',   fk:'packing',  num:true,                 id:'packing',  def:false}
   ];
+  // Apply saved order from Customize dialog
+  var _savedColOrder=null; try{_savedColOrder=JSON.parse(localStorage.getItem('_abColOrder')||'null');}catch(e){}
+  if(_savedColOrder&&_savedColOrder.length){
+    var _ordered=[],_remaining=_allPossibleCols.slice();
+    _savedColOrder.forEach(function(id){var idx=_remaining.findIndex(function(c){return c.id===id;});if(idx>=0){_ordered.push(_remaining.splice(idx,1)[0]);}});
+    _allPossibleCols=_ordered.concat(_remaining);
+  }
   var baseCols = _allPossibleCols.filter(function(c){ return _colOn(c.id, c.def); });
   var payCols=[
     {l:'Pay Date',k:'pd',fk:null,uv:null,num:false,pay:true},
@@ -4046,89 +4053,176 @@ function deleteBill(id) {
 
 // ── Column Customize Dialog for All Bills ──
 function openColCustomizeDialog() {
-  // All possible columns in order
   var allColDefs = [
-    {id:'billNo',    label:'Bill #',          key:'billNo',     default:true},
-    {id:'date',      label:'Date',            key:'date',       default:true},
-    {id:'party',     label:'Party',           key:'party',      default:true},
-    {id:'broker',    label:'Broker',          key:'broker',     default:true},
-    {id:'grade',     label:'Grade',           key:'rows',       default:true},
-    {id:'billType',  label:'Type (Credit/Cash)',key:'billType', default:true},
-    {id:'transport', label:'Transport',       key:'transport',  default:false},
-    {id:'station',   label:'Station',         key:'station',    default:false},
-    {id:'rate',      label:'Rate (₹/kg)',     key:'rate',       default:false},
-    {id:'netAmt',    label:'Net Amount',      key:'netAmt',     default:true},
-    {id:'stp',       label:'STP Rate',        key:'stp',        default:true},
-    {id:'remarks',   label:'Price Remarks',   key:'remarks',    default:true},
-    {id:'recv',      label:'Received',        key:'recv',       default:true},
-    {id:'bal',       label:'Balance',         key:'bal',        default:true},
-    {id:'status',    label:'Status',          key:'status',     default:true},
-    {id:'lastMode',  label:'Last Pay Mode',   key:'lastMode',   default:true},
-    {id:'lastChq',   label:'Cheque No',       key:'lastChq',    default:true},
-    {id:'lastRcpt',  label:'Receipt No',      key:'lastRcpt',   default:true},
-    {id:'partyGstin',label:'Party GSTIN',     key:'partyGstin', default:false},
-    {id:'weight',    label:'Weight (kg)',      key:'weight',     default:false},
-    {id:'taxable',   label:'Taxable Value',   key:'taxable',    default:false},
-    {id:'cgst',      label:'CGST',            key:'cgst',       default:false},
-    {id:'sgst',      label:'SGST',            key:'sgst',       default:false},
-    {id:'packing',   label:'Bardhana/Packing',key:'packing',    default:false}
+    {id:'billNo',    label:'Bill #',           default:true},
+    {id:'date',      label:'Date',             default:true},
+    {id:'party',     label:'Party',            default:true},
+    {id:'broker',    label:'Broker',           default:true},
+    {id:'grade',     label:'Grade',            default:true},
+    {id:'billType',  label:'Type (Credit/Cash)',default:true},
+    {id:'transport', label:'Transport',        default:false},
+    {id:'station',   label:'Station',          default:false},
+    {id:'rate',      label:'Rate (₹/kg)',      default:false},
+    {id:'netAmt',    label:'Net Amount',       default:true},
+    {id:'stp',       label:'STP Rate',         default:true},
+    {id:'remarks',   label:'Price Remarks',    default:true},
+    {id:'recv',      label:'Received',         default:true},
+    {id:'bal',       label:'Balance',          default:true},
+    {id:'status',    label:'Status',           default:true},
+    {id:'lastMode',  label:'Last Pay Mode',    default:true},
+    {id:'lastChq',   label:'Cheque No',        default:true},
+    {id:'lastRcpt',  label:'Receipt No',       default:true},
+    {id:'partyGstin',label:'Party GSTIN',      default:false},
+    {id:'weight',    label:'Weight (kg)',      default:false},
+    {id:'taxable',   label:'Taxable Value',    default:false},
+    {id:'cgst',      label:'CGST',             default:false},
+    {id:'sgst',      label:'SGST',             default:false},
+    {id:'packing',   label:'Bardhana/Packing', default:false}
   ];
 
-  // Load saved prefs or use defaults
-  var saved = null;
-  try { saved = JSON.parse(localStorage.getItem('_abColPrefs') || 'null'); } catch(e){}
-  var prefs = saved || {};
+  // Load saved prefs + order
+  var saved=null; try{saved=JSON.parse(localStorage.getItem('_abColPrefs')||'null');}catch(e){}
+  var prefs=saved||{};
+  var savedOrder=null; try{savedOrder=JSON.parse(localStorage.getItem('_abColOrder')||'null');}catch(e){}
+  // Apply saved order to allColDefs
+  if(savedOrder&&savedOrder.length){
+    var orderedDefs=[];
+    savedOrder.forEach(function(id){var d=allColDefs.find(function(x){return x.id===id;});if(d)orderedDefs.push(d);});
+    allColDefs.forEach(function(d){if(orderedDefs.indexOf(d)<0)orderedDefs.push(d);});
+    allColDefs=orderedDefs;
+  }
 
-  var body = document.createElement('div');
-  body.style.cssText = 'font-family:var(--font);min-width:360px;max-width:500px';
+  var body=document.createElement('div');
+  body.style.cssText='font-family:var(--font);width:460px;max-width:100%';
 
-  var hint = document.createElement('div');
-  hint.style.cssText = 'font-size:12px;color:#6b7280;margin-bottom:10px';
-  hint.textContent = 'Columns select karo jo All Bills table mein dikhni chahiye:';
-  body.appendChild(hint);
+  var hintRow=document.createElement('div');
+  hintRow.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px';
+  var hint=document.createElement('div');
+  hint.style.cssText='font-size:12px;color:#6b7280;flex:1';
+  hint.innerHTML='✅ <strong>Tick</strong> = visible &nbsp;|&nbsp; <strong>☰ Drag</strong> = order change karo';
+  hintRow.appendChild(hint);
+  body.appendChild(hintRow);
 
-  var grid = document.createElement('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px';
+  // Drag-reorder list
+  var list=document.createElement('div');
+  list.id='col-order-list';
+  list.style.cssText='display:flex;flex-direction:column;gap:3px;margin-bottom:10px;max-height:360px;overflow-y:auto;padding-right:2px';
 
-  allColDefs.forEach(function(d) {
-    var checked = prefs[d.id] !== undefined ? prefs[d.id] : d.default;
-    var wrap = document.createElement('label');
-    wrap.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#fff;user-select:none';
-    var chk = document.createElement('input');
-    chk.type = 'checkbox';
-    chk.setAttribute('data-colid', d.id);
-    chk.checked = checked;
-    chk.style.cssText = 'width:14px;height:14px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0';
-    var lbl = document.createElement('span'); lbl.textContent = d.label;
-    wrap.appendChild(chk); wrap.appendChild(lbl);
-    wrap.addEventListener('click', function(e){ if(e.target!==chk){chk.checked=!chk.checked;} });
-    grid.appendChild(wrap);
-  });
-  body.appendChild(grid);
+  var dragSrc=null;
 
-  var resetBtn = document.createElement('div');
-  resetBtn.style.cssText = 'text-align:right;margin-bottom:4px';
-  var rb = el('button',{cls:'btn btn-outline btn-sm',text:'Reset to Default'});
-  rb.style.fontSize='11px';
-  rb.addEventListener('click',function(){
-    body.querySelectorAll('[data-colid]').forEach(function(chk){
-      var def = allColDefs.find(function(d){return d.id===chk.getAttribute('data-colid');});
-      if(def) chk.checked = def.default;
+  function buildList(){
+    list.innerHTML='';
+    allColDefs.forEach(function(d,idx){
+      var checked=prefs[d.id]!==undefined?prefs[d.id]:d.default;
+      var row=document.createElement('div');
+      row.setAttribute('data-idx',idx);
+      row.setAttribute('data-colid',d.id);
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;cursor:default;user-select:none;transition:background .1s,box-shadow .1s';
+      row.draggable=true;
+
+      // Drag handle
+      var handle=document.createElement('span');
+      handle.innerHTML='&#9776;';
+      handle.title='Drag to reorder';
+      handle.style.cssText='font-size:14px;color:#9ca3af;cursor:grab;flex-shrink:0;padding:0 2px;line-height:1';
+
+      // Checkbox
+      var chk=document.createElement('input');
+      chk.type='checkbox';
+      chk.setAttribute('data-colid',d.id);
+      chk.checked=checked;
+      chk.style.cssText='width:15px;height:15px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0';
+
+      // Label
+      var lbl=document.createElement('span');
+      lbl.textContent=d.label;
+      lbl.style.cssText='font-size:12.5px;color:#374151;flex:1';
+
+      // Position badge
+      var badge=document.createElement('span');
+      badge.textContent='#'+(idx+1);
+      badge.style.cssText='font-size:10px;color:#9ca3af;font-family:monospace;flex-shrink:0;width:22px;text-align:right';
+
+      row.appendChild(handle);row.appendChild(chk);row.appendChild(lbl);row.appendChild(badge);
+
+      // Click label toggles checkbox
+      lbl.style.cursor='pointer';
+      lbl.addEventListener('click',function(){chk.checked=!chk.checked;});
+
+      // Drag events
+      row.addEventListener('dragstart',function(e){
+        dragSrc=row;
+        row.style.opacity='0.4';row.style.boxShadow='0 4px 12px rgba(0,0,0,.15)';
+        e.dataTransfer.effectAllowed='move';
+      });
+      row.addEventListener('dragend',function(){
+        row.style.opacity='1';row.style.boxShadow='';
+        list.querySelectorAll('[data-colid]').forEach(function(r){r.style.background='#fff';r.style.borderColor='#e5e7eb';});
+      });
+      row.addEventListener('dragover',function(e){
+        e.preventDefault();e.dataTransfer.dropEffect='move';
+        if(row!==dragSrc){row.style.background='#ede9fe';row.style.borderColor='#a78bfa';}
+      });
+      row.addEventListener('dragleave',function(){row.style.background='#fff';row.style.borderColor='#e5e7eb';});
+      row.addEventListener('drop',function(e){
+        e.preventDefault();
+        if(!dragSrc||dragSrc===row)return;
+        var srcIdx=parseInt(dragSrc.getAttribute('data-idx'));
+        var dstIdx=parseInt(row.getAttribute('data-idx'));
+        // Save checkbox states before rebuild
+        var states={};
+        list.querySelectorAll('[data-colid]').forEach(function(r){
+          var c=r.querySelector('input[type=checkbox]');
+          if(c)states[r.getAttribute('data-colid')]=c.checked;
+        });
+        // Reorder allColDefs
+        var moved=allColDefs.splice(srcIdx,1)[0];
+        allColDefs.splice(dstIdx,0,moved);
+        // Update prefs from states
+        Object.keys(states).forEach(function(id){prefs[id]=states[id];});
+        buildList();
+      });
+
+      list.appendChild(row);
     });
+  }
+  buildList();
+  body.appendChild(list);
+
+  // Bottom buttons row
+  var btmRow=document.createElement('div');
+  btmRow.style.cssText='display:flex;gap:6px;justify-content:flex-end;margin-bottom:2px';
+  var selAllBtn=el('button',{cls:'btn btn-outline btn-xs',text:'✅ Select All'});
+  selAllBtn.addEventListener('click',function(){list.querySelectorAll('input[type=checkbox]').forEach(function(c){c.checked=true;});});
+  var selNoneBtn=el('button',{cls:'btn btn-outline btn-xs',text:'☐ Deselect All'});
+  selNoneBtn.addEventListener('click',function(){list.querySelectorAll('input[type=checkbox]').forEach(function(c){c.checked=false;});});
+  var rb=el('button',{cls:'btn btn-outline btn-xs',text:'↺ Reset Default'});
+  rb.style.color='#dc2626';rb.style.borderColor='#fecaca';
+  rb.addEventListener('click',function(){
+    // Reset to original order
+    allColDefs.sort(function(a,b){
+      var defOrder=['billNo','date','party','broker','grade','billType','transport','station','rate','netAmt','stp','remarks','recv','bal','status','lastMode','lastChq','lastRcpt','partyGstin','weight','taxable','cgst','sgst','packing'];
+      return defOrder.indexOf(a.id)-defOrder.indexOf(b.id);
+    });
+    prefs={};
+    buildList();
   });
-  resetBtn.appendChild(rb);
-  body.appendChild(resetBtn);
+  btmRow.appendChild(selAllBtn);btmRow.appendChild(selNoneBtn);btmRow.appendChild(rb);
+  body.appendChild(btmRow);
 
   openModal('⚙ Customize Columns — All Bills', body, [
     { label:'✅ Apply', cls:'btn-green', fn: function(){
-      // Save prefs
-      var newPrefs = {};
-      body.querySelectorAll('[data-colid]').forEach(function(chk){
-        newPrefs[chk.getAttribute('data-colid')] = chk.checked;
+      // Collect checkbox states
+      var newPrefs={};
+      list.querySelectorAll('[data-colid]').forEach(function(r){
+        var c=r.querySelector('input[type=checkbox]');
+        if(c)newPrefs[r.getAttribute('data-colid')]=c.checked;
       });
-      try { localStorage.setItem('_abColPrefs', JSON.stringify(newPrefs)); } catch(e){}
+      // Collect order
+      var newOrder=allColDefs.map(function(d){return d.id;});
+      try{localStorage.setItem('_abColPrefs',JSON.stringify(newPrefs));}catch(e){}
+      try{localStorage.setItem('_abColOrder',JSON.stringify(newOrder));}catch(e){}
       closeModal();
-      // Rebuild All Bills page
       go('all-bills');
     }}
   ], false);
@@ -11018,6 +11112,9 @@ function pgBillImport() {
       } else if(rt==='ENDBILL'&&currentHeader||((rt==='HEADER')&&currentHeader&&currentHeader.rows.length>0)){
         // Finalize current header
         currentHeader.netAmt=Math.round((currentHeader.taxable+currentHeader.cgst+currentHeader.sgst+currentHeader.packing+currentHeader.round)*100)/100;
+        // STP: weighted avg by weight across items
+        var _stpWt=currentHeader.rows.reduce(function(s,it){return s+(it.weight||0);},0);
+        currentHeader.stp=currentHeader.rows.length===1?(currentHeader.rows[0].stp||0):(_stpWt>0?Math.round(currentHeader.rows.reduce(function(s,it){return s+(it.stp||0)*(it.weight||0);},0)/_stpWt*100)/100:0);
         currentHeader._dup=bills.some(function(b){return b.billNo===currentHeader.billNo&&b.party===currentHeader.party;});
         if(currentHeader._dup)currentHeader._include=false;
         if(currentHeader.party&&currentHeader.netAmt>0)rows.push(currentHeader);
@@ -11045,6 +11142,8 @@ function pgBillImport() {
     // Push last header
     if(currentHeader&&currentHeader.rows.length>0){
       currentHeader.netAmt=Math.round((currentHeader.taxable+currentHeader.cgst+currentHeader.sgst+currentHeader.packing+currentHeader.round)*100)/100;
+      var _stpWtL=currentHeader.rows.reduce(function(s,it){return s+(it.weight||0);},0);
+      currentHeader.stp=currentHeader.rows.length===1?(currentHeader.rows[0].stp||0):(_stpWtL>0?Math.round(currentHeader.rows.reduce(function(s,it){return s+(it.stp||0)*(it.weight||0);},0)/_stpWtL*100)/100:0);
       currentHeader._dup=bills.some(function(b){return b.billNo===currentHeader.billNo&&b.party===currentHeader.party;});
       if(currentHeader._dup)currentHeader._include=false;
       if(currentHeader.party&&currentHeader.netAmt>0)rows.push(currentHeader);
