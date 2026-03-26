@@ -3912,7 +3912,7 @@ function pgAllBills() {
         else if(c.k==='station') addTd(row.station||'-');
         else if(c.k==='rate') addTd(row.rows&&row.rows.length?(row.rows.map(function(r){return r.rate||0;}).filter(Boolean).join(', ')||'-'):'-',true);
         else if(c.k==='netAmt') addTd('\u20b9'+fmt(row.netAmt),true);
-        else if(c.k==='stp') addTd(row.stp?'\u20b9'+fmt(row.stp):'-',true);
+        else if(c.k==='stp'){var stpVals=(row.rows||[]).map(function(r){return r.stp||0;}).filter(Boolean);var stpStr=stpVals.length?stpVals.join(', '):(row.stp?String(row.stp):'');addTd(stpStr||'-',true);}
         else if(c.k==='remarks') addTd(row.remarks||'-');
         else if(c.k==='weight') addTd(fmt((row.rows||[]).reduce(function(s2,r){return s2+(r.weight||0);},0))+'kg',true);
         else if(c.k==='taxable') addTd(row.taxable?'\u20b9'+fmt(row.taxable):'-',true);
@@ -11004,7 +11004,7 @@ function pgBillImport() {
           partyGstin:(gcv(row,'PARTY_GSTIN')||gcv(row,'GSTIN')||'').toUpperCase().trim(),
           transport:(gcv(row,'TRANSPORT')||'').toUpperCase().trim(),
           billType:(gcv(row,'PYMT_MODE')||gcv(row,'PYMT MODE')||'credit').toLowerCase()==='cash'?'cash':'credit',
-          packing:gcn(row,'PACKING')||gcn(row,'BARDHANA')||0,round:gcn(row,'ROUND_OFF')||0,
+          packing:gcn(row,'PACKING')||gcn(row,'BARDHANA')||0,freightOutward:gcn(row,'FREIGHT OUTWARD')||gcn(row,'FREIGHT_OUTWARD')||gcn(row,'FREIGHT')||0,round:gcn(row,'ROUND_OFF')||0,
           remarks:gcv(row,'REMARKS'),items:[]};
       } else if(rt==='ITEM'&&curHdr){
         var grade=(gcv(row,'GRADE')||gcv(row,'DESCRIPTION')||'').toUpperCase().trim();
@@ -11026,10 +11026,18 @@ function pgBillImport() {
       var resolved=await resolveImportedPartyAsync(rh._rawParty,rh.station,rh.broker);
       var taxT=0,cgstT=0,sgstT=0;
       rh.items.forEach(function(it){taxT+=it.taxable;var cg=Math.round(it.taxable*(it.gstPct||5)/200*100)/100;cgstT+=cg;sgstT+=cg;});
-      // Packing/Bardhana par bhi GST lagti hai (same rate as items, default 18% for packing)
-      var packGstPct=18; var packGst=rh.packing?Math.round(rh.packing*packGstPct/200*100)/100:0;
-      // NOTE: agar packing ka GST bill mein already hai, toh double count nahi — use raw fields from header
-      var netAmt=Math.round((taxT+cgstT+sgstT+rh.packing+rh.round)*100)/100;
+      // Bardhana + Freight Outward bhi GST taxable hain @ 5% (same as cashew items)
+      var gstOnOtherCharges=rh.packing||0; // bardhana stored in packing field
+      if(rh.freightOutward) gstOnOtherCharges+=rh.freightOutward;
+      var gstBase=taxT+gstOnOtherCharges;
+      // Recalculate GST on full base (taxable + bardhana + freight)
+      // Only recalc if CGST/SGST not explicitly provided in header row
+      if(gstOnOtherCharges>0){
+        var cgstFull=Math.round(gstBase*5/200*100)/100;
+        var sgstFull=cgstFull;
+        cgstT=cgstFull; sgstT=sgstFull;
+      }
+      var netAmt=Math.round((taxT+cgstT+sgstT+rh.packing+(rh.freightOutward||0)+rh.round)*100)/100;
       // STP: single grade → direct; multi-grade → weighted avg by weight
       var stpTotalWt=rh.items.reduce(function(s,it){return s+(it.weight||0);},0);
       var billStp=rh.items.length===1?(rh.items[0].stp||0):(stpTotalWt>0?Math.round(rh.items.reduce(function(s,it){return s+(it.stp||0)*(it.weight||0);},0)/stpTotalWt*100)/100:0);
@@ -11087,7 +11095,7 @@ function pgBillImport() {
           transport:(gcv(row,'TRANSPORT')||'').toUpperCase().trim(),
           transGstin:(gcv(row,'TRANSPORT_GSTIN')||gcv(row,'TRANS_GSTIN')||'').toUpperCase().trim(),
           billType:(gcv(row,'PYMT_MODE')||gcv(row,'PYMT MODE')||'credit').toLowerCase()==='cash'?'cash':'credit',
-          packing:gcn(row,'PACKING')||gcn(row,'BARDHANA')||gcn(row,'ROUND_OFF')?gcn(row,'PACKING')||gcn(row,'BARDHANA'):0,
+          packing:gcn(row,'PACKING')||gcn(row,'BARDHANA')||0,freightOutward:gcn(row,'FREIGHT OUTWARD')||gcn(row,'FREIGHT_OUTWARD')||gcn(row,'FREIGHT')||0,
           round:gcn(row,'ROUND_OFF')||0,
           remarks:gcv(row,'REMARKS'),
           rows:[],taxable:0,cgst:0,sgst:0,igst:0,netAmt:0,
@@ -11111,7 +11119,13 @@ function pgBillImport() {
         currentHeader.cgst+=cgstItem;currentHeader.sgst+=cgstItem;
       } else if(rt==='ENDBILL'&&currentHeader||((rt==='HEADER')&&currentHeader&&currentHeader.rows.length>0)){
         // Finalize current header
-        currentHeader.netAmt=Math.round((currentHeader.taxable+currentHeader.cgst+currentHeader.sgst+currentHeader.packing+currentHeader.round)*100)/100;
+        // Bardhana+Freight GST recalc for sync parser
+        var _gstBase2=currentHeader.taxable+(currentHeader.packing||0)+(currentHeader.freightOutward||0);
+        if((currentHeader.packing||0)+(currentHeader.freightOutward||0)>0){
+          var _cgst2=Math.round(_gstBase2*5/200*100)/100;
+          currentHeader.cgst=_cgst2; currentHeader.sgst=_cgst2;
+        }
+        currentHeader.netAmt=Math.round((currentHeader.taxable+currentHeader.cgst+currentHeader.sgst+(currentHeader.packing||0)+(currentHeader.freightOutward||0)+currentHeader.round)*100)/100;
         // STP: weighted avg by weight across items
         var _stpWt=currentHeader.rows.reduce(function(s,it){return s+(it.weight||0);},0);
         currentHeader.stp=currentHeader.rows.length===1?(currentHeader.rows[0].stp||0):(_stpWt>0?Math.round(currentHeader.rows.reduce(function(s,it){return s+(it.stp||0)*(it.weight||0);},0)/_stpWt*100)/100:0);
@@ -11141,7 +11155,13 @@ function pgBillImport() {
     }
     // Push last header
     if(currentHeader&&currentHeader.rows.length>0){
-      currentHeader.netAmt=Math.round((currentHeader.taxable+currentHeader.cgst+currentHeader.sgst+currentHeader.packing+currentHeader.round)*100)/100;
+      // Bardhana+Freight GST recalc for sync parser (last header)
+      var _gstBaseL=currentHeader.taxable+(currentHeader.packing||0)+(currentHeader.freightOutward||0);
+      if((currentHeader.packing||0)+(currentHeader.freightOutward||0)>0){
+        var _cgstL=Math.round(_gstBaseL*5/200*100)/100;
+        currentHeader.cgst=_cgstL; currentHeader.sgst=_cgstL;
+      }
+      currentHeader.netAmt=Math.round((currentHeader.taxable+currentHeader.cgst+currentHeader.sgst+(currentHeader.packing||0)+(currentHeader.freightOutward||0)+currentHeader.round)*100)/100;
       var _stpWtL=currentHeader.rows.reduce(function(s,it){return s+(it.weight||0);},0);
       currentHeader.stp=currentHeader.rows.length===1?(currentHeader.rows[0].stp||0):(_stpWtL>0?Math.round(currentHeader.rows.reduce(function(s,it){return s+(it.stp||0)*(it.weight||0);},0)/_stpWtL*100)/100:0);
       currentHeader._dup=bills.some(function(b){return b.billNo===currentHeader.billNo&&b.party===currentHeader.party;});
