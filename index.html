@@ -1384,7 +1384,7 @@ function fmtDate(dStr) {
 }
 
 function fmt(n) {
-  return Math.round(Number(n || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function el(tag, attrs, children) {
@@ -1770,14 +1770,13 @@ function getBillStatus(bill) {
   var carryFwd = getCarryForwardForBill(bill);
 
   var total = paid + adv + carryFwd;
-  var netAmt = Math.round(bill.netAmt || 0);
-  var bal = Math.round(netAmt - total);
+  var bal = (bill.netAmt || 0) - total;
   var paidNoInt=billPayments.reduce(function(s,p){return s+(p.amount||0)+(p.rebate||0);},0);
-  var excess = Math.max(0, (paidNoInt + adv + carryFwd) - netAmt);
+  var excess = Math.max(0, (paidNoInt + adv + carryFwd) - (bill.netAmt || 0));
   var result;
-  if(bal<=0.5)result={status:'paid',recv:netAmt,bal:0,excess:excess,rebate:_tReb,interest:_tInt,carryFwd:carryFwd};
-  else if(total>0)result={status:'partial',recv:Math.round(total),bal:bal,excess:0,rebate:_tReb,interest:_tInt,carryFwd:carryFwd};
-  else result={status:'due',recv:0,bal:netAmt,excess:0,rebate:0,interest:0,carryFwd:0};
+  if(bal<=0.5)result={status:'paid',recv:bill.netAmt,bal:0,excess:excess,rebate:_tReb,interest:_tInt,carryFwd:carryFwd};
+  else if(total>0)result={status:'partial',recv:total,bal:bal,excess:0,rebate:_tReb,interest:_tInt,carryFwd:carryFwd};
+  else result={status:'due',recv:0,bal:bill.netAmt||0,excess:0,rebate:0,interest:0,carryFwd:0};
 
   _billStatusCache[bill.id] = result;
   return result;
@@ -2416,16 +2415,20 @@ function makeGradeRow(gr, onRemove) {
 }
 
 function recalcNet() {
-  // Auto GST calculation
+  // Auto GST calculation — Bardhana/Packing bhi GST base mein shamil hai
   var rows = document.querySelectorAll('.grade-row');
   var taxable = 0;
   rows.forEach(function(row) {
     var id = row.id.replace('grow-', '');
     taxable += parseFloat((document.getElementById('gt-'+id)||{}).value)||0;
   });
+  var pack = gn('bf-packing');
+  var rnd  = gn('bf-round');
   var gstPct = parseFloat((document.getElementById('bf-gst-pct')||{value:'0'}).value)||0;
-  if (gstPct > 0 && taxable > 0) {
-    var tGst = Math.round(taxable*(gstPct/100)*100)/100;
+  // GST base = taxable + packing/bardhana (dono taxable hain @ same GST rate)
+  var gstBase = taxable + pack;
+  if (gstPct > 0 && gstBase > 0) {
+    var tGst = Math.round(gstBase*(gstPct/100)*100)/100;
     var half = Math.round(tGst/2*100)/100;
     var gType = (document.getElementById('bf-gst-type')||{value:'cgst_sgst'}).value;
     if (gType==='igst') { sv('bf-igst',tGst); sv('bf-cgst',0); sv('bf-sgst',0); }
@@ -2439,7 +2442,7 @@ function recalcNet() {
     if(r>0&&w>0){wtdR+=r*w;totalWt+=w;}
   });
   if(totalWt>0) sv('bf-stp', Math.round((wtdR/totalWt)*(1+gstPct/100)*100)/100);
-  var cgst=gn('bf-cgst'),sgst=gn('bf-sgst'),igst=gn('bf-igst'),pack=gn('bf-packing'),rnd=gn('bf-round');
+  var cgst=gn('bf-cgst'),sgst=gn('bf-sgst'),igst=gn('bf-igst');
   var net=taxable+cgst+sgst+igst+pack+rnd;
   var te=document.getElementById('bf-taxable'); if(te)te.value=taxable||'';
   var nd=document.getElementById('net-disp');   if(nd)nd.textContent='\u20b9'+fmt(net);
@@ -3622,50 +3625,15 @@ function pgAllBills() {
   var printSelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Select to Print'});
   var printNowBtn=el('button',{cls:'btn btn-green btn-sm',text:'Print (0)',style:'display:none'});
   printSelBtn.addEventListener('click',function(){
-    state.printMode=!state.printMode;state.deleteMode=false;state.sel.clear();
+    state.printMode=!state.printMode;state.sel.clear();
     printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';
     printSelBtn.style.background=state.printMode?'#fef9c3':'';
-    delSelBtn.style.background='';delSelBtn.textContent='🗑 Select to Delete';
-    printNowBtn.style.display='none';deleteNowBtn.style.display='none';rebuildAll();
+    printNowBtn.style.display='none';rebuildAll();
   });
   printNowBtn.addEventListener('click',function(){
     var sel=bills.filter(function(b){return state.sel.has(b.id);});
     if(!sel.length){toast('No bills selected!','err');return;}
     printMultipleBills(sel);
-  });
-  var delSelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'🗑 Select to Delete'});
-  delSelBtn.style.cssText+='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
-  var deleteNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)',style:'display:none;background:#dc2626;color:#fff;border:none;font-weight:700'});
-  delSelBtn.addEventListener('click',function(){
-    state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();
-    printSelBtn.textContent='Select to Print';printSelBtn.style.background='';
-    printNowBtn.style.display='none';
-    delSelBtn.textContent=state.deleteMode?'✕ Cancel Delete':'🗑 Select to Delete';
-    delSelBtn.style.background=state.deleteMode?'#fee2e2':'#fff1f2';
-    deleteNowBtn.style.display='none';rebuildAll();
-  });
-  deleteNowBtn.addEventListener('click',function(){
-    var selBills=getData().filter(function(b){return state.sel.has(b.id);});
-    if(!selBills.length){toast('Koi bill select nahi!','err');return;}
-    var bd=document.createElement('div');
-    bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px">'
-      +'<div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">⚠ '+selBills.length+' bills delete honge!</div>'
-      +'<div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'
-      +selBills.slice(0,20).map(function(b){return '<div style="padding:2px 0">Bill #'+b.billNo+' — '+b.party+' — ₹'+fmt(b.netAmt)+'</div>';}).join('')
-      +(selBills.length>20?'<div style="color:#dc2626;font-weight:600">...aur '+(selBills.length-20)+' bills</div>':'')
-      +'</div></div>'
-      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Yeh action undo ho sakta hai.</div>';
-    openModal('🗑 Bulk Bill Delete',bd,[{label:'🗑 Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){
-      saveUndo('Bulk Delete: '+selBills.length+' bills');
-      var ids=new Set(selBills.map(function(b){return b.id;}));
-      bills=bills.filter(function(b){return !ids.has(b.id);});
-      payments=payments.filter(function(p){return !ids.has(p.billId);});
-      invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);
-      state.sel.clear();state.deleteMode=false;
-      delSelBtn.textContent='🗑 Select to Delete';delSelBtn.style.background='#fff1f2';
-      deleteNowBtn.style.display='none';closeModal();
-      toast('🗑 '+selBills.length+' bills deleted!');refresh();
-    }}]);
   });
   var zoom=state.zoom||100;
   var zWrap=document.createElement('div');zWrap.style.cssText='display:flex;align-items:center;gap:2px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px';
@@ -3679,7 +3647,7 @@ function pgAllBills() {
   zr.addEventListener('click',function(){zoom=100;applyZoom();});
   zWrap.appendChild(zm);zWrap.appendChild(zLbl);zWrap.appendChild(zp);zWrap.appendChild(zr);
   toolbar.appendChild(searchInp);toolbar.appendChild(clearBtn);toolbar.appendChild(payBtn);toolbar.appendChild(showPaidBtn);
-  toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(delSelBtn);toolbar.appendChild(deleteNowBtn);toolbar.appendChild(zWrap);
+  toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(zWrap);
   // Amount range filters
   var amtDiv=document.createElement('div');amtDiv.style.cssText='display:flex;align-items:center;gap:4px';
   amtDiv.innerHTML='<span style="font-size:11px;color:#6b7280">Amt:</span>';
@@ -3818,9 +3786,8 @@ function pgAllBills() {
 
   function buildHdr(d){
     thead.innerHTML='';var htr=document.createElement('tr');
-    if(state.printMode||state.deleteMode){
-      var thS=document.createElement('th');
-      thS.style.cssText='width:28px;text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3')+';position:sticky;top:0;z-index:2';
+    if(state.printMode){
+      var thS=document.createElement('th');thS.style.cssText='width:28px;text-align:center;background:#fef9c3;position:sticky;top:0;z-index:2';
       var sa=document.createElement('input');sa.type='checkbox';sa.title='All';
       sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();renderRows(d);});
       thS.appendChild(sa);htr.appendChild(thS);
@@ -3871,13 +3838,13 @@ function pgAllBills() {
     thead.appendChild(htr);
   }
 
-  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';deleteNowBtn.style.display=(state.deleteMode&&n>0)?'':'none';deleteNowBtn.textContent='🗑 Delete ('+n+')';}
+  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';}
 
   function renderRows(d){
     tbody.innerHTML='';
     if(!d.length){
       var etr=document.createElement('tr');var etd=document.createElement('td');
-      etd.setAttribute('colspan',getCols().length+((state.printMode||state.deleteMode)?1:0));
+      etd.setAttribute('colspan',getCols().length+(state.printMode?1:0));
       etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';
       etd.innerHTML='<div style="font-size:32px;margin-bottom:8px">No bills found</div>';
       etr.appendChild(etd);tbody.appendChild(etr);return;
@@ -3892,14 +3859,14 @@ function pgAllBills() {
       var lp=payments.filter(function(p){return p.billId===row.id;});
       var lpy=lp.length?lp[lp.length-1]:null;
       var tr=document.createElement('tr');tr.id='br-'+row.id;
-      if(state.sel.has(row.id))tr.style.background=state.deleteMode?'#fff1f2':'#fefce8';
+      if(state.sel.has(row.id))tr.style.background='#fefce8';
 
-      if(state.printMode||state.deleteMode){
-        var sc=document.createElement('td');sc.style.cssText='text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3');
+      if(state.printMode){
+        var sc=document.createElement('td');sc.style.cssText='text-align:center;background:#fef9c3';
         var chk=document.createElement('input');chk.type='checkbox';chk.checked=state.sel.has(row.id);
         chk.addEventListener('change',function(){
           if(this.checked)state.sel.add(row.id);else state.sel.delete(row.id);
-          tr.style.background=this.checked?(state.deleteMode?'#fff1f2':'#fefce8'):'';updPrint();
+          tr.style.background=this.checked?'#fefce8':'';updPrint();
         });
         sc.appendChild(chk);tr.appendChild(sc);
       }
@@ -4040,7 +4007,7 @@ function pgAllBills() {
       })(row);
       tr.appendChild(actTd);tbody.appendChild(tr);
       var expRow=document.createElement('tr');expRow.id='exp-'+row.id;expRow.style.cssText='display:none;background:#f0fdf4';
-      var expTd=document.createElement('td');expTd.setAttribute('colspan',getCols().length+((state.printMode||state.deleteMode)?1:0));expTd.style.padding='0';
+      var expTd=document.createElement('td');expTd.setAttribute('colspan',getCols().length+(state.printMode?1:0));expTd.style.padding='0';
       expRow.appendChild(expTd);tbody.appendChild(expRow);
     });
 
@@ -4048,7 +4015,7 @@ function pgAllBills() {
     if(d.length>pageLimit){
       var lmTr=document.createElement('tr');
       var lmTd=document.createElement('td');
-      lmTd.setAttribute('colspan',getCols().length+((state.printMode||state.deleteMode)?1:0));
+      lmTd.setAttribute('colspan',getCols().length+(state.printMode?1:0));
       lmTd.style.cssText='text-align:center;padding:12px';
       var lmBtn=document.createElement('button');
       lmBtn.className='btn btn-outline btn-sm';
@@ -5188,7 +5155,7 @@ function printBill(bill) {
       '<tbody><tr>'+
         '<td style="text-align:center">080132</td>'+
         '<td style="text-align:center">CGST '+(gstPct/2)+'%+SGST '+(gstPct/2)+'%</td>'+
-        '<td style="text-align:right">'+parseFloat(bill.taxable||0).toFixed(2)+'</td>'+
+        '<td style="text-align:right">'+parseFloat((bill.taxable||0)+(packing||0)).toFixed(2)+'</td>'+
         '<td style="text-align:right">'+parseFloat(cgst||0).toFixed(2)+'</td>'+
         '<td style="text-align:right">'+parseFloat(sgst||0).toFixed(2)+'</td>'+
       '</tr><tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr></tbody>'+
