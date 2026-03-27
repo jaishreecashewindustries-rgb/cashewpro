@@ -853,6 +853,11 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 #app-loader.hidden{display:none;}
 .app-loader-spin{width:42px;height:42px;border:4px solid var(--brand-light);border-top-color:var(--brand);border-radius:50%;animation:lspin .8s linear infinite;}
 
+
+.del-mode-btn { background:#fff1f2; border:1.5px solid #fecaca; color:#dc2626; font-weight:600; }
+.del-mode-btn.active { background:#fee2e2; }
+.del-now-btn { background:#dc2626; color:#fff; border:none; font-weight:700; margin-left:4px; }
+.del-now-btn.hidden { display:none !important; }
 </style>
 </head>
 <body>
@@ -2416,7 +2421,6 @@ function makeGradeRow(gr, onRemove) {
 }
 
 function recalcNet() {
-  // Auto GST calculation — Bardhana/Packing bhi GST base mein shamil hai
   var rows = document.querySelectorAll('.grade-row');
   var taxable = 0;
   rows.forEach(function(row) {
@@ -2426,7 +2430,6 @@ function recalcNet() {
   var pack = gn('bf-packing');
   var rnd  = gn('bf-round');
   var gstPct = parseFloat((document.getElementById('bf-gst-pct')||{value:'0'}).value)||0;
-  // GST base = taxable + packing/bardhana (dono taxable hain @ same GST rate)
   var gstBase = taxable + pack;
   if (gstPct > 0 && gstBase > 0) {
     var tGst = Math.round(gstBase*(gstPct/100)*100)/100;
@@ -3629,26 +3632,33 @@ function pgAllBills() {
     state.printMode=!state.printMode;state.deleteMode=false;state.sel.clear();
     printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';
     printSelBtn.style.background=state.printMode?'#fef9c3':'';
-    delSelBtn.style.background='#fff1f2';delSelBtn.textContent='\uD83D\uDDD1 Select to Delete';
-    printNowBtn.style.display='none';deleteNowBtn.style.display='none';rebuildAll();
+    printNowBtn.style.display='none';
+    abDelBtn.classList.remove('active');abDelBtn.textContent='\uD83D\uDDD1 Delete Bills';
+    abDelNowBtn.classList.add('hidden');
+    rebuildAll();
   });
   printNowBtn.addEventListener('click',function(){
     var sel=bills.filter(function(b){return state.sel.has(b.id);});
     if(!sel.length){toast('No bills selected!','err');return;}
     printMultipleBills(sel);
   });
-  var delSelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\uD83D\uDDD1 Select to Delete'});
-  delSelBtn.style.cssText+='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
-  var deleteNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)',style:'display:none;background:#dc2626;color:#fff;border:none;font-weight:700'});
-  delSelBtn.addEventListener('click',function(){
+  // ── DELETE BILLS BUTTON ──
+  var abDelBtn=el('button',{cls:'btn btn-outline btn-sm del-mode-btn',text:'\uD83D\uDDD1 Delete Bills'});
+  var abDelNowBtn=el('button',{cls:'btn btn-sm del-now-btn hidden',text:'\uD83D\uDDD1 Delete (0)'});
+  function abSyncDelBtn(){
+    var n=state.sel.size;
+    if(state.deleteMode&&n>0){abDelNowBtn.classList.remove('hidden');abDelNowBtn.textContent='\uD83D\uDDD1 Delete ('+n+')';}
+    else{abDelNowBtn.classList.add('hidden');}
+  }
+  abDelBtn.addEventListener('click',function(){
     state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();
-    printSelBtn.textContent='Select to Print';printSelBtn.style.background='';
-    printNowBtn.style.display='none';
-    delSelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Select to Delete';
-    delSelBtn.style.background=state.deleteMode?'#fee2e2':'#fff1f2';
-    deleteNowBtn.style.display='none';rebuildAll();updPrint();
+    printSelBtn.textContent='Select to Print';printSelBtn.style.background='';printNowBtn.style.display='none';
+    abDelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Delete Bills';
+    abDelBtn.classList.toggle('active',state.deleteMode);
+    abDelNowBtn.classList.add('hidden');
+    rebuildAll();
   });
-  deleteNowBtn.addEventListener('click',function(){
+  abDelNowBtn.addEventListener('click',function(){
     var selBills=getData().filter(function(b){return state.sel.has(b.id);});
     if(!selBills.length){toast('Koi bill select nahi!','err');return;}
     var bd=document.createElement('div');
@@ -3658,7 +3668,7 @@ function pgAllBills() {
       +selBills.slice(0,20).map(function(b){return '<div style="padding:2px 0">Bill #'+b.billNo+' \u2014 '+b.party+' \u2014 \u20B9'+fmt(b.netAmt)+'</div>';}).join('')
       +(selBills.length>20?'<div style="color:#dc2626;font-weight:600">...aur '+(selBills.length-20)+' bills</div>':'')
       +'</div></div>'
-      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Yeh action undo ho sakta hai.</div>';
+      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Undo ho sakta hai.</div>';
     openModal('\uD83D\uDDD1 Bulk Bill Delete',bd,[{label:'\uD83D\uDDD1 Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){
       saveUndo('Bulk Delete: '+selBills.length+' bills');
       var ids=new Set(selBills.map(function(b){return b.id;}));
@@ -3666,9 +3676,9 @@ function pgAllBills() {
       payments=payments.filter(function(p){return !ids.has(p.billId);});
       invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);
       state.sel.clear();state.deleteMode=false;
-      delSelBtn.textContent='\uD83D\uDDD1 Select to Delete';delSelBtn.style.background='#fff1f2';
-      deleteNowBtn.style.display='none';closeModal();
-      toast('\uD83D\uDDD1 '+selBills.length+' bills deleted!');refresh();
+      abDelBtn.textContent='\uD83D\uDDD1 Delete Bills';abDelBtn.classList.remove('active');
+      abDelNowBtn.classList.add('hidden');
+      closeModal();toast('\uD83D\uDDD1 '+selBills.length+' bills deleted!');refresh();
     }}]);
   });
   var zoom=state.zoom||100;
@@ -3683,7 +3693,7 @@ function pgAllBills() {
   zr.addEventListener('click',function(){zoom=100;applyZoom();});
   zWrap.appendChild(zm);zWrap.appendChild(zLbl);zWrap.appendChild(zp);zWrap.appendChild(zr);
   toolbar.appendChild(searchInp);toolbar.appendChild(clearBtn);toolbar.appendChild(payBtn);toolbar.appendChild(showPaidBtn);
-  toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(delSelBtn);toolbar.appendChild(deleteNowBtn);toolbar.appendChild(zWrap);
+  toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(abDelBtn);toolbar.appendChild(abDelNowBtn);toolbar.appendChild(zWrap);
   // Amount range filters
   var amtDiv=document.createElement('div');amtDiv.style.cssText='display:flex;align-items:center;gap:4px';
   amtDiv.innerHTML='<span style="font-size:11px;color:#6b7280">Amt:</span>';
@@ -3823,10 +3833,9 @@ function pgAllBills() {
   function buildHdr(d){
     thead.innerHTML='';var htr=document.createElement('tr');
     if(state.printMode||state.deleteMode){
-      var thS=document.createElement('th');
-      thS.style.cssText='width:28px;text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3')+';position:sticky;top:0;z-index:2';
+      var thS=document.createElement('th');thS.style.cssText='width:28px;text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3')+';position:sticky;top:0;z-index:2';
       var sa=document.createElement('input');sa.type='checkbox';sa.title='All';
-      sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();if(state.deleteMode){deleteNowBtn.style.display=state.sel.size>0?'':'none';deleteNowBtn.textContent='\uD83D\uDDD1 Delete ('+state.sel.size+')';}renderRows(d);});
+      sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();renderRows(d);});
       thS.appendChild(sa);htr.appendChild(thS);
     }
     getCols().forEach(function(c){
@@ -3875,13 +3884,13 @@ function pgAllBills() {
     thead.appendChild(htr);
   }
 
-  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';deleteNowBtn.style.display=(state.deleteMode&&n>0)?'':'none';deleteNowBtn.textContent='\uD83D\uDDD1 Delete ('+n+')';}
+  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';abSyncDelBtn();}
 
   function renderRows(d){
     tbody.innerHTML='';
     if(!d.length){
       var etr=document.createElement('tr');var etd=document.createElement('td');
-      etd.setAttribute('colspan',getCols().length+((state.printMode||state.deleteMode)?1:0));
+      etd.setAttribute('colspan',getCols().length+(state.printMode?1:0));
       etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';
       etd.innerHTML='<div style="font-size:32px;margin-bottom:8px">No bills found</div>';
       etr.appendChild(etd);tbody.appendChild(etr);return;
@@ -3903,9 +3912,7 @@ function pgAllBills() {
         var chk=document.createElement('input');chk.type='checkbox';chk.checked=state.sel.has(row.id);
         chk.addEventListener('change',function(){
           if(this.checked)state.sel.add(row.id);else state.sel.delete(row.id);
-          tr.style.background=this.checked?(state.deleteMode?'#fff1f2':'#fefce8'):'';
-          updPrint();
-          if(state.deleteMode){deleteNowBtn.style.display=state.sel.size>0?'':'none';deleteNowBtn.textContent='\uD83D\uDDD1 Delete ('+state.sel.size+')';}
+          tr.style.background=this.checked?(state.deleteMode?'#fff1f2':'#fefce8'):'';updPrint();
         });
         sc.appendChild(chk);tr.appendChild(sc);
       }
@@ -5309,29 +5316,28 @@ function pgDueList() {
   clearBtn.addEventListener('click',function(){state.filters={};state.q='';searchInp.value='';rebuildAll();});
   var printSelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Select to Print'});
   var printNowBtn=el('button',{cls:'btn btn-green btn-sm',text:'Print (0)',style:'display:none'});
-  printSelBtn.addEventListener('click',function(){state.printMode=!state.printMode;state.deleteMode=false;state.sel.clear();printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';printSelBtn.style.background=state.printMode?'#fef9c3':'';dueDelSelBtn.style.background='#fff1f2';dueDelSelBtn.textContent='\uD83D\uDDD1 Select to Delete';printNowBtn.style.display='none';dueDeleteNowBtn.style.display='none';rebuildAll();});
+  printSelBtn.addEventListener('click',function(){state.printMode=!state.printMode;state.deleteMode=false;state.sel.clear();printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';printSelBtn.style.background=state.printMode?'#fef9c3':'';dlDelBtn.classList.remove('active');dlDelBtn.textContent='\uD83D\uDDD1 Delete Bills';dlDelNowBtn.classList.add('hidden');printNowBtn.style.display='none';rebuildAll();});
   printNowBtn.addEventListener('click',function(){var sel=bills.filter(function(b){return state.sel.has(b.id);});if(!sel.length){toast('Select bills first!','err');return;}printMultipleBills(sel);});
-  var dueDelSelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\uD83D\uDDD1 Select to Delete'});
-  dueDelSelBtn.style.cssText+='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
-  var dueDeleteNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)',style:'display:none;background:#dc2626;color:#fff;border:none;font-weight:700'});
-  dueDelSelBtn.addEventListener('click',function(){
+  var dlDelBtn=el('button',{cls:'btn btn-outline btn-sm del-mode-btn',text:'\uD83D\uDDD1 Delete Bills'});
+  var dlDelNowBtn=el('button',{cls:'btn btn-sm del-now-btn hidden',text:'\uD83D\uDDD1 Delete (0)'});
+  function dlSyncDelBtn(){var n=state.sel.size;if(state.deleteMode&&n>0){dlDelNowBtn.classList.remove('hidden');dlDelNowBtn.textContent='\uD83D\uDDD1 Delete ('+n+')';}else{dlDelNowBtn.classList.add('hidden');}}
+  dlDelBtn.addEventListener('click',function(){
     state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();
     printSelBtn.textContent='Select to Print';printSelBtn.style.background='';printNowBtn.style.display='none';
-    dueDelSelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Select to Delete';
-    dueDelSelBtn.style.background=state.deleteMode?'#fee2e2':'#fff1f2';
-    dueDeleteNowBtn.style.display='none';rebuildAll();updPrint();
+    dlDelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Delete Bills';
+    dlDelBtn.classList.toggle('active',state.deleteMode);dlDelNowBtn.classList.add('hidden');rebuildAll();
   });
-  dueDeleteNowBtn.addEventListener('click',function(){
+  dlDelNowBtn.addEventListener('click',function(){
     var selBills=getData().filter(function(b){return state.sel.has(b.id);});
     if(!selBills.length){toast('Koi bill select nahi!','err');return;}
     var bd=document.createElement('div');
     bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px">'
       +'<div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">\u26A0 '+selBills.length+' bills delete honge!</div>'
       +'<div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'
-      +selBills.slice(0,20).map(function(b){return '<div style="padding:2px 0">Bill #'+b.billNo+' \u2014 '+b.party+' \u2014 \u20B9'+fmt(b.netAmt)+'</div>';}).join('')
+      +selBills.slice(0,20).map(function(b){var s=getBillStatus(b);return'<div style="padding:2px 0">Bill #'+b.billNo+' \u2014 '+b.party+' \u2014 Bal:\u20B9'+fmt(s.bal)+'</div>';}).join('')
       +(selBills.length>20?'<div style="color:#dc2626;font-weight:600">...aur '+(selBills.length-20)+' bills</div>':'')
       +'</div></div>'
-      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Yeh action undo ho sakta hai.</div>';
+      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Undo ho sakta hai.</div>';
     openModal('\uD83D\uDDD1 Bulk Bill Delete',bd,[{label:'\uD83D\uDDD1 Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){
       saveUndo('Bulk Delete: '+selBills.length+' bills');
       var ids=new Set(selBills.map(function(b){return b.id;}));
@@ -5339,9 +5345,8 @@ function pgDueList() {
       payments=payments.filter(function(p){return !ids.has(p.billId);});
       invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);
       state.sel.clear();state.deleteMode=false;
-      dueDelSelBtn.textContent='\uD83D\uDDD1 Select to Delete';dueDelSelBtn.style.background='#fff1f2';
-      dueDeleteNowBtn.style.display='none';closeModal();
-      toast('\uD83D\uDDD1 '+selBills.length+' bills deleted!');refresh();
+      dlDelBtn.textContent='\uD83D\uDDD1 Delete Bills';dlDelBtn.classList.remove('active');dlDelNowBtn.classList.add('hidden');
+      closeModal();toast('\uD83D\uDDD1 '+selBills.length+' bills deleted!');refresh();
     }}]);
   });
   var bulkPayBtn2=el('button',{cls:'btn btn-green btn-sm',text:'Pay Selected'});
@@ -5361,7 +5366,7 @@ function pgDueList() {
       invalidateBillStatusCache();DB.set('payments',payments);toast('✅ '+selBills2.length+' payments saved!');state.sel.clear();state.printMode=false;refresh();
     }
   });
-  toolbar.appendChild(searchInp);toolbar.appendChild(clearBtn);toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(bulkPayBtn2);toolbar.appendChild(dueDelSelBtn);toolbar.appendChild(dueDeleteNowBtn);
+  toolbar.appendChild(searchInp);toolbar.appendChild(clearBtn);toolbar.appendChild(printSelBtn);toolbar.appendChild(printNowBtn);toolbar.appendChild(bulkPayBtn2);toolbar.appendChild(dlDelBtn);toolbar.appendChild(dlDelNowBtn);
   var npBtn=el('button',{cls:'btn btn-outline btn-sm',text:showNearlyPaid?'Hide Near-Paid':'Show Near-Paid (≤\u20b9100)'});
   npBtn.title='Bills with partial/roundoff payments that are almost fully paid';
   npBtn.addEventListener('click',function(){pageState.due.showNearlyPaid=!pageState.due.showNearlyPaid;refresh();});
@@ -5408,7 +5413,7 @@ function pgDueList() {
 
   function buildHdr(d){
     thead.innerHTML='';var htr=document.createElement('tr');
-    if(state.printMode||state.deleteMode){var thS=document.createElement('th');thS.style.cssText='width:28px;text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3')+';position:sticky;top:0;z-index:2';var sa=document.createElement('input');sa.type='checkbox';sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();if(state.deleteMode){dueDeleteNowBtn.style.display=state.sel.size>0?'':'none';dueDeleteNowBtn.textContent='\uD83D\uDDD1 Delete ('+state.sel.size+')';}renderRows(d);});thS.appendChild(sa);htr.appendChild(thS);}
+    if(state.printMode||state.deleteMode){var thS=document.createElement('th');thS.style.cssText='width:28px;text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3')+';position:sticky;top:0;z-index:2';var sa=document.createElement('input');sa.type='checkbox';sa.addEventListener('change',function(){d.forEach(function(b){if(this.checked)state.sel.add(b.id);else state.sel.delete(b.id);}.bind(this));updPrint();renderRows(d);});thS.appendChild(sa);htr.appendChild(thS);}
     cols.forEach(function(c){
       var th=document.createElement('th');th.className=c.num?'num':'';
       th.style.cssText='white-space:nowrap;user-select:none;position:sticky;top:0;z-index:3;background:var(--surface)'+(c.noSort?'':';cursor:pointer');
@@ -5435,7 +5440,7 @@ function pgDueList() {
     });
     thead.appendChild(htr);
   }
-  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';dueDeleteNowBtn.style.display=(state.deleteMode&&n>0)?'':'none';dueDeleteNowBtn.textContent='\uD83D\uDDD1 Delete ('+n+')';}
+  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';dlSyncDelBtn();}
   function renderRows(d){
     tbody.innerHTML='';
     if(!d.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',cols.length+((state.printMode||state.deleteMode)?1:0));etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';etd.innerHTML='<div style="font-size:36px;margin-bottom:8px">No pending bills!</div>';etr.appendChild(etd);tbody.appendChild(etr);return;}
@@ -5463,7 +5468,7 @@ function pgDueList() {
     };
     d.forEach(function(row){
       var s=getBillStatus(row);var tr=document.createElement('tr');tr.id='dr-'+row.id;if(state.sel.has(row.id))tr.style.background='#fefce8';
-      if(state.printMode||state.deleteMode){var sc=document.createElement('td');sc.style.cssText='text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3');var chk=document.createElement('input');chk.type='checkbox';chk.checked=state.sel.has(row.id);chk.addEventListener('change',function(){if(this.checked)state.sel.add(row.id);else state.sel.delete(row.id);tr.style.background=this.checked?(state.deleteMode?'#fff1f2':'#fefce8'):'';updPrint();if(state.deleteMode){dueDeleteNowBtn.style.display=state.sel.size>0?'':'none';dueDeleteNowBtn.textContent='\uD83D\uDDD1 Delete ('+state.sel.size+')';}});sc.appendChild(chk);tr.appendChild(sc);}
+      if(state.printMode||state.deleteMode){var sc=document.createElement('td');sc.style.cssText='text-align:center;background:'+(state.deleteMode?'#fee2e2':'#fef9c3');var chk=document.createElement('input');chk.type='checkbox';chk.checked=state.sel.has(row.id);chk.addEventListener('change',function(){if(this.checked)state.sel.add(row.id);else state.sel.delete(row.id);tr.style.background=this.checked?(state.deleteMode?'#fff1f2':'#fefce8'):'';updPrint();});sc.appendChild(chk);tr.appendChild(sc);}
       function addTd(val,num){var td=document.createElement('td');td.className=num?'num':'';if(val instanceof HTMLElement)td.appendChild(val);else td.innerHTML=(val!=null&&val!=='')?String(val):'-';tr.appendChild(td);}
       var days=Math.floor((new Date()-new Date(row.date))/86400000);
       var grade=(row.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
