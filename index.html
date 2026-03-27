@@ -853,11 +853,6 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 #app-loader.hidden{display:none;}
 .app-loader-spin{width:42px;height:42px;border:4px solid var(--brand-light);border-top-color:var(--brand);border-radius:50%;animation:lspin .8s linear infinite;}
 
-
-.del-mode-btn { background:#fff1f2; border:1.5px solid #fecaca; color:#dc2626; font-weight:600; }
-.del-mode-btn.active { background:#fee2e2; }
-.del-now-btn { background:#dc2626; color:#fff; border:none; font-weight:700; margin-left:4px; }
-.del-now-btn.hidden { display:none !important; }
 </style>
 </head>
 <body>
@@ -2421,6 +2416,7 @@ function makeGradeRow(gr, onRemove) {
 }
 
 function recalcNet() {
+  // Auto GST calculation
   var rows = document.querySelectorAll('.grade-row');
   var taxable = 0;
   rows.forEach(function(row) {
@@ -3549,6 +3545,7 @@ function pgNewBill() {
 function pgAllBills() {
   prewarmBillStatusCache();
   var state=pageState.allBills=pageState.allBills||{q:'',sortKey:'date',sortDir:-1,showPay:false,printMode:false,deleteMode:false,zoom:100,filters:{},showPaid:true};
+  if(!state.sel)state.sel=new Set();
   if(state.deleteMode===undefined)state.deleteMode=false;
   state._pageLimit=200; // Show 200 rows initially, load more on scroll
   if(!state.sel)state.sel=new Set();
@@ -3634,8 +3631,8 @@ function pgAllBills() {
     printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';
     printSelBtn.style.background=state.printMode?'#fef9c3':'';
     printNowBtn.style.display='none';
-    abDelBtn.classList.remove('active');abDelBtn.textContent='\uD83D\uDDD1 Delete Bills';
-    abDelNowBtn.classList.add('hidden');
+    if(abDelBtn){abDelBtn.textContent='Delete Bills';abDelBtn.style.background='';}
+    if(abDelNowBtn)abDelNowBtn.style.display='none';
     rebuildAll();
   });
   printNowBtn.addEventListener('click',function(){
@@ -3643,44 +3640,38 @@ function pgAllBills() {
     if(!sel.length){toast('No bills selected!','err');return;}
     printMultipleBills(sel);
   });
-  // ── DELETE BILLS BUTTON ──
-  var abDelBtn=el('button',{cls:'btn btn-outline btn-sm del-mode-btn',text:'\uD83D\uDDD1 Delete Bills'});
-  var abDelNowBtn=el('button',{cls:'btn btn-sm del-now-btn hidden',text:'\uD83D\uDDD1 Delete (0)'});
+  var abDelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Delete Bills'});
+  abDelBtn.style.cssText='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
+  var abDelNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)'});
+  abDelNowBtn.style.cssText='display:none;background:#dc2626;color:#fff;border:none;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px';
   function abSyncDelBtn(){
     var n=state.sel.size;
-    if(state.deleteMode&&n>0){abDelNowBtn.classList.remove('hidden');abDelNowBtn.textContent='\uD83D\uDDD1 Delete ('+n+')';}
-    else{abDelNowBtn.classList.add('hidden');}
+    if(state.deleteMode&&n>0){abDelNowBtn.style.display='';abDelNowBtn.textContent='Delete ('+n+')';}
+    else{abDelNowBtn.style.display='none';}
   }
   abDelBtn.addEventListener('click',function(){
     state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();
     printSelBtn.textContent='Select to Print';printSelBtn.style.background='';printNowBtn.style.display='none';
-    abDelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Delete Bills';
-    abDelBtn.classList.toggle('active',state.deleteMode);
-    abDelNowBtn.classList.add('hidden');
+    abDelBtn.textContent=state.deleteMode?'Cancel Delete':'Delete Bills';
+    abDelBtn.style.background=state.deleteMode?'#fee2e2':'#fff1f2';
+    abDelNowBtn.style.display='none';
     rebuildAll();
-    abSyncDelBtn();
   });
   abDelNowBtn.addEventListener('click',function(){
     var selBills=getData().filter(function(b){return state.sel.has(b.id);});
     if(!selBills.length){toast('Koi bill select nahi!','err');return;}
     var bd=document.createElement('div');
-    bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px">'
-      +'<div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">\u26A0 '+selBills.length+' bills delete honge!</div>'
-      +'<div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'
-      +selBills.slice(0,20).map(function(b){return '<div style="padding:2px 0">Bill #'+b.billNo+' \u2014 '+b.party+' \u2014 \u20B9'+fmt(b.netAmt)+'</div>';}).join('')
-      +(selBills.length>20?'<div style="color:#dc2626;font-weight:600">...aur '+(selBills.length-20)+' bills</div>':'')
-      +'</div></div>'
-      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Undo ho sakta hai.</div>';
-    openModal('\uD83D\uDDD1 Bulk Bill Delete',bd,[{label:'\uD83D\uDDD1 Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){
+    bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">'+selBills.length+' bills delete honge!</div><div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'+selBills.slice(0,20).map(function(b){return'<div>Bill #'+b.billNo+' - '+b.party+' - Rs'+Math.round(b.netAmt)+'</div>';}).join('')+(selBills.length>20?'<div style="color:#dc2626">...aur '+(selBills.length-20)+' bills</div>':'')+'</div></div><div style="font-size:11px;color:#6b7280">Payments bhi delete honge. Undo possible hai.</div>';
+    openModal('Bulk Delete',bd,[{label:'Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){
       saveUndo('Bulk Delete: '+selBills.length+' bills');
       var ids=new Set(selBills.map(function(b){return b.id;}));
       bills=bills.filter(function(b){return !ids.has(b.id);});
       payments=payments.filter(function(p){return !ids.has(p.billId);});
       invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);
       state.sel.clear();state.deleteMode=false;
-      abDelBtn.textContent='\uD83D\uDDD1 Delete Bills';abDelBtn.classList.remove('active');
-      abDelNowBtn.classList.add('hidden');
-      closeModal();toast('\uD83D\uDDD1 '+selBills.length+' bills deleted!');refresh();
+      abDelBtn.textContent='Delete Bills';abDelBtn.style.background='#fff1f2';
+      abDelNowBtn.style.display='none';
+      closeModal();toast(selBills.length+' bills deleted!');refresh();
     }}]);
   });
   var zoom=state.zoom||100;
@@ -3886,7 +3877,7 @@ function pgAllBills() {
     thead.appendChild(htr);
   }
 
-  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';if(typeof bulkPayBtn!=='undefined'&&bulkPayBtn)bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';abSyncDelBtn();}
+  function updPrint(){var n=state.sel.size;if(printNowBtn){printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';}if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';abSyncDelBtn();}
 
   function renderRows(d){
     tbody.innerHTML='';
@@ -4055,7 +4046,7 @@ function pgAllBills() {
       })(row);
       tr.appendChild(actTd);tbody.appendChild(tr);
       var expRow=document.createElement('tr');expRow.id='exp-'+row.id;expRow.style.cssText='display:none;background:#f0fdf4';
-      var expTd=document.createElement('td');expTd.setAttribute('colspan',getCols().length+((state.printMode||state.deleteMode)?1:0));expTd.style.padding='0';
+      var expTd=document.createElement('td');expTd.setAttribute('colspan',getCols().length+(state.printMode?1:0));expTd.style.padding='0';
       expRow.appendChild(expTd);tbody.appendChild(expRow);
     });
 
@@ -4063,7 +4054,7 @@ function pgAllBills() {
     if(d.length>pageLimit){
       var lmTr=document.createElement('tr');
       var lmTd=document.createElement('td');
-      lmTd.setAttribute('colspan',getCols().length+((state.printMode||state.deleteMode)?1:0));
+      lmTd.setAttribute('colspan',getCols().length+(state.printMode?1:0));
       lmTd.style.cssText='text-align:center;padding:12px';
       var lmBtn=document.createElement('button');
       lmBtn.className='btn btn-outline btn-sm';
@@ -4076,7 +4067,7 @@ function pgAllBills() {
     }
   }
 
-  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);setTimeout(applyZoom,10);abSyncDelBtn();}
+  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);setTimeout(applyZoom,10);if(typeof abSyncDelBtn==='function')abSyncDelBtn();}
   rebuildAll();
   setTimeout(function(){
     applyZoom();
@@ -5319,38 +5310,20 @@ function pgDueList() {
   clearBtn.addEventListener('click',function(){state.filters={};state.q='';searchInp.value='';rebuildAll();});
   var printSelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Select to Print'});
   var printNowBtn=el('button',{cls:'btn btn-green btn-sm',text:'Print (0)',style:'display:none'});
-  printSelBtn.addEventListener('click',function(){state.printMode=!state.printMode;state.deleteMode=false;state.sel.clear();printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';printSelBtn.style.background=state.printMode?'#fef9c3':'';dlDelBtn.classList.remove('active');dlDelBtn.textContent='\uD83D\uDDD1 Delete Bills';dlDelNowBtn.classList.add('hidden');printNowBtn.style.display='none';rebuildAll();});
+  printSelBtn.addEventListener('click',function(){state.printMode=!state.printMode;state.deleteMode=false;state.sel.clear();printSelBtn.textContent=state.printMode?'Cancel Select':'Select to Print';printSelBtn.style.background=state.printMode?'#fef9c3':'';if(dlDelBtn){dlDelBtn.textContent='Delete Bills';dlDelBtn.style.background='';}if(dlDelNowBtn)dlDelNowBtn.style.display='none';printNowBtn.style.display='none';rebuildAll();});
   printNowBtn.addEventListener('click',function(){var sel=bills.filter(function(b){return state.sel.has(b.id);});if(!sel.length){toast('Select bills first!','err');return;}printMultipleBills(sel);});
-  var dlDelBtn=el('button',{cls:'btn btn-outline btn-sm del-mode-btn',text:'\uD83D\uDDD1 Delete Bills'});
-  var dlDelNowBtn=el('button',{cls:'btn btn-sm del-now-btn hidden',text:'\uD83D\uDDD1 Delete (0)'});
-  function dlSyncDelBtn(){var n=state.sel.size;if(state.deleteMode&&n>0){dlDelNowBtn.classList.remove('hidden');dlDelNowBtn.textContent='\uD83D\uDDD1 Delete ('+n+')';}else{dlDelNowBtn.classList.add('hidden');}}
-  dlDelBtn.addEventListener('click',function(){
-    state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();
-    printSelBtn.textContent='Select to Print';printSelBtn.style.background='';printNowBtn.style.display='none';
-    dlDelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Delete Bills';
-    dlDelBtn.classList.toggle('active',state.deleteMode);dlDelNowBtn.classList.add('hidden');rebuildAll();dlSyncDelBtn();
-  });
+  var dlDelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Delete Bills'});
+  dlDelBtn.style.cssText='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
+  var dlDelNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)'});
+  dlDelNowBtn.style.cssText='display:none;background:#dc2626;color:#fff;border:none;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px';
+  function dlSyncDelBtn(){var n=state.sel.size;if(state.deleteMode&&n>0){dlDelNowBtn.style.display='';dlDelNowBtn.textContent='Delete ('+n+')';}else{dlDelNowBtn.style.display='none';}}
+  dlDelBtn.addEventListener('click',function(){state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();printSelBtn.textContent='Select to Print';printSelBtn.style.background='';printNowBtn.style.display='none';dlDelBtn.textContent=state.deleteMode?'Cancel Delete':'Delete Bills';dlDelBtn.style.background=state.deleteMode?'#fee2e2':'#fff1f2';dlDelNowBtn.style.display='none';rebuildAll();});
   dlDelNowBtn.addEventListener('click',function(){
     var selBills=getData().filter(function(b){return state.sel.has(b.id);});
     if(!selBills.length){toast('Koi bill select nahi!','err');return;}
     var bd=document.createElement('div');
-    bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px">'
-      +'<div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">\u26A0 '+selBills.length+' bills delete honge!</div>'
-      +'<div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'
-      +selBills.slice(0,20).map(function(b){var s=getBillStatus(b);return'<div style="padding:2px 0">Bill #'+b.billNo+' \u2014 '+b.party+' \u2014 Bal:\u20B9'+fmt(s.bal)+'</div>';}).join('')
-      +(selBills.length>20?'<div style="color:#dc2626;font-weight:600">...aur '+(selBills.length-20)+' bills</div>':'')
-      +'</div></div>'
-      +'<div style="font-size:11px;color:#6b7280">Inke sab payments bhi delete ho jayenge. Undo ho sakta hai.</div>';
-    openModal('\uD83D\uDDD1 Bulk Bill Delete',bd,[{label:'\uD83D\uDDD1 Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){
-      saveUndo('Bulk Delete: '+selBills.length+' bills');
-      var ids=new Set(selBills.map(function(b){return b.id;}));
-      bills=bills.filter(function(b){return !ids.has(b.id);});
-      payments=payments.filter(function(p){return !ids.has(p.billId);});
-      invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);
-      state.sel.clear();state.deleteMode=false;
-      dlDelBtn.textContent='\uD83D\uDDD1 Delete Bills';dlDelBtn.classList.remove('active');dlDelNowBtn.classList.add('hidden');
-      closeModal();toast('\uD83D\uDDD1 '+selBills.length+' bills deleted!');refresh();
-    }}]);
+    bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">'+selBills.length+' bills delete honge!</div><div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'+selBills.slice(0,20).map(function(b){var s=getBillStatus(b);return'<div>Bill #'+b.billNo+' - '+b.party+' - Bal:Rs'+Math.round(s.bal)+'</div>';}).join('')+(selBills.length>20?'<div style="color:#dc2626">...aur '+(selBills.length-20)+' bills</div>':'')+'</div></div><div style="font-size:11px;color:#6b7280">Payments bhi delete honge. Undo possible hai.</div>';
+    openModal('Bulk Delete',bd,[{label:'Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){saveUndo('Bulk Delete: '+selBills.length+' bills');var ids=new Set(selBills.map(function(b){return b.id;}));bills=bills.filter(function(b){return !ids.has(b.id);});payments=payments.filter(function(p){return !ids.has(p.billId);});invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);state.sel.clear();state.deleteMode=false;dlDelBtn.textContent='Delete Bills';dlDelBtn.style.background='#fff1f2';dlDelNowBtn.style.display='none';closeModal();toast(selBills.length+' bills deleted!');refresh();}}]);
   });
   var bulkPayBtn2=el('button',{cls:'btn btn-green btn-sm',text:'Pay Selected'});
   bulkPayBtn2.style.display='none';
@@ -5443,10 +5416,10 @@ function pgDueList() {
     });
     thead.appendChild(htr);
   }
-  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';dlSyncDelBtn();}
+  function updPrint(){var n=state.sel.size;if(printNowBtn){printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';}if(typeof dlSyncDelBtn==='function')dlSyncDelBtn();}
   function renderRows(d){
     tbody.innerHTML='';
-    if(!d.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',cols.length+((state.printMode||state.deleteMode)?1:0));etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';etd.innerHTML='<div style="font-size:36px;margin-bottom:8px">No pending bills!</div>';etr.appendChild(etd);tbody.appendChild(etr);return;}
+    if(!d.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',cols.length+(state.printMode?1:0));etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';etd.innerHTML='<div style="font-size:36px;margin-bottom:8px">No pending bills!</div>';etr.appendChild(etd);tbody.appendChild(etr);return;}
     // Add totals row at end
     var _addTotalRow=function(){
       var totAmt=d.reduce(function(s,b){return s+b.netAmt;},0);
@@ -5459,7 +5432,7 @@ function pgDueList() {
       var spanCols=(state.printMode?1:0)+5; // chk+billno+date+party+broker+grade = variable
       // Count how many cols before Bill Amt
       var preAmt=cols.findIndex(function(c){return c.k==='netAmt';});
-      for(var pi=0;pi<preAmt+((state.printMode||state.deleteMode)?1:0);pi++){var ptd=document.createElement('td');ptd.style.padding='8px 10px';if(pi===0+((state.printMode||state.deleteMode)?1:0))ptd.innerHTML='<strong style="color:#166534">TOTAL ('+d.length+')</strong>';tftr.appendChild(ptd);}
+      for(var pi=0;pi<preAmt+(state.printMode?1:0);pi++){var ptd=document.createElement('td');ptd.style.padding='8px 10px';if(pi===0+(state.printMode?1:0))ptd.innerHTML='<strong style="color:#166534">TOTAL ('+d.length+')</strong>';tftr.appendChild(ptd);}
       _tc('\u20b9'+fmt(totAmt),true,'#374151');
       _tc('\u20b9'+fmt(totRecv),true,'#166534');
       _tc('\u20b9'+fmt(totBal),true,'#dc2626');
@@ -5523,7 +5496,7 @@ function pgDueList() {
       tr.appendChild(actTd);tbody.appendChild(tr);
     });
   }
-  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);dlSyncDelBtn();}
+  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);if(typeof dlSyncDelBtn==='function')dlSyncDelBtn();}
   rebuildAll();
 
   // ── ADVANCE BALANCE SECTION (parties with no due bills but have carry-forward credit) ──
