@@ -3548,7 +3548,8 @@ function pgNewBill() {
 // ── ALL BILLS ──
 function pgAllBills() {
   prewarmBillStatusCache();
-  var state=pageState.allBills=pageState.allBills||{q:'',sortKey:'date',sortDir:-1,showPay:false,printMode:false,zoom:100,filters:{},showPaid:true};
+  var state=pageState.allBills=pageState.allBills||{q:'',sortKey:'date',sortDir:-1,showPay:false,printMode:false,deleteMode:false,zoom:100,filters:{},showPaid:true};
+  if(state.deleteMode===undefined)state.deleteMode=false;
   state._pageLimit=200; // Show 200 rows initially, load more on scroll
   if(!state.sel)state.sel=new Set();
 
@@ -3657,6 +3658,7 @@ function pgAllBills() {
     abDelBtn.classList.toggle('active',state.deleteMode);
     abDelNowBtn.classList.add('hidden');
     rebuildAll();
+    abSyncDelBtn();
   });
   abDelNowBtn.addEventListener('click',function(){
     var selBills=getData().filter(function(b){return state.sel.has(b.id);});
@@ -3884,7 +3886,7 @@ function pgAllBills() {
     thead.appendChild(htr);
   }
 
-  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';abSyncDelBtn();}
+  function updPrint(){var n=state.sel.size;printNowBtn.style.display=(state.printMode&&n>0)?'':'none';printNowBtn.textContent='Print ('+n+')';if(bulkPayBtn2)bulkPayBtn2.style.display=(state.printMode&&n>0)?'':'none';if(typeof bulkPayBtn!=='undefined'&&bulkPayBtn)bulkPayBtn.style.display=(state.printMode&&n>0)?'':'none';abSyncDelBtn();}
 
   function renderRows(d){
     tbody.innerHTML='';
@@ -4074,7 +4076,7 @@ function pgAllBills() {
     }
   }
 
-  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);setTimeout(applyZoom,10);}
+  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);setTimeout(applyZoom,10);abSyncDelBtn();}
   rebuildAll();
   setTimeout(function(){
     applyZoom();
@@ -5248,7 +5250,8 @@ function printBill(bill) {
 
 
 function pgDueList() {
-  var state=pageState.due=pageState.due||{q:'',sortKey:'days',sortDir:-1,filters:{},printMode:false};
+  var state=pageState.due=pageState.due||{q:'',sortKey:'days',sortDir:-1,filters:{},printMode:false,deleteMode:false};
+  if(state.deleteMode===undefined)state.deleteMode=false;
   if(!state.sel)state.sel=new Set();
   var showNearlyPaid=pageState.due.showNearlyPaid||false;
   var dueBills=bills.filter(function(b){
@@ -5325,7 +5328,7 @@ function pgDueList() {
     state.deleteMode=!state.deleteMode;state.printMode=false;state.sel.clear();
     printSelBtn.textContent='Select to Print';printSelBtn.style.background='';printNowBtn.style.display='none';
     dlDelBtn.textContent=state.deleteMode?'\u2715 Cancel Delete':'\uD83D\uDDD1 Delete Bills';
-    dlDelBtn.classList.toggle('active',state.deleteMode);dlDelNowBtn.classList.add('hidden');rebuildAll();
+    dlDelBtn.classList.toggle('active',state.deleteMode);dlDelNowBtn.classList.add('hidden');rebuildAll();dlSyncDelBtn();
   });
   dlDelNowBtn.addEventListener('click',function(){
     var selBills=getData().filter(function(b){return state.sel.has(b.id);});
@@ -5520,7 +5523,7 @@ function pgDueList() {
       tr.appendChild(actTd);tbody.appendChild(tr);
     });
   }
-  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);}
+  function rebuildAll(){var d=getData();updateSum(d);buildHdr(d);renderRows(d);dlSyncDelBtn();}
   rebuildAll();
 
   // ── ADVANCE BALANCE SECTION (parties with no due bills but have carry-forward credit) ──
