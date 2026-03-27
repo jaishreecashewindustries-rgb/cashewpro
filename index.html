@@ -3644,9 +3644,7 @@ function pgAllBills() {
   abDelBtn.style.cssText='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
   var abDelNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)'});
   abDelNowBtn.style.cssText='display:none;background:#dc2626;color:#fff;border:none;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px';
-  function abSyncDelBtn(){
-    var n=state.sel.size;
-    if(state.deleteMode&&n>0){abDelNowBtn.style.display='';abDelNowBtn.textContent='Delete ('+n+')';}
+  function abSyncDelBtn(){var n=state.sel.size;console.log('abSyncDelBtn called: deleteMode='+state.deleteMode+' sel.size='+n+' abDelNowBtn='+typeof abDelNowBtn);if(state.deleteMode&&n>0){abDelNowBtn.style.display='';abDelNowBtn.style.cssText='background:#dc2626;color:#fff;border:none;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;display:inline-block';abDelNowBtn.textContent='Delete ('+n+')';}else{abDelNowBtn.style.display='none';}}
     else{abDelNowBtn.style.display='none';}
   }
   abDelBtn.addEventListener('click',function(){
