@@ -1208,7 +1208,7 @@ function _doFullClearAndReload() {
   try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
 
   /* Step 3 — reset every in-memory variable */
-  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
+  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; grossPayments=[]; } catch(e) {}
   try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
         erpS.interest=[]; erpS.opening=[]; erpS.confMap=[]; erpS.confPartial=[]; erpS.summary=null; } catch(e) {}
@@ -8662,45 +8662,11 @@ function pgSettings() {
   styledXlsxBtn.title='Saari data styled Excel mein — Bills, Party Summary, Outstanding';
   styledXlsxBtn.addEventListener('click',function(){exportStyledReportExcel(bills);});
   var expBtn3=el('button',{cls:'btn btn-green',text:'Export Full Backup'});
-  expBtn3.addEventListener('click',function(){
-    var data={bills:bills,payments:payments,cheques:cheques,advances:advances,
-      expenses:expenses,returns:returns_,purchases:purchases,settings:cfg,
-      exportDate:new Date().toISOString(),version:'v10'};
-    var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-    a.download='CashewPro_Backup_'+today()+'.json';
-    document.body.appendChild(a);a.click();
-    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href);},1000);
-    toast('Backup exported!');
-  });
+  expBtn3.addEventListener('click',function(){ exportBackupJSON(); });
 
   var impLbl=document.createElement('label');impLbl.className='btn btn-outline';impLbl.textContent='Restore from Backup';impLbl.style.cursor='pointer';
   var impInp=document.createElement('input');impInp.type='file';impInp.accept='.json';impInp.style.display='none';
-  impInp.addEventListener('change',function(){
-    var file=this.files[0];if(!file)return;
-    var reader=new FileReader();
-    reader.onload=function(e){
-      try{
-        var data=JSON.parse(e.target.result);
-        if(!data.bills&&!data.payments){toast('Invalid backup file!','err');return;}
-        if(!confirm('Restoring will replace current data. Continue?'))return;
-        if(data.bills)bills=data.bills;
-        if(data.payments)payments=data.payments;
-        if(data.cheques)cheques=data.cheques;
-        if(data.advances)advances=data.advances;
-        if(data.expenses)expenses=data.expenses;
-        if(data.returns)returns_=data.returns;
-        if(data.purchases)purchases=data.purchases;
-        invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);DB.set('cheques',cheques);
-        invalidateBillStatusCache();DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
-        DB.set('purchases',purchases);
-        toast('✅ Data restored! Bills: '+bills.length+', Payments: '+payments.length);
-        setTimeout(function(){refresh();},500);
-      }catch(ex){toast('Restore failed: '+ex.message,'err');}
-    };
-    reader.readAsText(file);
-    this.value='';
-  });
+  impInp.addEventListener('change',function(){if(this.files[0]){restoreFromJSON(this.files[0]);}this.value='';});
   impLbl.appendChild(impInp);
 
   // Clear all data
@@ -14937,13 +14903,16 @@ function restoreFromCloudBackup() {
           cheques=parsed.cheques||[]; advances=parsed.advances||[];
           expenses=parsed.expenses||[]; returns_=parsed.returns||parsed.returns_||[];
           purchases=parsed.purchases||[]; suspense=parsed.suspense||[];
+          grossPayments=parsed.grossPayments||[];
+          if(parsed.settings){ Object.assign(cfg,parsed.settings); DB.setObj('settings',cfg); }
           invalidateBillStatusCache();
           DB.set('bills',bills); DB.set('payments',payments);
           DB.set('cheques',cheques); DB.set('advances',advances);
           DB.set('expenses',expenses); DB.set('returns',returns_);
           DB.set('purchases',purchases); DB.set('suspense',suspense);
+          DB.set('grossPayments',grossPayments);
           saveBackupToHistory('Restored from Cloud Backup');
-          toast('✅ Cloud backup restore hua! Bills: '+bills.length);
+          toast('✅ Cloud backup restore hua! Bills: '+bills.length+', Gross Payments: '+grossPayments.length);
           refresh();
         } catch(e){ toast('Restore error: '+e.message,'err'); }
       }
@@ -14996,6 +14965,14 @@ function exportBackupExcel() {
   var suRows=suspense.map(function(s){return{ID:s.id,Date:fmtDate(s.date),Amount:s.amount,Narration:s.narration||'',Party:s.party||'',RefNo:s.refNo||'',Mode:s.mode||'',Cleared:s.cleared?'Yes':'No',ClearedTo:s.clearedTo||''};});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(suRows.length?suRows:[{note:'No data'}]),'Suspense');
 
+  // Sheet: Returns
+  var retRows=(returns_||[]).map(function(r){return{ID:r.id,Date:fmtDate(r.date),Party:r.party||'',Amount:r.amount||0,Grade:r.grade||'',Weight:r.weight||0,Mode:r.mode||'',Remarks:r.remarks||''};});
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(retRows.length?retRows:[{note:'No data'}]),'Returns');
+
+  // Sheet: GrossPayments
+  var gpRows=(grossPayments||[]).map(function(g){return{ID:g.id,Date:fmtDate(g.date),Party:g.party||'',GrossAmt:g.grossAmt||0,Mode:g.mode||'',ChequeNo:g.chequeNo||'',ReceiptNo:g.receiptNo||'',Remarks:g.remarks||'',BillsJSON:JSON.stringify(g.bills||[])};});
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(gpRows.length?gpRows:[{note:'No data'}]),'GrossPayments');
+
   // Sheet: Meta/Summary
   var ts=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+' '+pad(now.getHours())+':'+pad(now.getMinutes());
   var metaRows=[
@@ -15005,14 +14982,15 @@ function exportBackupExcel() {
     {Field:'Bills',Value:bills.length},{Field:'Payments',Value:payments.length},
     {Field:'Cheques',Value:cheques.length},{Field:'Advances',Value:advances.length},
     {Field:'Expenses',Value:expenses.length},{Field:'Purchases',Value:purchases.length},
-    {Field:'Suspense',Value:suspense.length},
+    {Field:'Suspense',Value:suspense.length},{Field:'Returns',Value:(returns_||[]).length},
+    {Field:'GrossPayments',Value:(grossPayments||[]).length},
   ];
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(metaRows),'Meta');
 
   var ts2=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes());
   XLSX.writeFile(wb,'CashewPro_Backup_'+ts2+'.xlsx');
   saveBackupToHistory('Excel Backup '+today());
-  toast('✅ Excel backup downloaded! 7 sheets');
+  toast('✅ Excel backup downloaded! 9 sheets (Bills, Payments, Cheques, Advances, Expenses, Purchases, Suspense, Returns, GrossPayments)');
 }
 
 // ── Validate backup data before restore ──
@@ -15143,11 +15121,13 @@ function restoreFromExcel(file) {
       }
       var rawBills  = XLSX.utils.sheet_to_json(wb.Sheets['Bills']);
       var rawPays   = XLSX.utils.sheet_to_json(wb.Sheets['Payments']);
-      var rawChqs   = wb.SheetNames.includes('Cheques')  ? XLSX.utils.sheet_to_json(wb.Sheets['Cheques'])  : [];
-      var rawAdvs   = wb.SheetNames.includes('Advances') ? XLSX.utils.sheet_to_json(wb.Sheets['Advances']) : [];
-      var rawExps   = wb.SheetNames.includes('Expenses') ? XLSX.utils.sheet_to_json(wb.Sheets['Expenses']) : [];
-      var rawPurs   = wb.SheetNames.includes('Purchases')? XLSX.utils.sheet_to_json(wb.Sheets['Purchases']): [];
-      var rawSusp   = wb.SheetNames.includes('Suspense') ? XLSX.utils.sheet_to_json(wb.Sheets['Suspense']) : [];
+      var rawChqs   = wb.SheetNames.includes('Cheques')      ? XLSX.utils.sheet_to_json(wb.Sheets['Cheques'])      : [];
+      var rawAdvs   = wb.SheetNames.includes('Advances')     ? XLSX.utils.sheet_to_json(wb.Sheets['Advances'])     : [];
+      var rawExps   = wb.SheetNames.includes('Expenses')     ? XLSX.utils.sheet_to_json(wb.Sheets['Expenses'])     : [];
+      var rawPurs   = wb.SheetNames.includes('Purchases')    ? XLSX.utils.sheet_to_json(wb.Sheets['Purchases'])    : [];
+      var rawSusp   = wb.SheetNames.includes('Suspense')     ? XLSX.utils.sheet_to_json(wb.Sheets['Suspense'])     : [];
+      var rawRets   = wb.SheetNames.includes('Returns')      ? XLSX.utils.sheet_to_json(wb.Sheets['Returns'])      : [];
+      var rawGross  = wb.SheetNames.includes('GrossPayments')? XLSX.utils.sheet_to_json(wb.Sheets['GrossPayments']): [];
 
       // Validate
       if(!rawBills.length&&!rawPays.length){ alert('Empty backup file!'); return; }
@@ -15215,19 +15195,22 @@ function restoreFromExcel(file) {
           };
         }
 
-        bills     = rawBills.filter(function(r){return !r.note;}).map(mapBill);
-        payments  = rawPays.filter(function(r){return !r.note;}).map(mapPay);
-        cheques   = rawChqs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',chequeNo:r.ChequeNo||'',bank:r.Bank||'',amount:parseFloat(r.Amount)||0,status:r.Status||'Pending'};});
-        advances  = rawAdvs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',amount:parseFloat(r.Amount)||0,mode:r.Mode||'',linked:r.Linked==='Yes',remarks:r.Remarks||''};});
-        expenses  = rawExps.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),category:r.Category||'Other',vendor:r.Vendor||'',amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
-        purchases = rawPurs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),supplier:r.Supplier||'',grade:r.Grade||'',weight:parseFloat(r.Weight)||0,rate:parseFloat(r.Rate)||0,amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
-        suspense  = rawSusp.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),amount:parseFloat(r.Amount)||0,narration:r.Narration||'',party:r.Party||'',refNo:r.RefNo||'',mode:r.Mode||'',cleared:r.Cleared==='Yes',clearedTo:r.ClearedTo||''};});
+        bills        = rawBills.filter(function(r){return !r.note;}).map(mapBill);
+        payments     = rawPays.filter(function(r){return !r.note;}).map(mapPay);
+        cheques      = rawChqs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',chequeNo:r.ChequeNo||'',bank:r.Bank||'',amount:parseFloat(r.Amount)||0,status:r.Status||'Pending'};});
+        advances     = rawAdvs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',amount:parseFloat(r.Amount)||0,mode:r.Mode||'',linked:r.Linked==='Yes',remarks:r.Remarks||''};});
+        expenses     = rawExps.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),category:r.Category||'Other',vendor:r.Vendor||'',amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
+        purchases    = rawPurs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),supplier:r.Supplier||'',grade:r.Grade||'',weight:parseFloat(r.Weight)||0,rate:parseFloat(r.Rate)||0,amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
+        suspense     = rawSusp.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),amount:parseFloat(r.Amount)||0,narration:r.Narration||'',party:r.Party||'',refNo:r.RefNo||'',mode:r.Mode||'',cleared:r.Cleared==='Yes',clearedTo:r.ClearedTo||''};});
+        returns_     = rawRets.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',amount:parseFloat(r.Amount)||0,grade:r.Grade||'',weight:parseFloat(r.Weight)||0,mode:r.Mode||'',remarks:r.Remarks||''};});
+        grossPayments= rawGross.filter(function(r){return !r.note;}).map(function(r){var bills2=[]; try{bills2=JSON.parse(r.BillsJSON||'[]');}catch(e){} return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',grossAmt:parseFloat(r.GrossAmt)||0,mode:r.Mode||'',chequeNo:r.ChequeNo||'',receiptNo:r.ReceiptNo||'',remarks:r.Remarks||'',bills:bills2};});
 
-        invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
-        invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
-        DB.set('purchases',purchases); DB.set('suspense',suspense);
+        invalidateBillStatusCache();
+        DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
+        DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+        DB.set('purchases',purchases); DB.set('suspense',suspense); DB.set('grossPayments',grossPayments);
         saveBackupToHistory('Restored from Excel');
-        toast('✅ Excel restore done! Bills: '+bills.length+', Payments: '+payments.length);
+        toast('✅ Excel restore done! Bills: '+bills.length+', Payments: '+payments.length+', Gross Payments: '+grossPayments.length+', Returns: '+returns_.length);
         refresh();
       }, 1500);
     } catch(ex) { alert('Excel parse error: '+ex.message); }
