@@ -4744,9 +4744,12 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
         alignment:{horizontal:hAlign,wrapText:false},
         border:{top:{style:'thin',color:{rgb:'E5E7EB'}},bottom:{style:'thin',color:{rgb:'E5E7EB'}},left:{style:'thin',color:{rgb:'E5E7EB'}},right:{style:'thin',color:{rgb:'E5E7EB'}}}
       };
-      // Fix numeric cells
+      // Fix numeric cells + force date cells as text to prevent Excel mm-dd-yy reinterpretation
       if(typeof v==='number'){
         ws1[addr].t='n'; ws1[addr].v=v; ws1[addr].z='#,##0';
+      } else if(h==='Date'||h==='Pay Date'||h==='Last Pay Date'||h==='Bill Date'||h==='Payment Date'){
+        // Force as text string — prevents Excel from applying mm-dd-yy format
+        ws1[addr].t='s'; ws1[addr].v=v?String(v):''; delete ws1[addr].z;
       }
     });
   });
@@ -4884,6 +4887,12 @@ function exportBillsExcel() {
     };
   });
   var ws1 = XLSX.utils.json_to_sheet(billRows);
+  // Force Date column cells as text to prevent Excel mm-dd-yy reformat
+  var ws1Ref = XLSX.utils.decode_range(ws1['!ref']||'A1');
+  for(var dri=1; dri<=ws1Ref.e.r; dri++){
+    var daddr=XLSX.utils.encode_cell({r:dri,c:1}); // Col B = Date
+    if(ws1[daddr]){ws1[daddr].t='s'; ws1[daddr].v=String(ws1[daddr].v||''); delete ws1[daddr].z;}
+  }
   ws1['!cols']=[{wch:8},{wch:12},{wch:24},{wch:14},{wch:18},{wch:16},{wch:10},{wch:22},{wch:8},{wch:12},{wch:14},{wch:14},{wch:10},{wch:10},{wch:10},{wch:10},{wch:14},{wch:10},{wch:10},{wch:14},{wch:12},{wch:12},{wch:10},{wch:20}];
   // Freeze header row
   ws1['!freeze']={xSplit:0,ySplit:1};
@@ -4909,6 +4918,14 @@ function exportBillsExcel() {
   });
   if(payRows.length){
     var ws2=XLSX.utils.json_to_sheet(payRows);
+    // Force date columns (Bill Date=col1, Payment Date=col4) as text
+    var ws2Ref=XLSX.utils.decode_range(ws2['!ref']||'A1');
+    for(var dr2=1;dr2<=ws2Ref.e.r;dr2++){
+      [1,4].forEach(function(dc2){
+        var da2=XLSX.utils.encode_cell({r:dr2,c:dc2});
+        if(ws2[da2]){ws2[da2].t='s';ws2[da2].v=String(ws2[da2].v||'');delete ws2[da2].z;}
+      });
+    }
     ws2['!cols']=[{wch:8},{wch:22},{wch:12},{wch:13},{wch:13},{wch:14},{wch:10},{wch:12},{wch:8},{wch:12},{wch:12},{wch:20}];
     ws2['!freeze']={xSplit:0,ySplit:1};
     XLSX.utils.book_append_sheet(wb,ws2,'Payments');
@@ -14703,7 +14720,7 @@ function pgBrokerage() {
 // BACKUP SYSTEM — Complete & Reliable
 // ═══════════════════════════════════════
 
-var BACKUP_VERSION = 'v10.1';
+var BACKUP_VERSION = 'v10.2';
 var REQUIRED_FIELDS = {
   bills:     ['id','party','netAmt','date'],
   payments:  ['id','billId','amount'],
@@ -14721,6 +14738,15 @@ function buildBackupData() {
   var pad = function(n){return String(n).padStart(2,'0');};
   var ts = now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+
            '_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());
+  // ── Extra data that was previously missing from backup ──
+  var partyMaster   = DB.getObj('partyMaster', {});
+  var partyPhones   = DB.getObj('partyPhones', {});
+  var archivedBills = DB.getObj('archived_bills', {});
+  var brokerRates   = DB.getObj('brokerRates', {});
+  var intCfg        = DB.getObj('intCfg', {rate:24, freeDays:7});
+  var hiddenPagesSnap = hiddenPages || {};
+  var aiPermRules   = localStorage.getItem('cp_ai_permanent_rules') || '';
+  var aiFmtRules    = localStorage.getItem('cp_ai_format_rules') || '';
   return {
     _meta: {
       version:   BACKUP_VERSION,
@@ -14739,6 +14765,8 @@ function buildBackupData() {
         purchases:     purchases.length,
         suspense:      suspense.length,
         grossPayments: (grossPayments||[]).length,
+        archivedFYs:   Object.keys(archivedBills).length,
+        parties:       Object.keys(partyMaster).length,
       }
     },
     bills:         bills,
@@ -14751,6 +14779,15 @@ function buildBackupData() {
     suspense:      suspense,
     grossPayments: grossPayments || [],
     settings:      cfg,
+    // ── Complete backup additions ──
+    partyMaster:   partyMaster,
+    partyPhones:   partyPhones,
+    archivedBills: archivedBills,
+    brokerRates:   brokerRates,
+    intCfg:        intCfg,
+    hiddenPages:   hiddenPagesSnap,
+    aiPermRules:   aiPermRules,
+    aiFmtRules:    aiFmtRules,
   };
 }
 
@@ -14906,6 +14943,15 @@ function restoreFromCloudBackup() {
           purchases=parsed.purchases||[]; suspense=parsed.suspense||[];
           grossPayments=parsed.grossPayments||[];
           if(parsed.settings){ Object.assign(cfg,parsed.settings); DB.setObj('settings',cfg); }
+          // ── Complete backup: restore extra data (v10.2+) ──
+          if(parsed.partyMaster&&Object.keys(parsed.partyMaster).length) DB.setObj('partyMaster',parsed.partyMaster);
+          if(parsed.partyPhones&&Object.keys(parsed.partyPhones).length) DB.setObj('partyPhones',parsed.partyPhones);
+          if(parsed.archivedBills&&Object.keys(parsed.archivedBills).length) DB.setObj('archived_bills',parsed.archivedBills);
+          if(parsed.brokerRates&&Object.keys(parsed.brokerRates).length) DB.setObj('brokerRates',parsed.brokerRates);
+          if(parsed.intCfg) DB.setObj('intCfg',parsed.intCfg);
+          if(parsed.hiddenPages){hiddenPages=parsed.hiddenPages;DB.setObj('hiddenPages',parsed.hiddenPages);}
+          if(parsed.aiPermRules) localStorage.setItem('cp_ai_permanent_rules',parsed.aiPermRules);
+          if(parsed.aiFmtRules)  localStorage.setItem('cp_ai_format_rules',parsed.aiFmtRules);
           invalidateBillStatusCache();
           DB.set('bills',bills); DB.set('payments',payments);
           DB.set('cheques',cheques); DB.set('advances',advances);
@@ -14913,7 +14959,7 @@ function restoreFromCloudBackup() {
           DB.set('purchases',purchases); DB.set('suspense',suspense);
           DB.set('grossPayments',grossPayments);
           saveBackupToHistory('Restored from Cloud Backup');
-          toast('✅ Cloud backup restore hua! Bills: '+bills.length+', Gross Payments: '+grossPayments.length);
+          toast('✅ Cloud backup restore hua! Bills: '+bills.length+', Gross: '+grossPayments.length);
           refresh();
         } catch(e){ toast('Restore error: '+e.message,'err'); }
       }
@@ -15101,8 +15147,39 @@ function restoreFromJSON(file) {
       saveDirectFS('purchases', purchases); saveDirectFS('suspense', suspense);
       saveDirectFS('grossPayments', grossPayments);
 
+      // ── Complete backup: restore extra data (v10.2+) ──
+      if(data.partyMaster && Object.keys(data.partyMaster).length) {
+        DB.setObj('partyMaster', data.partyMaster);
+      }
+      if(data.partyPhones && Object.keys(data.partyPhones).length) {
+        DB.setObj('partyPhones', data.partyPhones);
+      }
+      if(data.archivedBills && Object.keys(data.archivedBills).length) {
+        DB.setObj('archived_bills', data.archivedBills);
+      }
+      if(data.brokerRates && Object.keys(data.brokerRates).length) {
+        DB.setObj('brokerRates', data.brokerRates);
+      }
+      if(data.intCfg) {
+        DB.setObj('intCfg', data.intCfg);
+      }
+      if(data.hiddenPages) {
+        hiddenPages = data.hiddenPages;
+        DB.setObj('hiddenPages', data.hiddenPages);
+      }
+      if(data.aiPermRules) {
+        localStorage.setItem('cp_ai_permanent_rules', data.aiPermRules);
+      }
+      if(data.aiFmtRules) {
+        localStorage.setItem('cp_ai_format_rules', data.aiFmtRules);
+      }
+
+      var extraNote = '';
+      if(data.partyMaster) extraNote += ', Parties: '+Object.keys(data.partyMaster).length;
+      if(data.archivedBills && Object.keys(data.archivedBills).length) extraNote += ', Archived FYs: '+Object.keys(data.archivedBills).length;
+
       saveBackupToHistory('Restored from: '+(meta.label||file.name||'backup'));
-      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length+', Gross Payments: '+grossPayments.length);
+      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length+', Gross: '+grossPayments.length+extraNote);
       refresh();
     }, 1500);
   };
