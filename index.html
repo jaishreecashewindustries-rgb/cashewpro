@@ -1208,7 +1208,7 @@ function _doFullClearAndReload() {
   try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
 
   /* Step 3 — reset every in-memory variable */
-  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; grossPayments=[]; } catch(e) {}
+  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
   try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
         erpS.interest=[]; erpS.opening=[]; erpS.confMap=[]; erpS.confPartial=[]; erpS.summary=null; } catch(e) {}
@@ -3644,7 +3644,9 @@ function pgAllBills() {
   abDelBtn.style.cssText='background:#fff1f2;border-color:#fecaca;color:#dc2626;font-weight:600';
   var abDelNowBtn=el('button',{cls:'btn btn-sm',text:'Delete (0)'});
   abDelNowBtn.style.cssText='display:none;background:#dc2626;color:#fff;border:none;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px';
-  function abSyncDelBtn(){var n=state.sel.size;console.log('abSyncDelBtn called: deleteMode='+state.deleteMode+' sel.size='+n+' abDelNowBtn='+typeof abDelNowBtn);if(state.deleteMode&&n>0){abDelNowBtn.style.display='';abDelNowBtn.style.cssText='background:#dc2626;color:#fff;border:none;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;display:inline-block';abDelNowBtn.textContent='Delete ('+n+')';}else{abDelNowBtn.style.display='none';}}
+  function abSyncDelBtn(){
+    var n=state.sel.size;
+    if(state.deleteMode&&n>0){abDelNowBtn.style.display='';abDelNowBtn.textContent='Delete ('+n+')';}
     else{abDelNowBtn.style.display='none';}
   }
   abDelBtn.addEventListener('click',function(){
@@ -8646,12 +8648,12 @@ function pgSettings() {
 
   bc.appendChild(bb);wrap.appendChild(bc);
 
-  // ── BACKUP & RESTORE CARD (Full-featured, uses buildBackupData + restoreFromJSON) ──
+  // ── BACKUP & RESTORE CARD ──
   var bc=document.createElement('div');bc.className='card';bc.style.marginBottom='12px';
   var bh=document.createElement('div');bh.className='card-head';
   bh.innerHTML='<h4>Data Backup & Restore</h4>';bc.appendChild(bh);
   var bb2=document.createElement('div');bb2.style.cssText='padding:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap';
-  bb2.innerHTML='<span style="font-size:12px;color:#6b7280;flex:1">Export all data as JSON backup file (includes bills, payments, gross payments, cheques, advances, expenses, returns, purchases, suspense, settings), or restore from a previous backup.</span>';
+  bb2.innerHTML='<span style="font-size:12px;color:#6b7280;flex:1">Export all data as JSON backup file, or restore from a previous backup.</span>';
 
   var styledExpBtn=el('button',{cls:'btn btn-outline',text:'Styled PDF Report'});
   styledExpBtn.title='Saari data professional colored HTML/PDF mein';
@@ -8660,11 +8662,45 @@ function pgSettings() {
   styledXlsxBtn.title='Saari data styled Excel mein — Bills, Party Summary, Outstanding';
   styledXlsxBtn.addEventListener('click',function(){exportStyledReportExcel(bills);});
   var expBtn3=el('button',{cls:'btn btn-green',text:'Export Full Backup'});
-  expBtn3.addEventListener('click',function(){ exportBackupJSON(); });
+  expBtn3.addEventListener('click',function(){
+    var data={bills:bills,payments:payments,cheques:cheques,advances:advances,
+      expenses:expenses,returns:returns_,purchases:purchases,settings:cfg,
+      exportDate:new Date().toISOString(),version:'v10'};
+    var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='CashewPro_Backup_'+today()+'.json';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href);},1000);
+    toast('Backup exported!');
+  });
 
   var impLbl=document.createElement('label');impLbl.className='btn btn-outline';impLbl.textContent='Restore from Backup';impLbl.style.cursor='pointer';
   var impInp=document.createElement('input');impInp.type='file';impInp.accept='.json';impInp.style.display='none';
-  impInp.addEventListener('change',function(){if(this.files[0]){restoreFromJSON(this.files[0]);}this.value='';});
+  impInp.addEventListener('change',function(){
+    var file=this.files[0];if(!file)return;
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var data=JSON.parse(e.target.result);
+        if(!data.bills&&!data.payments){toast('Invalid backup file!','err');return;}
+        if(!confirm('Restoring will replace current data. Continue?'))return;
+        if(data.bills)bills=data.bills;
+        if(data.payments)payments=data.payments;
+        if(data.cheques)cheques=data.cheques;
+        if(data.advances)advances=data.advances;
+        if(data.expenses)expenses=data.expenses;
+        if(data.returns)returns_=data.returns;
+        if(data.purchases)purchases=data.purchases;
+        invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);DB.set('cheques',cheques);
+        invalidateBillStatusCache();DB.set('advances',advances);DB.set('expenses',expenses);DB.set('returns',returns_);
+        DB.set('purchases',purchases);
+        toast('✅ Data restored! Bills: '+bills.length+', Payments: '+payments.length);
+        setTimeout(function(){refresh();},500);
+      }catch(ex){toast('Restore failed: '+ex.message,'err');}
+    };
+    reader.readAsText(file);
+    this.value='';
+  });
   impLbl.appendChild(impInp);
 
   // Clear all data
@@ -14901,16 +14937,13 @@ function restoreFromCloudBackup() {
           cheques=parsed.cheques||[]; advances=parsed.advances||[];
           expenses=parsed.expenses||[]; returns_=parsed.returns||parsed.returns_||[];
           purchases=parsed.purchases||[]; suspense=parsed.suspense||[];
-          grossPayments=parsed.grossPayments||[];
-          if(parsed.settings){ Object.assign(cfg,parsed.settings); DB.setObj('settings',cfg); }
           invalidateBillStatusCache();
           DB.set('bills',bills); DB.set('payments',payments);
           DB.set('cheques',cheques); DB.set('advances',advances);
           DB.set('expenses',expenses); DB.set('returns',returns_);
           DB.set('purchases',purchases); DB.set('suspense',suspense);
-          DB.set('grossPayments',grossPayments);
           saveBackupToHistory('Restored from Cloud Backup');
-          toast('✅ Cloud backup restore hua! Bills: '+bills.length+', Gross Payments: '+grossPayments.length);
+          toast('✅ Cloud backup restore hua! Bills: '+bills.length);
           refresh();
         } catch(e){ toast('Restore error: '+e.message,'err'); }
       }
