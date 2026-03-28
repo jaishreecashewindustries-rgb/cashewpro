@@ -1208,8 +1208,8 @@ function _doFullClearAndReload() {
   try { _pending = {}; clearTimeout(_saveTimer); } catch(e) {}
 
   /* Step 3 — reset every in-memory variable */
-  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; grossPayments=[]; } catch(e) {}
-  try { cfg={}; hiddenPages={}; acceptedDups=new Set(); } catch(e) {}
+  try { bills=[]; payments=[]; cheques=[]; advances=[]; expenses=[]; returns_=[]; purchases=[]; suspense=[]; } catch(e) {}
+  try { cfg={}; hiddenPages={}; } catch(e) {}
   try { erpS.loaded={}; erpS.allPay=[]; erpS.grossPay=[]; erpS.billAdj=[]; erpS.rebate=[];
         erpS.interest=[]; erpS.opening=[]; erpS.confMap=[]; erpS.confPartial=[]; erpS.summary=null; } catch(e) {}
   try { ERP.rawBills=[]; ERP.rawPayments=[]; ERP.partyMap={}; ERP.results=[];
@@ -14770,7 +14770,6 @@ function buildBackupData() {
         purchases:     purchases.length,
         suspense:      suspense.length,
         grossPayments: (grossPayments||[]).length,
-        partyMaster:   Object.keys(DB.getObj('partyMaster',{})).length,
       }
     },
     bills:         bills,
@@ -14783,10 +14782,6 @@ function buildBackupData() {
     suspense:      suspense,
     grossPayments: grossPayments || [],
     settings:      cfg,
-    partyMaster:   DB.getObj('partyMaster', {}),
-    partyPhones:   DB.getObj('partyPhones', {}),
-    hiddenPages:   hiddenPages || {},
-    acceptedDups:  acceptedDups ? Array.from(acceptedDups) : [],
   };
 }
 
@@ -14936,28 +14931,17 @@ function restoreFromCloudBackup() {
         try {
           var parsed = JSON.parse(d.data);
           saveUndo('Before Cloud Restore');
-          bills         = parsed.bills         || [];
-          payments      = parsed.payments      || [];
-          cheques       = parsed.cheques       || [];
-          advances      = parsed.advances      || [];
-          expenses      = parsed.expenses      || [];
-          returns_      = parsed.returns       || parsed.returns_ || [];
-          purchases     = parsed.purchases     || [];
-          suspense      = parsed.suspense      || [];
-          grossPayments = parsed.grossPayments || [];
-          if(parsed.settings) { Object.assign(cfg, parsed.settings); DB.setObj('settings',cfg); }
-          if(parsed.partyMaster && typeof parsed.partyMaster==='object') DB.setObj('partyMaster', parsed.partyMaster);
-          if(parsed.partyPhones && typeof parsed.partyPhones==='object') DB.setObj('partyPhones', parsed.partyPhones);
-          if(parsed.hiddenPages && typeof parsed.hiddenPages==='object') { hiddenPages=parsed.hiddenPages; DB.setObj('hiddenPages',hiddenPages); }
-          if(Array.isArray(parsed.acceptedDups)) { acceptedDups=new Set(parsed.acceptedDups); DB.set('acceptedDups',Array.from(acceptedDups)); }
+          bills=parsed.bills||[]; payments=parsed.payments||[];
+          cheques=parsed.cheques||[]; advances=parsed.advances||[];
+          expenses=parsed.expenses||[]; returns_=parsed.returns||parsed.returns_||[];
+          purchases=parsed.purchases||[]; suspense=parsed.suspense||[];
           invalidateBillStatusCache();
           DB.set('bills',bills); DB.set('payments',payments);
           DB.set('cheques',cheques); DB.set('advances',advances);
           DB.set('expenses',expenses); DB.set('returns',returns_);
           DB.set('purchases',purchases); DB.set('suspense',suspense);
-          DB.set('grossPayments',grossPayments);
           saveBackupToHistory('Restored from Cloud Backup');
-          toast('✅ Cloud backup restore hua! Bills: '+bills.length+', Payments: '+payments.length+', GrossPayments: '+grossPayments.length+', Parties: '+Object.keys(parsed.partyMaster||{}).length);
+          toast('✅ Cloud backup restore hua! Bills: '+bills.length);
           refresh();
         } catch(e){ toast('Restore error: '+e.message,'err'); }
       }
@@ -15006,22 +14990,9 @@ function exportBackupExcel() {
   var puRows=purchases.map(function(p){return{ID:p.id,Date:fmtDate(p.date),Supplier:p.supplier,Grade:p.grade||'',Weight:p.weight||0,Rate:p.rate||0,Amount:p.amount,Remarks:p.remarks||''};});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(puRows.length?puRows:[{note:'No data'}]),'Purchases');
 
-  // Sheet: Returns
-  var retRows=(returns_||[]).map(function(r){return{ID:r.id,Date:fmtDate(r.date),Party:r.party||'',BillNo:r.billNo||'',Grade:r.grade||'',Weight:r.weight||0,Amount:r.amount||0,Remarks:r.remarks||''};});
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(retRows.length?retRows:[{note:'No data'}]),'Returns');
-
   // Sheet: Suspense
   var suRows=suspense.map(function(s){return{ID:s.id,Date:fmtDate(s.date),Amount:s.amount,Narration:s.narration||'',Party:s.party||'',RefNo:s.refNo||'',Mode:s.mode||'',Cleared:s.cleared?'Yes':'No',ClearedTo:s.clearedTo||''};});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(suRows.length?suRows:[{note:'No data'}]),'Suspense');
-
-  // Sheet: GrossPayments
-  var gpRows=(grossPayments||[]).map(function(g){
-    return{ID:g.id,Date:fmtDate(g.date),Party:g.party||'',GrossAmt:g.grossAmt||0,
-      Mode:g.mode||'',ChequeNo:g.chequeNo||'',ReceiptNo:g.receiptNo||'',
-      BankSessionId:g.bankSessionId||'',
-      Bills:JSON.stringify(g.bills||[])};
-  });
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(gpRows.length?gpRows:[{note:'No data'}]),'GrossPayments');
 
   // Sheet: Meta/Summary
   var ts=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate())+' '+pad(now.getHours())+':'+pad(now.getMinutes());
@@ -15032,17 +15003,14 @@ function exportBackupExcel() {
     {Field:'Bills',Value:bills.length},{Field:'Payments',Value:payments.length},
     {Field:'Cheques',Value:cheques.length},{Field:'Advances',Value:advances.length},
     {Field:'Expenses',Value:expenses.length},{Field:'Purchases',Value:purchases.length},
-    {Field:'Returns',Value:(returns_||[]).length},
     {Field:'Suspense',Value:suspense.length},
-    {Field:'GrossPayments',Value:(grossPayments||[]).length},
-    {Field:'PartyMaster',Value:Object.keys(DB.getObj('partyMaster',{})).length},
   ];
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(metaRows),'Meta');
 
   var ts2=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes());
   XLSX.writeFile(wb,'CashewPro_Backup_'+ts2+'.xlsx');
   saveBackupToHistory('Excel Backup '+today());
-  toast('✅ Excel backup downloaded! 10 sheets (Bills, Payments, Cheques, Advances, Expenses, Purchases, Returns, Suspense, GrossPayments, Meta)');
+  toast('✅ Excel backup downloaded! 7 sheets');
 }
 
 // ── Validate backup data before restore ──
@@ -15058,12 +15026,6 @@ function validateBackupData(data) {
     if(!Array.isArray(data[arr])) errors.push(arr+' data missing or invalid');
   });
   if(errors.length) return errors;
-
-  // Optional arrays — warn if missing (soft check, not blocking)
-  ['cheques','advances','expenses','returns','purchases','suspense','grossPayments'].forEach(function(arr){
-    if(data[arr]!==undefined && !Array.isArray(data[arr])) errors.push(arr+' field exists but is not an array — file may be corrupted');
-  });
-  if(data.partyMaster!==undefined && typeof data.partyMaster!=='object') errors.push('partyMaster field is invalid');
 
   // Check bill fields
   var sampleBills=(data.bills||[]).slice(0,3);
@@ -15138,22 +15100,6 @@ function restoreFromJSON(file) {
       grossPayments = data.grossPayments || [];
       if(data.settings) { Object.assign(cfg, data.settings); DB.setObj('settings',cfg); }
 
-      // partyMaster, partyPhones, hiddenPages, acceptedDups restore
-      if(data.partyMaster && typeof data.partyMaster==='object') {
-        DB.setObj('partyMaster', data.partyMaster);
-      }
-      if(data.partyPhones && typeof data.partyPhones==='object') {
-        DB.setObj('partyPhones', data.partyPhones);
-      }
-      if(data.hiddenPages && typeof data.hiddenPages==='object') {
-        hiddenPages = data.hiddenPages;
-        DB.setObj('hiddenPages', hiddenPages);
-      }
-      if(Array.isArray(data.acceptedDups)) {
-        acceptedDups = new Set(data.acceptedDups);
-        DB.set('acceptedDups', Array.from(acceptedDups));
-      }
-
       // Save directly to Firestore (bypass localStorage size limit)
       function saveDirectFS(key, val) {
         if(!_user) return;
@@ -15173,11 +15119,9 @@ function restoreFromJSON(file) {
       saveDirectFS('expenses', expenses); saveDirectFS('returns', returns_);
       saveDirectFS('purchases', purchases); saveDirectFS('suspense', suspense);
       saveDirectFS('grossPayments', grossPayments);
-      saveDirectFS('partyMaster', data.partyMaster||{});
-      saveDirectFS('partyPhones', data.partyPhones||{});
 
       saveBackupToHistory('Restored from: '+(meta.label||file.name||'backup'));
-      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length+', Gross Payments: '+grossPayments.length+', Parties: '+Object.keys(data.partyMaster||{}).length);
+      toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length+', Gross Payments: '+grossPayments.length);
       refresh();
     }, 1500);
   };
@@ -15197,13 +15141,11 @@ function restoreFromExcel(file) {
       }
       var rawBills  = XLSX.utils.sheet_to_json(wb.Sheets['Bills']);
       var rawPays   = XLSX.utils.sheet_to_json(wb.Sheets['Payments']);
-      var rawChqs   = wb.SheetNames.includes('Cheques')       ? XLSX.utils.sheet_to_json(wb.Sheets['Cheques'])       : [];
-      var rawAdvs   = wb.SheetNames.includes('Advances')      ? XLSX.utils.sheet_to_json(wb.Sheets['Advances'])      : [];
-      var rawExps   = wb.SheetNames.includes('Expenses')      ? XLSX.utils.sheet_to_json(wb.Sheets['Expenses'])      : [];
-      var rawRets   = wb.SheetNames.includes('Returns')       ? XLSX.utils.sheet_to_json(wb.Sheets['Returns'])       : [];
-      var rawPurs   = wb.SheetNames.includes('Purchases')     ? XLSX.utils.sheet_to_json(wb.Sheets['Purchases'])     : [];
-      var rawSusp   = wb.SheetNames.includes('Suspense')      ? XLSX.utils.sheet_to_json(wb.Sheets['Suspense'])      : [];
-      var rawGP     = wb.SheetNames.includes('GrossPayments') ? XLSX.utils.sheet_to_json(wb.Sheets['GrossPayments']) : [];
+      var rawChqs   = wb.SheetNames.includes('Cheques')  ? XLSX.utils.sheet_to_json(wb.Sheets['Cheques'])  : [];
+      var rawAdvs   = wb.SheetNames.includes('Advances') ? XLSX.utils.sheet_to_json(wb.Sheets['Advances']) : [];
+      var rawExps   = wb.SheetNames.includes('Expenses') ? XLSX.utils.sheet_to_json(wb.Sheets['Expenses']) : [];
+      var rawPurs   = wb.SheetNames.includes('Purchases')? XLSX.utils.sheet_to_json(wb.Sheets['Purchases']): [];
+      var rawSusp   = wb.SheetNames.includes('Suspense') ? XLSX.utils.sheet_to_json(wb.Sheets['Suspense']) : [];
 
       // Validate
       if(!rawBills.length&&!rawPays.length){ alert('Empty backup file!'); return; }
@@ -15271,29 +15213,19 @@ function restoreFromExcel(file) {
           };
         }
 
-        bills         = rawBills.filter(function(r){return !r.note;}).map(mapBill);
-        payments      = rawPays.filter(function(r){return !r.note;}).map(mapPay);
-        cheques       = rawChqs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',chequeNo:r.ChequeNo||'',bank:r.Bank||'',amount:parseFloat(r.Amount)||0,status:r.Status||'Pending'};});
-        advances      = rawAdvs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',amount:parseFloat(r.Amount)||0,mode:r.Mode||'',linked:r.Linked==='Yes',remarks:r.Remarks||''};});
-        expenses      = rawExps.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),category:r.Category||'Other',vendor:r.Vendor||'',amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
-        returns_      = rawRets.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',billNo:r.BillNo||'',grade:r.Grade||'',weight:parseFloat(r.Weight)||0,amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
-        purchases     = rawPurs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),supplier:r.Supplier||'',grade:r.Grade||'',weight:parseFloat(r.Weight)||0,rate:parseFloat(r.Rate)||0,amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
-        suspense      = rawSusp.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),amount:parseFloat(r.Amount)||0,narration:r.Narration||'',party:r.Party||'',refNo:r.RefNo||'',mode:r.Mode||'',cleared:r.Cleared==='Yes',clearedTo:r.ClearedTo||''};});
-        grossPayments = rawGP.filter(function(r){return !r.note;}).map(function(r){
-          var billsParsed=[];
-          try{ if(r.Bills) billsParsed=JSON.parse(r.Bills); }catch(e){}
-          return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',grossAmt:parseFloat(r.GrossAmt)||0,
-            mode:r.Mode||'',chequeNo:r.ChequeNo||'',receiptNo:r.ReceiptNo||'',
-            bankSessionId:r.BankSessionId||'',bills:billsParsed};
-        });
+        bills     = rawBills.filter(function(r){return !r.note;}).map(mapBill);
+        payments  = rawPays.filter(function(r){return !r.note;}).map(mapPay);
+        cheques   = rawChqs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',chequeNo:r.ChequeNo||'',bank:r.Bank||'',amount:parseFloat(r.Amount)||0,status:r.Status||'Pending'};});
+        advances  = rawAdvs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),party:r.Party||'',amount:parseFloat(r.Amount)||0,mode:r.Mode||'',linked:r.Linked==='Yes',remarks:r.Remarks||''};});
+        expenses  = rawExps.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),category:r.Category||'Other',vendor:r.Vendor||'',amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
+        purchases = rawPurs.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),supplier:r.Supplier||'',grade:r.Grade||'',weight:parseFloat(r.Weight)||0,rate:parseFloat(r.Rate)||0,amount:parseFloat(r.Amount)||0,remarks:r.Remarks||''};});
+        suspense  = rawSusp.filter(function(r){return !r.note;}).map(function(r){return{id:r.ID||uid(),date:r.Date||today(),amount:parseFloat(r.Amount)||0,narration:r.Narration||'',party:r.Party||'',refNo:r.RefNo||'',mode:r.Mode||'',cleared:r.Cleared==='Yes',clearedTo:r.ClearedTo||''};});
 
-        invalidateBillStatusCache();
-        DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
-        DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+        invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
+        invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
         DB.set('purchases',purchases); DB.set('suspense',suspense);
-        DB.set('grossPayments',grossPayments);
         saveBackupToHistory('Restored from Excel');
-        toast('✅ Excel restore done! Bills: '+bills.length+', Payments: '+payments.length+', GrossPayments: '+grossPayments.length);
+        toast('✅ Excel restore done! Bills: '+bills.length+', Payments: '+payments.length);
         refresh();
       }, 1500);
     } catch(ex) { alert('Excel parse error: '+ex.message); }
