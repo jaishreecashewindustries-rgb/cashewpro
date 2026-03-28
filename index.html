@@ -14070,14 +14070,15 @@ var _undoTimer = null;
 
 function saveUndo(label) {
   var snap = {
-    bills:     JSON.parse(JSON.stringify(bills)),
-    payments:  JSON.parse(JSON.stringify(payments)),
-    cheques:   JSON.parse(JSON.stringify(cheques)),
-    advances:  JSON.parse(JSON.stringify(advances)),
-    expenses:  JSON.parse(JSON.stringify(expenses)),
-    returns_:  JSON.parse(JSON.stringify(returns_)),
-    purchases: JSON.parse(JSON.stringify(purchases)),
-    suspense:  JSON.parse(JSON.stringify(suspense)),
+    bills:         JSON.parse(JSON.stringify(bills)),
+    payments:      JSON.parse(JSON.stringify(payments)),
+    cheques:       JSON.parse(JSON.stringify(cheques)),
+    advances:      JSON.parse(JSON.stringify(advances)),
+    expenses:      JSON.parse(JSON.stringify(expenses)),
+    returns_:      JSON.parse(JSON.stringify(returns_)),
+    purchases:     JSON.parse(JSON.stringify(purchases)),
+    suspense:      JSON.parse(JSON.stringify(suspense)),
+    grossPayments: JSON.parse(JSON.stringify(grossPayments||[])),
   };
   _undoStack.push({ label: label || 'Action', time: Date.now(), snapshot: snap });
   if(_undoStack.length > 20) _undoStack.shift();
@@ -15444,8 +15445,7 @@ function _initAutoBackup(){
     if(_lbak===_td) return;
     setTimeout(function(){
       try{
-        var _bd={bills:bills,payments:payments,cheques:cheques,advances:advances,
-          expenses:expenses,returns:returns_,settings:cfg,exportDate:new Date().toISOString()};
+        var _bd=buildBackupData();
         var _bl=new Blob([JSON.stringify(_bd)],{type:'application/json'});
         var _el=document.createElement('a');_el.href=URL.createObjectURL(_bl);
         _el.download='CashewPro_AutoBackup_'+_td+'.json';
@@ -18987,20 +18987,18 @@ function histRestore(entryId, skipConfirm) {
 
   var snap = entry.snapshot;
   // Restore app arrays
-  bills     = snap.bills     || [];
-  payments  = snap.payments  || [];
-  cheques   = snap.cheques   || [];
-  advances  = snap.advances  || [];
-  expenses  = snap.expenses  || [];
-  returns_  = snap.returns_  || [];
-  purchases = snap.purchases || [];
-  suspense  = snap.suspense  || [];
+  bills         = snap.bills         || [];
+  payments      = snap.payments      || [];
+  cheques       = snap.cheques       || [];
+  advances      = snap.advances      || [];
+  expenses      = snap.expenses      || [];
+  returns_      = snap.returns_      || [];
+  purchases     = snap.purchases     || [];
+  suspense      = snap.suspense      || [];
+  grossPayments = snap.grossPayments || [];
 
   // Persist to DB
   invalidateBillStatusCache();
-  ['bills','payments','cheques','advances','expenses','returns','purchases','suspense'].forEach(function(k) {
-    DB.set(k === 'returns' ? 'returns' : k, k === 'returns_' ? returns_ : eval(k));
-  });
   DB.set('bills', bills);
   DB.set('payments', payments);
   DB.set('cheques', cheques);
@@ -19009,6 +19007,7 @@ function histRestore(entryId, skipConfirm) {
   DB.set('returns', returns_);
   DB.set('purchases', purchases);
   DB.set('suspense', suspense);
+  DB.set('grossPayments', grossPayments);
 
   // Restore ERP state if present
   // FIXED: Only restore uploaded files, NOT old computed results.
