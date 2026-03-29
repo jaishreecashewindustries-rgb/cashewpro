@@ -7760,18 +7760,87 @@ function pgReports() {
           eb.textContent='-';
           var bBills=bills.filter(function(b){return (b.broker||'No Broker')===r.broker&&getBillStatus(b).status!=='paid';}).sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
           var totBal=bBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-          var st='<div id="'+eid+'" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px">'
-            +'<div style="display:flex;gap:6px;margin-bottom:6px">'
-            +'<button onclick="(function(){var bBills=window._brkPrintData_'+r.broker.replace(/[^a-z0-9]/gi,'_')+';if(!bBills)return;var h=\'<!DOCTYPE html><html><head><meta charset=UTF-8><title>'+r.broker+' Outstanding</title><style>body{font-family:Arial;font-size:11px;padding:14px}h3{color:#166534}table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534}button{display:none}</style></head><body>\';h+=\'<button onclick=window.print() style=background:#166534;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;margin-bottom:8px>Print</button>\';h+=\'<h3>'+r.broker+' — Outstanding Bills — \'+(new Date().toLocaleDateString(\'en-IN\'))+\'</h3>\';h+=\'<table><thead><tr><th>Bill#</th><th>Date</th><th>Party</th><th class=num>Net Amt</th><th class=num>Balance</th><th>Days</th></tr></thead><tbody>\';bBills.forEach(function(b){var s=getBillStatus(b);var d=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);h+=\'<tr><td>\'+b.billNo+\'</td><td style=white-space:nowrap>\'+fmtDate(b.date)+\'</td><td><strong>\'+b.party+\'</strong></td><td class=num>\u20b9\'+fmt(b.netAmt)+\'</td><td class=num style=color:#dc2626;font-weight:700>\u20b9\'+fmt(s.bal)+\'</td><td style=color:\'+(d>60?\'#dc2626\':d>30?\'#d97706\':\'#166534\')+\'>\'+d+\'d</td></tr>\';});var tot=bBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);h+=\'<tr><td colspan=3><strong>TOTAL ('+r.bills+' bills)</strong></td><td class=num></td><td class=num style=color:#dc2626><strong>\u20b9\'+fmt(tot)+\'</strong></td><td></td></tr>\';h+=\'</tbody></table></body></html>\';var w=window.open(\'\',\'_blank\');w.document.write(h);w.document.close();})()" style="background:#166534;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer">🖨️ Print</button>'
-            +'<button onclick="(function(){var bBills=window._brkPrintData_'+r.broker.replace(/[^a-z0-9]/gi,'_')+';if(!bBills)return;var rows=bBills.map(function(b){var s=getBillStatus(b);var d=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);return{\'Bill#\':b.billNo,\'Date\':fmtDate(b.date),\'Party\':b.party,\'Net Amt\':b.netAmt,\'Balance\':Math.round(s.bal),\'Days Due\':d};});var ws=XLSX.utils.json_to_sheet(rows);var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,\''+r.broker.substring(0,25)+'\');XLSX.writeFile(wb,\'Broker_'+r.broker.replace(/[^a-z0-9]/gi,'_')+'_'+today()+\'.xlsx\');toast(\'Excel exported!\');})()" style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer">📊 Excel</button>'
-            +'<span style="font-size:11px;font-weight:700;color:#dc2626;margin-left:8px">Outstanding: \u20b9'+fmt(totBal)+'</span>'
-            +'</div>'
-            +'<table style="width:100%;font-size:11px"><thead><tr style="background:#166534;color:#fff"><th style="padding:4px 8px">Bill#</th><th style="padding:4px 8px">Date</th><th style="padding:4px 8px">Party</th><th style="padding:4px 8px;text-align:right">Amt</th><th style="padding:4px 8px;text-align:right">Balance</th><th style="padding:4px 8px">Days</th></tr></thead><tbody>';
-          bBills.forEach(function(b){var s=getBillStatus(b);var d=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);st+='<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:3px 8px">'+b.billNo+'</td><td style="padding:3px 8px;white-space:nowrap">'+fmtDate(b.date)+'</td><td style="padding:3px 8px"><strong>'+b.party+'</strong></td><td style="padding:3px 8px;text-align:right">\u20b9'+fmt(b.netAmt)+'</td><td style="padding:3px 8px;text-align:right;color:#dc2626;font-weight:700">\u20b9'+fmt(s.bal)+'</td><td style="padding:3px 8px;color:'+(d>60?'#dc2626':d>30?'#d97706':'#166534')+'">'+d+'d</td></tr>';});
-          st+='</tbody></table></div>';
-          // Store bills in window for onclick access
-          window['_brkPrintData_'+r.broker.replace(/[^a-z0-9]/gi,'_')]=bBills;
-          var newTr=document.createElement('tr');newTr.innerHTML='<td colspan="8" style="padding:0 8px 6px">'+st+'</td>';
+
+          // Expand container using DOM (no inline onclick)
+          var expDiv=document.createElement('div');
+          expDiv.id=eid;expDiv.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px';
+
+          // Action bar with Print + Excel buttons (proper addEventListener)
+          var actBar=document.createElement('div');actBar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
+
+          var prtBtn=document.createElement('button');
+          prtBtn.textContent='🖨️ Print';prtBtn.style.cssText='background:#166534;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer';
+          prtBtn.addEventListener('click',(function(broker,billsList,billCnt){return function(){
+            var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+broker+' Outstanding</title>'
+              +'<style>body{font-family:Arial,sans-serif;font-size:11px;padding:14px}h3{color:#166534}'
+              +'table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}'
+              +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'
+              +'tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534}button{display:none}</style></head><body>'
+              +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;margin-bottom:8px">Print</button>'
+              +'<h3>'+broker+' \u2014 Outstanding Bills \u2014 '+(new Date().toLocaleDateString('en-IN'))+'</h3>'
+              +'<table><thead><tr><th>Bill#</th><th>Date</th><th>Party</th><th class="num">Net Amt</th><th class="num">Balance</th><th>Days</th></tr></thead><tbody>';
+            var tot=0;
+            billsList.forEach(function(b){
+              var s=getBillStatus(b);var d=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);
+              h+='<tr><td>'+b.billNo+'</td><td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
+                +'<td><strong>'+b.party+'</strong></td>'
+                +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
+                +'<td class="num" style="color:#dc2626;font-weight:700">\u20b9'+fmt(s.bal)+'</td>'
+                +'<td style="color:'+(d>60?'#dc2626':d>30?'#d97706':'#166534')+'">'+d+'d</td></tr>';
+              tot+=s.bal;
+            });
+            h+='<tr style="background:#f0fdf4;font-weight:700;border-top:2px solid #166534">'
+              +'<td colspan="3"><strong>TOTAL ('+billCnt+' bills)</strong></td><td></td>'
+              +'<td class="num" style="color:#dc2626"><strong>\u20b9'+fmt(tot)+'</strong></td><td></td></tr>'
+              +'</tbody></table></body></html>';
+            var w=window.open('','_blank');if(!w){toast('Please allow popups!','err');return;}
+            w.document.write(h);w.document.close();
+          };})(r.broker,bBills,bBills.length));
+
+          var xlsBtn=document.createElement('button');
+          xlsBtn.textContent='📊 Excel';xlsBtn.style.cssText='background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer';
+          xlsBtn.addEventListener('click',(function(broker,billsList){return function(){
+            var rows=billsList.map(function(b){
+              var s=getBillStatus(b);var d=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);
+              return{'Bill#':b.billNo,'Date':fmtDate(b.date),'Party':b.party,'Net Amt':b.netAmt,'Balance':Math.round(s.bal),'Days Due':d};
+            });
+            var ws=XLSX.utils.json_to_sheet(rows);
+            var wb=XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb,ws,broker.substring(0,25));
+            XLSX.writeFile(wb,'Broker_'+broker.replace(/[^a-z0-9]/gi,'_')+'_'+today()+'.xlsx');
+            toast('Excel exported!');
+          };})(r.broker,bBills));
+
+          var balSpan=document.createElement('span');
+          balSpan.style.cssText='font-size:11px;font-weight:700;color:#dc2626;margin-left:8px';
+          balSpan.textContent='Outstanding: \u20b9'+fmt(totBal);
+
+          actBar.appendChild(prtBtn);actBar.appendChild(xlsBtn);actBar.appendChild(balSpan);
+          expDiv.appendChild(actBar);
+
+          // Bills table
+          var tbl2=document.createElement('table');tbl2.style.cssText='width:100%;font-size:11px;border-collapse:collapse';
+          tbl2.innerHTML='<thead><tr style="background:#166534;color:#fff">'
+            +'<th style="padding:4px 8px">Bill#</th><th style="padding:4px 8px">Date</th>'
+            +'<th style="padding:4px 8px">Party</th><th style="padding:4px 8px;text-align:right">Amt</th>'
+            +'<th style="padding:4px 8px;text-align:right">Balance</th><th style="padding:4px 8px">Days</th></tr></thead>';
+          var tb2=document.createElement('tbody');
+          bBills.forEach(function(b){
+            var s=getBillStatus(b);var d=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);
+            var tr2=document.createElement('tr');tr2.style.borderBottom='1px solid #e5e7eb';
+            tr2.innerHTML='<td style="padding:3px 8px">'+b.billNo+'</td>'
+              +'<td style="padding:3px 8px;white-space:nowrap">'+fmtDate(b.date)+'</td>'
+              +'<td style="padding:3px 8px"><strong>'+b.party+'</strong></td>'
+              +'<td style="padding:3px 8px;text-align:right">\u20b9'+fmt(b.netAmt)+'</td>'
+              +'<td style="padding:3px 8px;text-align:right;color:#dc2626;font-weight:700">\u20b9'+fmt(s.bal)+'</td>'
+              +'<td style="padding:3px 8px;color:'+(d>60?'#dc2626':d>30?'#d97706':'#166534')+'">'+d+'d</td>';
+            tb2.appendChild(tr2);
+          });
+          tbl2.appendChild(tb2);expDiv.appendChild(tbl2);
+
+          var newTr=document.createElement('tr');
+          var newTd=document.createElement('td');newTd.setAttribute('colspan','8');newTd.style.cssText='padding:0 8px 6px';
+          newTd.appendChild(expDiv);newTr.appendChild(newTd);
           eb.closest('tr').insertAdjacentElement('afterend',newTr);
         });return eb;
       }},
