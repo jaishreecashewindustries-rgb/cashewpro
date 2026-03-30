@@ -1548,6 +1548,34 @@ function getPartyCarryForward(party) {
 
 // Cached carry forward map per party
 var _carryForwardCache = {}; // party → carryMap
+// ── CF CREDIT DATE: CF se paid bill ke liye automatically credit date detect karo ──
+// CF credit date = us payment ki date jo previous bill mein excess create ki
+// Yeh Interest Calculator mein default date ke roop mein use hoti hai
+function getCFCreditDate(bill) {
+  var party = bill.party;
+  var billISO = toISO(bill.date || '');
+  // Party ke sab bills date-wise sort
+  var partyBills = bills.filter(function(b) { return b.party === party; })
+    .sort(function(a, b2) {
+      var da = toISO(a.date || ''), db = toISO(b2.date || '');
+      return da < db ? -1 : da > db ? 1 : (parseInt(a.billNo)||0) - (parseInt(b2.billNo)||0);
+    });
+  // Bills jo is bill se pehle hain unke payments mein se latest date lo
+  var latestPayDate = '';
+  partyBills.forEach(function(b) {
+    if (toISO(b.date || '') >= billISO && b.id !== bill.id) return; // skip same or later bills
+    var bPays = payments.filter(function(p) { return p.billId === b.id; });
+    bPays.forEach(function(p) {
+      var pd = toISO(p.date || '');
+      if (pd > latestPayDate) latestPayDate = pd;
+    });
+  });
+  if (!latestPayDate) return '';
+  // Return as DD-MM-YYYY
+  var parts = latestPayDate.split('-');
+  return parts[2]+'-'+parts[1]+'-'+parts[0];
+}
+
 function getCarryForwardForBill(bill) {
   var party = bill.party;
   if (!_carryForwardCache[party]) {
@@ -3942,6 +3970,13 @@ function pgAllBills() {
           recvWrapper.appendChild(gpBadge);
         }
       }
+      // CF badge: show if bill paid via carry-forward (no direct payments)
+      if(s.carryFwd&&s.carryFwd>0.5){
+        var cfBadgeEl=document.createElement('div');
+        cfBadgeEl.style.cssText='font-size:9px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:3px;margin-top:2px;font-weight:600;white-space:nowrap';
+        cfBadgeEl.textContent='\u2192 Carry Fwd \u20b9'+fmt(s.carryFwd);
+        recvWrapper.appendChild(cfBadgeEl);
+      }
 
       // FULLY dynamic rendering — ALL cols including recv/bal/status follow baseCols order
       baseCols.forEach(function(c){
@@ -3984,17 +4019,33 @@ function pgAllBills() {
         }
       });
       if(state.showPay){
-        addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'\u20b9'+fmt(lpy.amount||0):'-',true,true);
-        addTd(lpy?'\u20b9'+fmt(lpy.rebate||0):'-',true,true);addTd(lpy?lpy.mode||'-':'-',false,true);
-        addTd(lpy?lpy.chequeNo||'-':'-',false,true);addTd(lpy?lpy.receiptNo||'-':'-',false,true);
-        // Gross Ref column
-        var grDiv=document.createElement('div');grDiv.style.maxWidth='180px';
-        if(lpy&&lpy.grossAmt&&lpy.grossAmt>0){
-          var gpX=(grossPayments||[]).find(function(g){return (lpy.gpId&&g.id===lpy.gpId)||(g.party===row.party&&g.date===lpy.date&&g.grossAmt===lpy.grossAmt);});
-          if(gpX){var bnX=(gpX.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');grDiv.innerHTML='<span style="font-size:9px;background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-weight:600;white-space:nowrap">Gross(\u20b9'+fmt(gpX.grossAmt)+' | '+bnX+')</span>';}
-          else{grDiv.innerHTML='<span style="font-size:9px;color:#1d4ed8">Gross(\u20b9'+fmt(lpy.grossAmt)+')</span>';}
-        }else{grDiv.textContent='-';}
-        addTd(grDiv,false,true);
+        // CF bill: paid via carry-forward with no direct payment record
+        var isCFPaid=(s.status==='paid'&&lp.length===0&&s.carryFwd&&s.carryFwd>0.5);
+        if(isCFPaid){
+          addTd('<span style="font-size:10px;color:#166534;font-style:italic">Carry Fwd</span>',false,true);
+          addTd('<span style="font-size:10px;color:#166534">\u20b9'+fmt(s.carryFwd)+'</span>',true,true);
+          addTd('-',true,true);
+          addTd('<span style="font-size:10px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:3px;font-weight:600">CF</span>',false,true);
+          addTd('-',false,true);addTd('-',false,true);
+        } else {
+          addTd(lpy?lpy.date||'-':'-',false,true);addTd(lpy?'\u20b9'+fmt(lpy.amount||0):'-',true,true);
+          addTd(lpy?'\u20b9'+fmt(lpy.rebate||0):'-',true,true);addTd(lpy?lpy.mode||'-':'-',false,true);
+          addTd(lpy?lpy.chequeNo||'-':'-',false,true);addTd(lpy?lpy.receiptNo||'-':'-',false,true);
+          // Gross Ref column
+          var grDiv=document.createElement('div');grDiv.style.maxWidth='180px';
+          if(lpy&&lpy.grossAmt&&lpy.grossAmt>0){
+            var gpX=(grossPayments||[]).find(function(g){return (lpy.gpId&&g.id===lpy.gpId)||(g.party===row.party&&g.date===lpy.date&&g.grossAmt===lpy.grossAmt);});
+            if(gpX){var bnX=(gpX.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');grDiv.innerHTML='<span style="font-size:9px;background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-weight:600;white-space:nowrap">Gross(\u20b9'+fmt(gpX.grossAmt)+' | '+bnX+')</span>';}
+            else{grDiv.innerHTML='<span style="font-size:9px;color:#1d4ed8">Gross(\u20b9'+fmt(lpy.grossAmt)+')</span>';}
+          }else{grDiv.textContent='-';}
+          addTd(grDiv,false,true);
+        }
+        // CF Gross Ref column — show CF badge for CF-only paid bills
+        if(isCFPaid){
+          var cfGrDiv=document.createElement('div');
+          cfGrDiv.innerHTML='<span style="font-size:9px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:3px;font-weight:600;white-space:nowrap">\u2192 Carry Fwd Credit</span>';
+          addTd(cfGrDiv,false,true);
+        }
       }
       var actTd=document.createElement('td');
       // Compact action menu — "..." dropdown
@@ -8542,7 +8593,58 @@ function pgPartyMaster() {
         (pd.fromBills?'<span style="background:#dcfce7;color:#166534;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;margin-right:2px">BILLS</span>':'')+
         (pd.manual?'<span style="background:#e0f2fe;color:#0369a1;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px">MANUAL</span>':'')];
       cells.forEach(function(c){var td=document.createElement('td');td.style.padding='7px 10px';td.innerHTML=c;tr.appendChild(td);});
-      var actTd=document.createElement('td');actTd.style.cssText='padding:7px 10px';
+      var actTd=document.createElement('td');actTd.style.cssText='padding:7px 10px;white-space:nowrap';
+      // Edit button — ALL parties ke liye (bills se bhi, manually added bhi)
+      var editBtn=el('button',{cls:'btn btn-xs',text:'\u270f Edit',style:'background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;font-size:10px;margin-right:4px'});
+      editBtn.addEventListener('click',(function(pn,pd2){
+        return function(){
+          var overlay=document.createElement('div');
+          overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:center;justify-content:center';
+          var modal=document.createElement('div');
+          modal.style.cssText='background:#fff;border-radius:12px;padding:20px 22px;width:400px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.2)';
+          modal.innerHTML='<h4 style="margin:0 0 14px;color:#166534;font-size:15px">\u270f Edit Party: <span style="color:#111">'+pn+'</span></h4>'+
+            '<div style="display:flex;flex-direction:column;gap:10px">'+
+            '<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;display:block;margin-bottom:3px">Party Name</label>'+
+            '<input id="pm-edit-name" class="inp" style="font-size:12px" value="'+pn+'"></div>'+
+            '<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;display:block;margin-bottom:3px">Station (/ se alag karo)</label>'+
+            '<input id="pm-edit-station" class="inp" style="font-size:12px" value="'+pd2.stations.join(' / ')+'"></div>'+
+            '<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;display:block;margin-bottom:3px">Broker (/ se alag karo)</label>'+
+            '<input id="pm-edit-broker" class="inp" style="font-size:12px" value="'+pd2.brokers.join(' / ')+'"></div>'+
+            '<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;display:block;margin-bottom:3px">GSTIN</label>'+
+            '<input id="pm-edit-gstin" class="inp" style="font-size:12px;font-family:monospace" value="'+(pd2.gstin||'')+'"></div>'+
+            '</div>'+
+            '<div style="display:flex;gap:8px;margin-top:16px">'+
+            '<button id="pm-edit-save" class="btn btn-green" style="flex:1">Save</button>'+
+            '<button id="pm-edit-cancel" class="btn btn-outline" style="flex:1">Cancel</button>'+
+            '</div>';
+          overlay.appendChild(modal);document.body.appendChild(overlay);
+          document.getElementById('pm-edit-cancel').addEventListener('click',function(){document.body.removeChild(overlay);});
+          overlay.addEventListener('click',function(e){if(e.target===overlay)document.body.removeChild(overlay);});
+          document.getElementById('pm-edit-save').addEventListener('click',function(){
+            var newName=document.getElementById('pm-edit-name').value.trim().toUpperCase();
+            var newStation=document.getElementById('pm-edit-station').value.trim().toUpperCase();
+            var newBroker=document.getElementById('pm-edit-broker').value.trim().toUpperCase();
+            var newGstin=document.getElementById('pm-edit-gstin').value.trim().toUpperCase();
+            if(!newName){toast('Party name required!','err');return;}
+            var newStations=newStation?newStation.split(/[/,]+/).map(function(s){return s.trim();}).filter(Boolean):[];
+            var newBrokers=newBroker?newBroker.split(/[/,]+/).map(function(s){return s.trim();}).filter(Boolean):[];
+            var pm2=DB.getObj('partyMaster',{});
+            // If name changed, update all bills too
+            if(newName!==pn){
+              bills=bills.map(function(b){return b.party===pn?Object.assign({},b,{party:newName}):b;});
+              payments=payments.map(function(p2){return p2.party===pn?Object.assign({},p2,{party:newName}):p2;});
+              invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);
+              if(pm2[pn]){pm2[newName]=pm2[pn];delete pm2[pn];}
+            }
+            pm2[newName]={stations:newStations,brokers:newBrokers,gstin:newGstin,notes:(pm2[newName]||{}).notes||''};
+            DB.setObj('partyMaster',pm2);
+            toast('\u2705 Party updated!'+(newName!==pn?' (name changed, bills updated)':''));
+            document.body.removeChild(overlay);
+            setTimeout(function(){go('party-master');},300);
+          });
+        };
+      })(p,pd));
+      actTd.appendChild(editBtn);
       if(pm[p]){var delBtn=el('button',{cls:'btn btn-xs',text:'Del',style:'background:#fee2e2;border:1px solid #fca5a5;color:#dc2626;font-size:10px'});delBtn.addEventListener('click',(function(pn){return function(){if(!confirm(pn+' delete?'))return;delete pm[pn];DB.setObj('partyMaster',pm);toast('Deleted');go('party-master');};})(p));actTd.appendChild(delBtn);}
       tr.appendChild(actTd);tbody.appendChild(tr);
     });
@@ -12626,10 +12728,12 @@ function pgInterest() {
     var billDate=new Date(toISO(b.date||today()));
     var isPaid=s.status==='paid';
 
-    // BUG5 FIX: CF bill (paid, no direct payments) — use user-set CF date
+    // BUG5 FIX: CF bill (paid, no direct payments) — use user-set CF date, else auto-detect
     if(isPaid && bPays.length===0){
       var cfKey='cf_'+b.id;
       var cfDateStr=state.payDateAdj[cfKey]||'';
+      // Auto-detect: use previous bill's last payment date if user hasn't set manually
+      if(!cfDateStr){cfDateStr=getCFCreditDate(b)||'';}
       var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
       var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
       var cfFreeDays=Math.max(0,cfDays-freeDays);
@@ -12768,14 +12872,17 @@ function pgInterest() {
       var payHist=document.createElement('div');
       var isCFBill=(calc.isPaid&&calc.bPays.length===0);
       if(isCFBill){
-        // BUG5 FIX: CF bill — show editable date field for interest calculation
+        // CF bill — show editable date field for interest calculation
         var cfKey='cf_'+b.id;
         var cfCurDate=state.payDateAdj[cfKey]||'';
+        // Auto-detect CF credit date from previous bill's payment if not manually set
+        var cfAutoDate=getCFCreditDate(b);
+        var cfDefaultDate=cfCurDate||(cfAutoDate||fmtDate(b.date));
         var cfRow=document.createElement('div');cfRow.style.cssText='display:flex;align-items:center;gap:5px;flex-wrap:wrap';
         var cfInp=document.createElement('input');cfInp.type='text';cfInp.className='inp-sm';
-        cfInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':'border-color:#d97706;background:#fffbeb');
-        cfInp.value=cfCurDate||fmtDate(b.date);
-        cfInp.title='CF credit milne ki date daalo — is date tak interest calculate hoga';
+        cfInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':(cfAutoDate?'border-color:#059669;background:#f0fdf4':'border-color:#d97706;background:#fffbeb'));
+        cfInp.value=cfDefaultDate;
+        cfInp.title='CF credit milne ki date'+(cfAutoDate?' (auto-detected from previous bill payment)':' — is date tak interest calculate hoga');
         cfInp.addEventListener('change',function(){
           var nd=this.value.trim();
           if(!nd||nd===fmtDate(b.date)){
@@ -12791,16 +12898,22 @@ function pgInterest() {
         cfBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
         cfBadge.textContent='Carry Fwd';
         cfRow.appendChild(cfInp);cfRow.appendChild(cfBadge);
+        if(cfAutoDate&&!cfCurDate){
+          var cfAutoHint=document.createElement('span');
+          cfAutoHint.style.cssText='font-size:9px;color:#059669;background:#f0fdf4;padding:1px 4px;border-radius:3px;font-weight:600';
+          cfAutoHint.textContent='auto';cfAutoHint.title='Auto-detected from prev bill payment';
+          cfRow.appendChild(cfAutoHint);
+        }
         if(cfCurDate){
           var cfRev=document.createElement('button');cfRev.textContent='↩';
           cfRev.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
-          cfRev.title='Reset to bill date';
+          cfRev.title='Reset to auto-detected date';
           cfRev.addEventListener('click',function(){delete state.payDateAdj[cfKey];renderIntPage();});
           cfRow.appendChild(cfRev);
         }
         var cfHint=document.createElement('div');
         cfHint.style.cssText='font-size:9px;color:#92400e;margin-top:2px';
-        cfHint.textContent='CF credit date daalo';
+        cfHint.textContent=cfAutoDate?'Auto-detected: prev bill payment date':'CF credit date daalo';
         payHist.appendChild(cfRow);payHist.appendChild(cfHint);
       } else if(calc.bPays.length===0){
         payHist.innerHTML='<span style="color:#9ca3af;font-size:11px">No payments</span>';
@@ -13832,24 +13945,39 @@ function printInterestStatement() {
   Object.keys(partyMap).sort().forEach(function(party){
     var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
     var pTotBal=0,pTotInt=0;
-    h+='<table><thead><tr class="ph"><th colspan="4">'+party+'</th>'
+    h+='<table><thead><tr class="ph"><th colspan="5">'+party+'</th>'
       +'<th class="num" style="color:#dc2626;background:#eff6ff">Outstanding</th>'
       +'<th class="num" style="color:#d97706;background:#eff6ff">Interest (\u20b9)</th></tr>'
-      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th class="num">Balance</th><th class="num">Interest</th></tr></thead><tbody>';
+      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th class="num">Period</th><th class="num">Balance</th><th class="num">Interest</th></tr></thead><tbody>';
     pBills.forEach(function(b){
       var s=getBillStatus(b);var calc=calcBI(b);
       pTotBal+=s.bal;pTotInt+=calc.interest;
       var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
       var isCF=(calc.isPaid&&bPays2.length===0);
       var payStr=bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join(', '):(isCF?'Carry Fwd Credit':'No payments');
+      // Calculate int days for print
+      var printIntDays=0;
+      var printPrevDate=new Date(toISO(b.date||today()));var printPrevBal=b.netAmt;var printFdUsed=false;
+      var isPaid2=s.status==='paid';
+      var printEndDate=asOf;
+      if(isPaid2&&bPays2.length>0)printEndDate=new Date(toISO(bPays2[bPays2.length-1].date||today()));
+      bPays2.forEach(function(p){
+        var pDate=new Date(toISO(p.date||today()));if(pDate<=printPrevDate)return;
+        var days=Math.max(0,Math.floor((pDate-printPrevDate)/86400000));
+        var fta=printFdUsed?0:freeDays;if(days>0)printFdUsed=true;
+        printIntDays+=Math.max(0,days-fta);
+        printPrevBal=Math.max(0,printPrevBal-(p.amount||0)+(p.rebate||0));printPrevDate=pDate;
+      });
+      if(printPrevBal>0.5){var fd2=Math.max(0,Math.floor((printEndDate-printPrevDate)/86400000));printIntDays+=Math.max(0,fd2-(printFdUsed?0:freeDays));}
       h+='<tr><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
         +'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
         +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
         +'<td style="font-size:10px;color:#374151">'+payStr+'</td>'
+        +'<td class="num" style="color:#6b7280">'+(printIntDays>0?printIntDays+'d':'—')+'</td>'
         +'<td class="num" style="color:'+(s.bal>0.5?'#dc2626':'#166534')+';font-weight:700">'+(s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR')+'</td>'
         +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td></tr>';
     });
-    h+='</tbody><tfoot><tr><td colspan="4"><strong>Total ('+pBills.length+' bills)</strong></td>'
+    h+='</tbody><tfoot><tr><td colspan="5"><strong>Total ('+pBills.length+' bills)</strong></td>'
       +'<td class="num" style="color:#dc2626">\u20b9'+fmt(pTotBal)+'</td>'
       +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td></tr></tfoot></table>';
     grandBal+=pTotBal;grandInt+=pTotInt;
