@@ -12421,17 +12421,15 @@ function pgInterest() {
   var allPartiesInt=Array.from(new Set(bills.filter(function(b){
     return state.showPaid?true:getBillStatus(b).status!=='paid';
   }).map(function(b){return b.party;}))).sort();
-  // BUG4 FIX: exactParty = dropdown (exact ===), partyFilter = text search (includes)
-  if(!state.exactParty) state.exactParty='';
-  var partySel=document.createElement('select');partySel.className='inp-sm';partySel.style.width='220px';
+  var partySel=document.createElement('select');partySel.className='inp-sm';partySel.style.width='200px';
   var defOpt=document.createElement('option');defOpt.value='';defOpt.textContent='-- All Parties --';partySel.appendChild(defOpt);
-  allPartiesInt.forEach(function(p){var opt=document.createElement('option');opt.value=p;opt.textContent=p;if(p===state.exactParty)opt.selected=true;partySel.appendChild(opt);});
-  partySel.addEventListener('change',function(){state.exactParty=this.value;state.partyFilter='';pSearch.value='';state.selectedBills=new Set();pageState.int._intPg=0;renderIntPage();});
+  allPartiesInt.forEach(function(p){var opt=document.createElement('option');opt.value=p;opt.textContent=p;if(p===state.partyFilter)opt.selected=true;partySel.appendChild(opt);});
+  partySel.addEventListener('change',function(){state.partyFilter=this.value;state.selectedBills=new Set();pageState.int._intPg=0;renderIntPage();});
   var pSearch=el('input',{cls:'inp-sm',type:'text',placeholder:'Search party...',value:state.partyFilter||'',style:'width:150px'});
   var pTimer=null;
-  pSearch.addEventListener('input',function(){state.partyFilter=this.value;state.exactParty='';partySel.value='';clearTimeout(pTimer);pTimer=setTimeout(function(){pageState.int._intPg=0;renderIntPage();},200);});
+  pSearch.addEventListener('input',function(){state.partyFilter=this.value;partySel.value='';var pos=this.selectionStart;clearTimeout(pTimer);pTimer=setTimeout(function(){pageState.int._intPg=0;renderIntPage();},200);});
   var viewLedgerBtn=el('button',{cls:'btn btn-outline btn-sm',text:'View Ledger'});
-  viewLedgerBtn.addEventListener('click',function(){var party=state.exactParty||state.partyFilter;if(!party){toast('Pehle party select karo!','err');return;}pageState.ledgerParty=party;pageState.ledgerReturnPage='interest';go('ledger');});
+  viewLedgerBtn.addEventListener('click',function(){var party=partySel.value||state.partyFilter;if(!party){toast('Pehle party select karo!','err');return;}pageState.ledgerParty=party;pageState.ledgerReturnPage='interest';go('ledger');});
   var intPrintBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Print'});
   intPrintBtn.addEventListener('click',function(){printInterestStatement();});
   var intExcelBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Excel'});
@@ -12450,12 +12448,11 @@ function pgInterest() {
   var dfrom=state.dateFrom?toISO(state.dateFrom):'';
   var dto=state.dateTo?toISO(state.dateTo):'';
 
-  // Filter bills — exactParty = exact match, partyFilter = substring
+  // Filter bills: outstanding always, paid only if showPaid=true
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
     if(!state.showPaid && s.status==='paid') return false;
-    if(state.exactParty && b.party!==state.exactParty) return false;
-    if(!state.exactParty && q2 && !b.party.toLowerCase().includes(q2)) return false;
+    if(q2&&!b.party.toLowerCase().includes(q2)) return false;
     if(dfrom&&toISO(b.date||'')<dfrom) return false;
     if(dto&&toISO(b.date||'')>dto) return false;
     return true;
@@ -12473,8 +12470,6 @@ function pgInterest() {
   // Outstanding: end date = asOf
   function calcBillInterest(b) {
     var s=getBillStatus(b);
-    var cfKey='cf_'+b.id;
-    var cfDateStr=state.payDateAdj[cfKey]||'';
     var bPays=payments.filter(function(p){return p.billId===b.id;})
       .map(function(p){
         var adjStr=state.payDateAdj[p.id]||'';
@@ -12482,44 +12477,16 @@ function pgInterest() {
           id:p.id, amount:p.amount+(p.rebate||0),
           origDate:p.date, adjDate:adjStr,
           date:new Date(toISO(adjStr||p.date||today())),
-          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||'',
-          grossAmt:p.grossAmt||0, gpId:p.gpId||''
+          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||''
         };
       }).sort(function(a,b2){return a.date-b2.date;});
 
     var billDate=new Date(toISO(b.date||today()));
+    // For paid bills: calculate till last payment date
     var isPaid=s.status==='paid';
-    var hasCF=(s.carryFwd&&s.carryFwd>0.5);
-
-    // CASE 1: Pure CF bill — no direct payments at all
-    if(isPaid && bPays.length===0){
-      var cfDate0=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
-      var cfDays0=Math.max(0,Math.floor((cfDate0-billDate)/86400000));
-      var cfFree0=Math.max(0,cfDays0-freeDays);
-      var cfInt0=cfFree0>0?Math.round(b.netAmt*(rate/100)*(cfFree0/365)*100)/100:0;
-      return{interest:cfInt0,schedule:[{
-        from:new Date(billDate),to:new Date(cfDate0),
-        bal:b.netAmt,days:cfDays0,intDays:cfFree0,int:cfInt0,
-        label:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':'')
-      }],bPays:[],isPaid:true,endDate:cfDate0,hasCF:true};
-    }
-
-    // Determine end date:
-    // - Outstanding bill: endDate = asOf
-    // - Paid via payments only: endDate = last payment date
-    // - Paid partially via payments + CF: endDate = CF date (user-entered)
     var endDate=asOf;
-    if(isPaid){
-      if(hasCF && cfDateStr){
-        // User has set the CF credit date — use it for the remaining balance
-        endDate=new Date(toISO(cfDateStr));
-      } else if(hasCF && !cfDateStr){
-        // CF bill but no date set — use last payment date (interest on remaining = 0 till set)
-        endDate=bPays.length>0?bPays[bPays.length-1].date:new Date(billDate);
-      } else {
-        // No CF — fully paid via direct payments
-        endDate=bPays.length>0?bPays[bPays.length-1].date:new Date(billDate);
-      }
+    if(isPaid && bPays.length>0){
+      endDate=bPays[bPays.length-1].date;
     }
 
     var prevDate=new Date(billDate);
@@ -12528,9 +12495,9 @@ function pgInterest() {
     var schedule=[];
     var freeDaysUsed=false;
 
-    // Process each direct payment
+    // Process each payment
     bPays.forEach(function(p){
-      if(p.date<=prevDate) return;
+      if(p.date<=prevDate) return; // skip if before bill date
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
       var fta=freeDaysUsed?0:freeDays;
       var intDays=Math.max(0,days-fta);
@@ -12546,22 +12513,22 @@ function pgInterest() {
       prevDate=new Date(p.date);
     });
 
-    // Final period: last payment → endDate (CF date or asOf)
-    if(prevBal>0.5 && endDate>prevDate){
+    // Final period: last event → endDate
+    if(prevBal>0 && endDate>prevDate){
       var finalDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      // Apply free days if not yet consumed (e.g. no payments at all)
       var finalFta=freeDaysUsed?0:freeDays;
       var finalIntDays=Math.max(0,finalDays-finalFta);
       var finalInt=Math.round(prevBal*(rate/100)*(finalIntDays/365)*100)/100;
       if(finalIntDays>0) totalInterest+=finalInt;
-      var finalLabel=hasCF?(cfDateStr?'Carry Fwd Credit ('+cfDateStr+')':'Carry Fwd (date daalo \u2193)'):(isPaid?'(Closed)':'Outstanding');
       schedule.push({
         from:new Date(prevDate),to:new Date(endDate),
         bal:prevBal,days:finalDays,intDays:finalIntDays,int:finalInt,
-        label:finalLabel
+        label:isPaid?'(Closed)':'Outstanding'
       });
     }
 
-    return {interest:totalInterest,schedule:schedule,bPays:bPays,isPaid:isPaid,endDate:endDate,hasCF:hasCF};
+    return {interest:totalInterest,schedule:schedule,bPays:bPays,isPaid:isPaid,endDate:endDate};
   }
 
   // ── RENDER EACH PARTY ──
@@ -12637,91 +12604,45 @@ function pgInterest() {
       td3.textContent=s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR';tr2.appendChild(td3);
 
       // Payment dates — editable for interest calc
-      var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;min-width:220px';
+      var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;min-width:200px';
       var payHist=document.createElement('div');
-      var cfKey2='cf_'+b.id;
-      var cfCurDate=state.payDateAdj[cfKey2]||'';
-      var showCFInput=(calc.hasCF||calc.bPays.length===0)&&calc.isPaid;
-
       if(calc.bPays.length===0){
-        // Pure CF bill — only CF date input
-        var cfPureRow=document.createElement('div');cfPureRow.style.cssText='display:flex;align-items:center;gap:5px;flex-wrap:wrap';
-        var cfPureInp=document.createElement('input');cfPureInp.type='text';cfPureInp.className='inp-sm';
-        cfPureInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':'border-color:#d97706;background:#fffbeb');
-        cfPureInp.value=cfCurDate||fmtDate(b.date);
-        cfPureInp.title='CF credit date daalo — is date tak interest calculate hoga';
-        cfPureInp.addEventListener('change',(function(key,inp2){return function(){
-          var nd=this.value.trim();
-          if(!nd||nd===fmtDate(b.date)){delete state.payDateAdj[key];inp2.style.borderColor='#d97706';inp2.style.background='#fffbeb';}
-          else{state.payDateAdj[key]=nd;inp2.style.borderColor='var(--brand)';inp2.style.background='#f0fdf4';}
-          renderIntPage();
-        };})(cfKey2,cfPureInp));
-        var cfPureBadge=document.createElement('span');
-        cfPureBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
-        cfPureBadge.textContent='Carry Fwd';
-        cfPureRow.appendChild(cfPureInp);cfPureRow.appendChild(cfPureBadge);
-        if(cfCurDate){
-          var cfRev2=document.createElement('button');cfRev2.textContent='↩';
-          cfRev2.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
-          cfRev2.addEventListener('click',function(){delete state.payDateAdj[cfKey2];renderIntPage();});
-          cfPureRow.appendChild(cfRev2);
-        }
-        payHist.appendChild(cfPureRow);
-        var cfPureHint=document.createElement('div');cfPureHint.style.cssText='font-size:9px;color:#92400e;margin-top:2px';
-        cfPureHint.textContent='CF credit date daalo';payHist.appendChild(cfPureHint);
+        payHist.innerHTML='<span style="color:#9ca3af;font-size:11px">No payments</span>';
       } else {
-        // Has direct payments
         calc.bPays.forEach(function(p){
           var pRow=document.createElement('div');pRow.style.cssText='display:flex;align-items:center;gap:5px;margin-bottom:4px';
           var adjInp=document.createElement('input');adjInp.type='text';adjInp.className='inp-sm';
           adjInp.style.cssText='width:95px;font-size:11px;height:24px;'+(p.adjDate?'border-color:var(--brand);background:#f0fdf4':'');
           adjInp.value=p.adjDate||fmtDate(p.origDate);
-          adjInp.title='Interest ke liye date adjust karo';
-          adjInp.addEventListener('change',(function(pid,inp3){return function(){
-            var newDate=this.value.trim();var origFmt=fmtDate(p.origDate);
-            if(newDate===origFmt){delete state.payDateAdj[pid];inp3.style.borderColor='';inp3.style.background='';}
-            else{state.payDateAdj[pid]=newDate;inp3.style.borderColor='var(--brand)';inp3.style.background='#f0fdf4';}
-            renderIntPage();
-          };})(p.id,adjInp));
+          adjInp.title='Interest calculation ke liye date adjust karo (cheque clearing date, etc.)';
+          adjInp.addEventListener('change',function(){
+            var newDate=this.value.trim();
+            var origFmt=fmtDate(p.origDate);
+            if(newDate===origFmt){delete state.payDateAdj[p.id];this.style.borderColor='';this.style.background='';}
+            else{state.payDateAdj[p.id]=newDate;this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';}
+            refresh();
+          });
           var pAmt=document.createElement('span');pAmt.style.cssText='font-size:11px;color:#374151;white-space:nowrap';
           var iGrossRef='';
           if(p.grossAmt&&p.grossAmt>0){
-            var igp=(grossPayments||[]).find(function(g){return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);});
-            if(igp){var igpBnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+igpBnos+')</span>';}
-            else{iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';}
+            var igp=(grossPayments||[]).find(function(g){
+              return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);
+            });
+            if(igp){
+              var igpBnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
+              iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+igpBnos+')</span>';
+            } else {
+              iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';
+            }
           }
           pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef;
-          if(p.adjDate){var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});pRow.appendChild(revert);}
+          if(p.adjDate){
+            var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date';
+            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});
+            pRow.appendChild(revert);
+          }
           pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
         });
-        // If CF bill with remaining balance — add CF date input AFTER payments list
-        if(showCFInput){
-          var cfPartRow=document.createElement('div');cfPartRow.style.cssText='display:flex;align-items:center;gap:5px;margin-top:4px;flex-wrap:wrap';
-          var cfPartInp=document.createElement('input');cfPartInp.type='text';cfPartInp.className='inp-sm';
-          cfPartInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':'border-color:#d97706;background:#fffbeb');
-          cfPartInp.value=cfCurDate||'';cfPartInp.placeholder='CF date';
-          cfPartInp.title='Remaining balance ka CF credit date daalo';
-          cfPartInp.addEventListener('change',(function(key,inp4){return function(){
-            var nd=this.value.trim();
-            if(!nd){delete state.payDateAdj[key];inp4.style.borderColor='#d97706';inp4.style.background='#fffbeb';}
-            else{state.payDateAdj[key]=nd;inp4.style.borderColor='var(--brand)';inp4.style.background='#f0fdf4';}
-            renderIntPage();
-          };})(cfKey2,cfPartInp));
-          var cfPartBadge=document.createElement('span');
-          cfPartBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
-          cfPartBadge.textContent='\u2192 CF Credit Date';
-          cfPartRow.appendChild(cfPartInp);cfPartRow.appendChild(cfPartBadge);
-          if(cfCurDate){
-            var cfRev3=document.createElement('button');cfRev3.textContent='↩';
-            cfRev3.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
-            cfRev3.addEventListener('click',function(){delete state.payDateAdj[cfKey2];renderIntPage();});
-            cfPartRow.appendChild(cfRev3);
-          }
-          payHist.appendChild(cfPartRow);
-          var cfPartHint=document.createElement('div');cfPartHint.style.cssText='font-size:9px;color:#92400e;margin-top:1px';
-          cfPartHint.textContent='Remaining \u20b9'+fmt(Math.round(s.carryFwd||0))+' ka CF date';
-          payHist.appendChild(cfPartHint);
-        }
       }
       td4.appendChild(payHist);tr2.appendChild(td4);
 
@@ -13618,200 +13539,6 @@ function printPartyStatement(party, plState) {
   w.document.write(h);w.document.close();
 }
 
-// ── INTEREST CALCULATOR: PRINT (with Days column) ──
-function printInterestStatement() {
-  var st=pageState.int||{};
-  var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var rate=cfg2.rate||24; var freeDays=cfg2.freeDays||7;
-  var asOfEl=document.getElementById('int-asof');
-  var asOfStr=asOfEl?asOfEl.value||today():today();
-  var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
-  var exactParty=st.exactParty||'';
-  var q2=(st.partyFilter||'').toLowerCase();
-  var dfrom=st.dateFrom?toISO(st.dateFrom):''; var dto=st.dateTo?toISO(st.dateTo):'';
-
-  var filteredBills=bills.filter(function(b){
-    var s=getBillStatus(b);
-    if(!st.showPaid&&s.status==='paid')return false;
-    if(exactParty&&b.party!==exactParty)return false;
-    if(!exactParty&&q2&&!b.party.toLowerCase().includes(q2))return false;
-    if(dfrom&&toISO(b.date||'')<dfrom)return false;
-    if(dto&&toISO(b.date||'')>dto)return false;
-    return true;
-  });
-  if(!filteredBills.length){toast('Koi data nahi — pehle party select karo','err');return;}
-
-  // Shared interest calculation (matches screen logic)
-  function calcBI(b){
-    var s=getBillStatus(b);
-    var cfKey='cf_'+b.id; var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
-    var hasCF=(s.carryFwd&&s.carryFwd>0.5);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),mode:p.mode||''};})
-      .sort(function(a,c){return a.date-c.date;});
-    var isPaid=s.status==='paid';
-    var billDate=new Date(toISO(b.date||today()));
-    if(isPaid&&bPays.length===0){
-      var cfDate0=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
-      var cfD=Math.max(0,Math.floor((cfDate0-billDate)/86400000));
-      var cfFD=Math.max(0,cfD-freeDays);
-      var cfI=cfFD>0?Math.round(b.netAmt*(rate/100)*(cfFD/365)*100)/100:0;
-      return{interest:cfI,intDays:cfFD,bal:s.bal,isPaid:true,payStr:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':''),hasCF:true};
-    }
-    var endDate=asOf;
-    if(isPaid){endDate=(hasCF&&cfDateStr)?new Date(toISO(cfDateStr)):(bPays.length>0?bPays[bPays.length-1].date:new Date(billDate));}
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInt=0,totalIntDays=0,fdUsed=false;
-    var payParts=[];
-    bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=fdUsed?0:freeDays; var intDays=Math.max(0,days-fta);
-      if(days>0)fdUsed=true;
-      if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      totalIntDays+=intDays;
-      payParts.push(fmtDate(p.origDate||p.date.toISOString().split('T')[0])+' \u20b9'+fmt(p.amount)+(p.mode?' ('+p.mode+')':''));
-      prevBal=Math.max(0,prevBal-p.amount); prevDate=new Date(p.date);
-    });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fD=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fta2=fdUsed?0:freeDays; var fid=Math.max(0,fD-fta2);
-      if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
-      totalIntDays+=fid;
-      if(hasCF)payParts.push('CF Credit'+(cfDateStr?(' ('+cfDateStr+')'):''));
-    }
-    return{interest:Math.round(totalInt),intDays:totalIntDays,bal:s.bal,isPaid:isPaid,payStr:payParts.join('; ')||'No payments',hasCF:hasCF};
-  }
-
-  var partyMap={};
-  filteredBills.forEach(function(b){if(!partyMap[b.party])partyMap[b.party]=[];partyMap[b.party].push(b);});
-  var grandInt=0,grandBal=0;
-
-  var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Interest Statement</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
-    +'h2{color:#166534;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-bottom:12px}'
-    +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
-    +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
-    +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'.cf{color:#92400e;font-style:italic}'
-    +'@media print{button{display:none}}</style></head><body>'
-    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print</button>'
-    +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
-    +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
-
-  Object.keys(partyMap).sort().forEach(function(party){
-    var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
-    var pTotBal=0,pTotInt=0,pTotDays=0;
-    h+='<table><thead>'
-      +'<tr class="ph"><th colspan="5">'+party+'</th>'
-      +'<th class="num" style="color:#dc2626;background:#eff6ff">Outstanding</th>'
-      +'<th class="num" style="background:#eff6ff">Days</th>'
-      +'<th class="num" style="color:#d97706;background:#eff6ff">Interest (\u20b9)</th></tr>'
-      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th>Period</th><th class="num">Balance</th><th class="num">Int Days</th><th class="num">Interest</th></tr>'
-      +'</thead><tbody>';
-    pBills.forEach(function(b){
-      var calc=calcBI(b);
-      pTotBal+=calc.bal; pTotInt+=calc.interest; pTotDays+=calc.intDays;
-      var periodStr=fmtDate(b.date)+' \u2192 '+(calc.isPaid&&calc.endDate?fmtDate(calc.endDate.toISOString?calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'):today()):fmtDate(asOfStr));
-      h+='<tr>'
-        +'<td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
-        +'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
-        +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
-        +'<td style="font-size:10px;color:#374151'+(calc.hasCF?' class="cf"':'')+'">'+(calc.payStr||'No payments')+'</td>'
-        +'<td style="font-size:10px;color:#6b7280;white-space:nowrap">'+periodStr+'</td>'
-        +'<td class="num" style="color:'+(calc.bal>0.5?'#dc2626':'#166534')+';font-weight:700">'+(calc.bal>0.5?'\u20b9'+fmt(calc.bal):'CLEAR')+'</td>'
-        +'<td class="num">'+(calc.intDays>0?calc.intDays+'d':'&mdash;')+'</td>'
-        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td>'
-        +'</tr>';
-    });
-    h+='</tbody><tfoot><tr><td colspan="3"><strong>Total ('+pBills.length+' bills)</strong></td>'
-      +'<td colspan="2"></td>'
-      +'<td class="num" style="color:#dc2626">\u20b9'+fmt(pTotBal)+'</td>'
-      +'<td class="num">'+(pTotDays>0?pTotDays+'d':'&mdash;')+'</td>'
-      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td>'
-      +'</tr></tfoot></table>';
-    grandBal+=pTotBal; grandInt+=pTotInt;
-  });
-  h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700">'
-    +'Outstanding: <strong style="color:#dc2626">\u20b9'+fmt(grandBal)+'</strong>&nbsp;&nbsp; Interest: <strong style="color:#d97706">\u20b9'+fmt(grandInt)+'</strong></div>'
-    +'<div style="font-size:10px;color:#9ca3af;margin-top:12px">Generated: '+new Date().toLocaleString('en-IN')+'</div>'
-    +'</body></html>';
-  var win=window.open('','_blank');if(!win){toast('Please allow popups!','err');return;}
-  win.document.write(h);win.document.close();
-}
-
-// ── INTEREST CALCULATOR: EXCEL ──
-function exportInterestExcel() {
-  var st=pageState.int||{};
-  var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var rate=cfg2.rate||24; var freeDays=cfg2.freeDays||7;
-  var asOfEl=document.getElementById('int-asof');
-  var asOfStr=asOfEl?asOfEl.value||today():today();
-  var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
-  var exactParty=st.exactParty||'';
-  var q2=(st.partyFilter||'').toLowerCase();
-  var dfrom=st.dateFrom?toISO(st.dateFrom):''; var dto=st.dateTo?toISO(st.dateTo):'';
-  var filteredBills=bills.filter(function(b){
-    var s=getBillStatus(b);
-    if(!st.showPaid&&s.status==='paid')return false;
-    if(exactParty&&b.party!==exactParty)return false;
-    if(!exactParty&&q2&&!b.party.toLowerCase().includes(q2))return false;
-    if(dfrom&&toISO(b.date||'')<dfrom)return false;
-    if(dto&&toISO(b.date||'')>dto)return false;
-    return true;
-  });
-  if(!filteredBills.length){toast('Koi data nahi!','err');return;}
-  function calcBI2(b){
-    var s=getBillStatus(b);
-    var cfKey='cf_'+b.id; var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
-    var hasCF=(s.carryFwd&&s.carryFwd>0.5);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),origDate:p.date,mode:p.mode||''};})
-      .sort(function(a,c){return a.date-c.date;});
-    var isPaid=s.status==='paid'; var billDate=new Date(toISO(b.date||today()));
-    if(isPaid&&bPays.length===0){
-      var cfDate0=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
-      var cfD=Math.max(0,Math.floor((cfDate0-billDate)/86400000));
-      var cfFD=Math.max(0,cfD-freeDays);
-      return{interest:cfFD>0?Math.round(b.netAmt*(rate/100)*(cfFD/365)*100)/100:0,intDays:cfFD,bal:s.bal,payStr:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':'')};
-    }
-    var endDate=asOf;
-    if(isPaid){endDate=(hasCF&&cfDateStr)?new Date(toISO(cfDateStr)):(bPays.length>0?bPays[bPays.length-1].date:new Date(billDate));}
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInt=0,totalIntDays=0,fdUsed=false;
-    var payParts=[];
-    bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=fdUsed?0:freeDays; var intDays=Math.max(0,days-fta);
-      if(days>0)fdUsed=true;
-      if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      totalIntDays+=intDays;
-      payParts.push(fmtDate(p.origDate||p.date.toISOString().split('T')[0])+' \u20b9'+fmt(p.amount));
-      prevBal=Math.max(0,prevBal-p.amount); prevDate=new Date(p.date);
-    });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fD=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fta2=fdUsed?0:freeDays; var fid=Math.max(0,fD-fta2);
-      if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
-      totalIntDays+=fid;
-      if(hasCF)payParts.push('CF Credit'+(cfDateStr?' ('+cfDateStr+')':''));
-    }
-    return{interest:Math.round(totalInt),intDays:totalIntDays,bal:Math.round(s.bal),payStr:payParts.join('; ')||'No payments'};
-  }
-  var rows=filteredBills.map(function(b){
-    var calc=calcBI2(b); var s=getBillStatus(b);
-    return{'Party':b.party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),
-      'Net Amt':b.netAmt||0,'Balance':calc.bal,'Status':s.status.toUpperCase(),
-      'Payments':calc.payStr,'Int Days':calc.intDays||0,'Interest (\u20b9)':calc.interest};
-  });
-  var ws=XLSX.utils.json_to_sheet(rows);
-  var hdrStyle={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'166534'}},alignment:{horizontal:'center'}};
-  Object.keys(rows[0]).forEach(function(k,i){var cr=XLSX.utils.encode_cell({r:0,c:i});if(!ws[cr])ws[cr]={v:k,t:'s'};ws[cr].s=hdrStyle;});
-  var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
-  XLSX.writeFile(wb,'Interest_'+(exactParty||'All')+'_'+today()+'.xlsx');
-  toast('Excel exported! ('+filteredBills.length+' bills)');
-}
-
 
 // ── STYLED HTML REPORT ──
 function exportStyledReport(data) {
@@ -14355,11 +14082,13 @@ function openClearSuspense(entry) {
 // ═══════════════════════════════════════
 // UNDO SYSTEM
 // ═══════════════════════════════════════
-var _undoStack = [];
-var _undoTimer = null;
+var _urStack  = [];   // unified undo/redo stack  { label, time, snapshot }
+var _urCursor = -1;   // index of current state; -1 = empty
+var UR_MAX    = 30;   // max undo levels
 
-function saveUndo(label) {
-  var snap = {
+/* ---------- internal helpers ---------- */
+function _snapNow() {
+  return {
     bills:         JSON.parse(JSON.stringify(bills)),
     payments:      JSON.parse(JSON.stringify(payments)),
     cheques:       JSON.parse(JSON.stringify(cheques)),
@@ -14370,54 +14099,155 @@ function saveUndo(label) {
     suspense:      JSON.parse(JSON.stringify(suspense)),
     grossPayments: JSON.parse(JSON.stringify(grossPayments||[])),
   };
-  _undoStack.push({ label: label || 'Action', time: Date.now(), snapshot: snap });
-  if(_undoStack.length > 20) _undoStack.shift();
-  showUndoBtn(label);
-  // Also save to full history system
-  var cat = /[Bb]ill/.test(label) ? 'bill' : /[Pp]ay/.test(label) ? 'payment' : /[Ee]RP/.test(label) ? 'erp' : 'general';
-  try { histSave(label, cat, Object.assign({}, snap, { erp: typeof ERP !== 'undefined' ? {
-    results: JSON.parse(JSON.stringify(ERP.results||[])), rebateList: JSON.parse(JSON.stringify(ERP.rebateList||[])),
-    interestList: JSON.parse(JSON.stringify(ERP.interestList||[])), confusionList: JSON.parse(JSON.stringify(ERP.confusionList||[])),
-    rawBills: JSON.parse(JSON.stringify(ERP.rawBills||[])), rawPayments: JSON.parse(JSON.stringify(ERP.rawPayments||[])),
-    summary: JSON.parse(JSON.stringify(ERP.summary||null)), _lockedBills: JSON.parse(JSON.stringify(ERP._lockedBills||{})),
-    overrides: JSON.parse(JSON.stringify(ERP.overrides||{})),
-  } : null })); } catch(e) {}
 }
 
-function performUndo() {
-  if(!_undoStack.length){ toast('Nothing to undo!', 'err'); return; }
-  var last = _undoStack.pop();
-  var snap = last.snapshot;
-  bills=snap.bills; payments=snap.payments; cheques=snap.cheques;
-  advances=snap.advances; expenses=snap.expenses; returns_=snap.returns_;
-  purchases=snap.purchases; suspense=snap.suspense;
-  invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
-  invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
-  DB.set('purchases',purchases); DB.set('suspense',suspense);
-  toast('Undo: "' + last.label + '" restored!');
-  hideUndoBtn(); refresh();
+function _applySnap(snap) {
+  bills         = snap.bills;
+  payments      = snap.payments;
+  cheques       = snap.cheques;
+  advances      = snap.advances;
+  expenses      = snap.expenses;
+  returns_      = snap.returns_;
+  purchases     = snap.purchases;
+  suspense      = snap.suspense;
+  grossPayments = snap.grossPayments || [];
+  invalidateBillStatusCache();
+  DB.set('bills',     bills);
+  DB.set('payments',  payments);
+  DB.set('cheques',   cheques);
+  DB.set('advances',  advances);
+  DB.set('expenses',  expenses);
+  DB.set('returns',   returns_);
+  DB.set('purchases', purchases);
+  DB.set('suspense',  suspense);
 }
 
-function showUndoBtn(label) {
-  var btn = document.getElementById('undo-fab');
-  if(!btn) return;
-  btn.style.display = 'flex';
-  var lbl = btn.querySelector('.undo-label');
-  if(lbl) lbl.textContent = 'Undo: ' + (label||'Action');
-  clearTimeout(_undoTimer);
-  _undoTimer = setTimeout(function(){ hideUndoBtn(); }, 10000);
+function _trunc(s, n) { return s && s.length > n ? s.substring(0,n)+'\u2026' : (s||''); }
+
+/* Update topbar Undo / Redo button labels + opacity */
+function _urUpdateButtons() {
+  var undoBtn = document.getElementById('hist-undo-topbar');
+  var redoBtn = document.getElementById('hist-redo-topbar');
+  var canUndo = _urCursor > 0;
+  var canRedo = _urCursor < _urStack.length - 1;
+
+  if (undoBtn) {
+    undoBtn.style.opacity = canUndo ? '1' : '.35';
+    undoBtn.style.cursor  = canUndo ? 'pointer' : 'default';
+    if (canUndo) {
+      var prevLabel = _urStack[_urCursor - 1] ? _urStack[_urCursor - 1].label : '';
+      undoBtn.title = '\u21a9 Undo: ' + prevLabel + '  (Ctrl+Z)';
+      undoBtn.textContent = '\u21a9 Undo' + (prevLabel ? ': ' + _trunc(prevLabel,18) : '');
+    } else {
+      undoBtn.title = 'Nothing to undo  (Ctrl+Z)';
+      undoBtn.textContent = '\u21a9 Undo';
+    }
+  }
+  if (redoBtn) {
+    redoBtn.style.opacity = canRedo ? '1' : '.35';
+    redoBtn.style.cursor  = canRedo ? 'pointer' : 'default';
+    if (canRedo) {
+      var nextLabel = _urStack[_urCursor + 1] ? _urStack[_urCursor + 1].label : '';
+      redoBtn.title = '\u21aa Redo: ' + nextLabel + '  (Ctrl+Y)';
+      redoBtn.textContent = '\u21aa Redo' + (nextLabel ? ': ' + _trunc(nextLabel,18) : '');
+    } else {
+      redoBtn.title = 'Nothing to redo  (Ctrl+Y)';
+      redoBtn.textContent = '\u21aa Redo';
+    }
+  }
+  // Update floating FAB label
+  var fab = document.getElementById('undo-fab');
+  if (fab) {
+    var lbl = fab.querySelector('.undo-label');
+    if (lbl && canUndo) {
+      lbl.textContent = '\u21a9 Undo: ' + _trunc(_urStack[_urCursor - 1] ? _urStack[_urCursor - 1].label : '', 28);
+    }
+  }
 }
 
+/* Floating FAB show/hide */
+var _urFabTimer = null;
+function _urShowFab(label) {
+  var fab = document.getElementById('undo-fab');
+  if (!fab) return;
+  fab.style.display = 'flex';
+  var lbl = fab.querySelector('.undo-label');
+  if (lbl) lbl.textContent = '\u21a9 Undo: ' + _trunc(label||'', 28);
+  clearTimeout(_urFabTimer);
+  _urFabTimer = setTimeout(function(){ fab.style.display='none'; }, 8000);
+}
 function hideUndoBtn() {
-  var btn = document.getElementById('undo-fab');
-  if(btn) btn.style.display = 'none';
-  clearTimeout(_undoTimer);
+  var fab = document.getElementById('undo-fab');
+  if (fab) fab.style.display = 'none';
+  clearTimeout(_urFabTimer);
 }
 
+/* ====================================================
+   PUBLIC API
+   ==================================================== */
+
+/**
+ * saveUndo(label)
+ * Call BEFORE making any data change.
+ * Saves current state; truncates redo-future (Excel behaviour).
+ */
+function saveUndo(label) {
+  // Truncate redo future when a new action is taken (just like Excel)
+  if (_urCursor < _urStack.length - 1) {
+    _urStack.splice(_urCursor + 1);
+  }
+  _urStack.push({ label: label || 'Action', time: Date.now(), snapshot: _snapNow() });
+  if (_urStack.length > UR_MAX) { _urStack.shift(); }
+  _urCursor = _urStack.length - 1;
+  _urUpdateButtons();
+  _urShowFab(label);
+  // Log to HIST audit trail (metadata only)
+  var cat = /[Bb]ill/.test(label) ? 'bill' : /[Pp]ay/.test(label) ? 'payment' : /[Ee]RP/.test(label) ? 'erp' : 'general';
+  try { histSave(label, cat); } catch(e) {}
+}
+
+/**
+ * performUndo()  –  Ctrl+Z
+ * Moves cursor one step back and restores that snapshot.
+ */
+function performUndo() {
+  if (_urCursor <= 0) {
+    toast('Aur peeche nahi ja sakte! (Nothing more to undo)', 'err'); return;
+  }
+  // Capture current live state into the slot we're leaving
+  _urStack[_urCursor].snapshot = _snapNow();
+  _urCursor--;
+  var entry = _urStack[_urCursor];
+  _applySnap(entry.snapshot);
+  toast('\u21a9 Undo: "' + entry.label + '"');
+  _urUpdateButtons();
+  refresh();
+}
+
+/**
+ * performRedo()  –  Ctrl+Y / Ctrl+Shift+Z
+ * Moves cursor one step forward and restores that snapshot.
+ */
+function performRedo() {
+  if (_urCursor >= _urStack.length - 1) {
+    toast('Aur aage nahi ja sakte! (Nothing more to redo)', 'err'); return;
+  }
+  _urCursor++;
+  var entry = _urStack[_urCursor];
+  _applySnap(entry.snapshot);
+  toast('\u21aa Redo: "' + entry.label + '"');
+  _urUpdateButtons();
+  refresh();
+}
+
+/* Keyboard shortcuts */
 document.addEventListener('keydown', function(e) {
-  if((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) {
-    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+  if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+  if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) {
     e.preventDefault(); performUndo(); return;
+  }
+  if ((e.ctrlKey||e.metaKey) && (e.key==='y' || (e.key==='z' && e.shiftKey))) {
+    e.preventDefault(); performRedo(); return;
   }
 });
 
@@ -19393,30 +19223,20 @@ function histRestore(entryId, skipConfirm) {
 }
 
 function histRedo() {
-  toast('Redo: use Bank Upload ya data re-enter karein','warn',3000);
+  /* Delegate to unified Undo/Redo system */
+  performRedo();
 }
 
-/* ── Quick Undo (restore most recent) ───────────────────────────────────── */
+/* ── Quick Undo (topbar button) ─────────────────────────────────────────── */
 function histUndo() {
-  if (HIST.entries.length < 2) { toast('Nothing to undo!', 'err'); return; }
-  // Second-to-last entry (last entry is current state saved before action)
-  var prev = HIST.entries[HIST.entries.length - 2];
-  histRestore(prev.id, true);
+  /* Delegate to unified Undo/Redo system */
+  performUndo();
 }
 
 /* ── Update topbar Undo button text ─────────────────────────────────────── */
 function histUpdateTopbarBtn() {
-  var btn = document.getElementById('hist-undo-topbar');
-  if (!btn) return;
-  var n = HIST.entries.length;
-  if (n < 2) {
-    btn.style.opacity = '.4';
-    btn.title = 'No history yet';
-  } else {
-    btn.style.opacity = '1';
-    var last = HIST.entries[n - 2];
-    btn.title = 'Undo: ' + last.label;
-  }
+  /* Delegate to unified Undo/Redo system */
+  _urUpdateButtons();
 }
 
 /* ── Time-ago helper (reuse existing getTimeAgo if present) ─────────────── */
