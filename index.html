@@ -12421,7 +12421,7 @@ function pgInterest() {
   var allPartiesInt=Array.from(new Set(bills.filter(function(b){
     return state.showPaid?true:getBillStatus(b).status!=='paid';
   }).map(function(b){return b.party;}))).sort();
-  // BUG4 FIX: exactParty = dropdown (exact ===), partyFilter = text search (includes)
+  // BUG4 FIX: separate exactParty (dropdown) from text search
   if(!state.exactParty) state.exactParty='';
   var partySel=document.createElement('select');partySel.className='inp-sm';partySel.style.width='220px';
   var defOpt=document.createElement('option');defOpt.value='';defOpt.textContent='-- All Parties --';partySel.appendChild(defOpt);
@@ -12450,7 +12450,7 @@ function pgInterest() {
   var dfrom=state.dateFrom?toISO(state.dateFrom):'';
   var dto=state.dateTo?toISO(state.dateTo):'';
 
-  // Filter bills — exactParty = exact match, partyFilter = substring
+  // Filter bills — BUG4: exact match for dropdown, includes for text search
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
     if(!state.showPaid && s.status==='paid') return false;
@@ -12473,8 +12473,6 @@ function pgInterest() {
   // Outstanding: end date = asOf
   function calcBillInterest(b) {
     var s=getBillStatus(b);
-    var cfKey='cf_'+b.id;
-    var cfDateStr=state.payDateAdj[cfKey]||'';
     var bPays=payments.filter(function(p){return p.billId===b.id;})
       .map(function(p){
         var adjStr=state.payDateAdj[p.id]||'';
@@ -12482,44 +12480,31 @@ function pgInterest() {
           id:p.id, amount:p.amount+(p.rebate||0),
           origDate:p.date, adjDate:adjStr,
           date:new Date(toISO(adjStr||p.date||today())),
-          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||'',
-          grossAmt:p.grossAmt||0, gpId:p.gpId||''
+          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||''
         };
       }).sort(function(a,b2){return a.date-b2.date;});
 
     var billDate=new Date(toISO(b.date||today()));
     var isPaid=s.status==='paid';
-    var hasCF=(s.carryFwd&&s.carryFwd>0.5);
 
-    // CASE 1: Pure CF bill — no direct payments at all
+    // BUG5 FIX: CF bill (paid, no direct payments) — use user-set CF date
     if(isPaid && bPays.length===0){
-      var cfDate0=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
-      var cfDays0=Math.max(0,Math.floor((cfDate0-billDate)/86400000));
-      var cfFree0=Math.max(0,cfDays0-freeDays);
-      var cfInt0=cfFree0>0?Math.round(b.netAmt*(rate/100)*(cfFree0/365)*100)/100:0;
-      return{interest:cfInt0,schedule:[{
-        from:new Date(billDate),to:new Date(cfDate0),
-        bal:b.netAmt,days:cfDays0,intDays:cfFree0,int:cfInt0,
+      var cfKey='cf_'+b.id;
+      var cfDateStr=state.payDateAdj[cfKey]||'';
+      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
+      var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
+      var cfFreeDays=Math.max(0,cfDays-freeDays);
+      var cfInterest=cfFreeDays>0?Math.round(b.netAmt*(rate/100)*(cfFreeDays/365)*100)/100:0;
+      return{interest:cfInterest,schedule:[{
+        from:new Date(billDate),to:new Date(cfDate),
+        bal:b.netAmt,days:cfDays,intDays:cfFreeDays,int:cfInterest,
         label:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':'')
-      }],bPays:[],isPaid:true,endDate:cfDate0,hasCF:true};
+      }],bPays:[],isPaid:true,endDate:cfDate};
     }
 
-    // Determine end date:
-    // - Outstanding bill: endDate = asOf
-    // - Paid via payments only: endDate = last payment date
-    // - Paid partially via payments + CF: endDate = CF date (user-entered)
     var endDate=asOf;
-    if(isPaid){
-      if(hasCF && cfDateStr){
-        // User has set the CF credit date — use it for the remaining balance
-        endDate=new Date(toISO(cfDateStr));
-      } else if(hasCF && !cfDateStr){
-        // CF bill but no date set — use last payment date (interest on remaining = 0 till set)
-        endDate=bPays.length>0?bPays[bPays.length-1].date:new Date(billDate);
-      } else {
-        // No CF — fully paid via direct payments
-        endDate=bPays.length>0?bPays[bPays.length-1].date:new Date(billDate);
-      }
+    if(isPaid && bPays.length>0){
+      endDate=bPays[bPays.length-1].date;
     }
 
     var prevDate=new Date(billDate);
@@ -12528,9 +12513,9 @@ function pgInterest() {
     var schedule=[];
     var freeDaysUsed=false;
 
-    // Process each direct payment
+    // Process each payment
     bPays.forEach(function(p){
-      if(p.date<=prevDate) return;
+      if(p.date<=prevDate) return; // skip if before bill date
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
       var fta=freeDaysUsed?0:freeDays;
       var intDays=Math.max(0,days-fta);
@@ -12546,22 +12531,22 @@ function pgInterest() {
       prevDate=new Date(p.date);
     });
 
-    // Final period: last payment → endDate (CF date or asOf)
-    if(prevBal>0.5 && endDate>prevDate){
+    // Final period: last event → endDate
+    if(prevBal>0 && endDate>prevDate){
       var finalDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      // Apply free days if not yet consumed (e.g. no payments at all)
       var finalFta=freeDaysUsed?0:freeDays;
       var finalIntDays=Math.max(0,finalDays-finalFta);
       var finalInt=Math.round(prevBal*(rate/100)*(finalIntDays/365)*100)/100;
       if(finalIntDays>0) totalInterest+=finalInt;
-      var finalLabel=hasCF?(cfDateStr?'Carry Fwd Credit ('+cfDateStr+')':'Carry Fwd (date daalo \u2193)'):(isPaid?'(Closed)':'Outstanding');
       schedule.push({
         from:new Date(prevDate),to:new Date(endDate),
         bal:prevBal,days:finalDays,intDays:finalIntDays,int:finalInt,
-        label:finalLabel
+        label:isPaid?'(Closed)':'Outstanding'
       });
     }
 
-    return {interest:totalInterest,schedule:schedule,bPays:bPays,isPaid:isPaid,endDate:endDate,hasCF:hasCF};
+    return {interest:totalInterest,schedule:schedule,bPays:bPays,isPaid:isPaid,endDate:endDate};
   }
 
   // ── RENDER EACH PARTY ──
@@ -12637,91 +12622,81 @@ function pgInterest() {
       td3.textContent=s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR';tr2.appendChild(td3);
 
       // Payment dates — editable for interest calc
-      var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;min-width:220px';
+      var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;min-width:200px';
       var payHist=document.createElement('div');
-      var cfKey2='cf_'+b.id;
-      var cfCurDate=state.payDateAdj[cfKey2]||'';
-      var showCFInput=(calc.hasCF||calc.bPays.length===0)&&calc.isPaid;
-
-      if(calc.bPays.length===0){
-        // Pure CF bill — only CF date input
-        var cfPureRow=document.createElement('div');cfPureRow.style.cssText='display:flex;align-items:center;gap:5px;flex-wrap:wrap';
-        var cfPureInp=document.createElement('input');cfPureInp.type='text';cfPureInp.className='inp-sm';
-        cfPureInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':'border-color:#d97706;background:#fffbeb');
-        cfPureInp.value=cfCurDate||fmtDate(b.date);
-        cfPureInp.title='CF credit date daalo — is date tak interest calculate hoga';
-        cfPureInp.addEventListener('change',(function(key,inp2){return function(){
+      var isCFBill=(calc.isPaid&&calc.bPays.length===0);
+      if(isCFBill){
+        // BUG5 FIX: CF bill — show editable date field for interest calculation
+        var cfKey='cf_'+b.id;
+        var cfCurDate=state.payDateAdj[cfKey]||'';
+        var cfRow=document.createElement('div');cfRow.style.cssText='display:flex;align-items:center;gap:5px;flex-wrap:wrap';
+        var cfInp=document.createElement('input');cfInp.type='text';cfInp.className='inp-sm';
+        cfInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':'border-color:#d97706;background:#fffbeb');
+        cfInp.value=cfCurDate||fmtDate(b.date);
+        cfInp.title='CF credit milne ki date daalo — is date tak interest calculate hoga';
+        cfInp.addEventListener('change',function(){
           var nd=this.value.trim();
-          if(!nd||nd===fmtDate(b.date)){delete state.payDateAdj[key];inp2.style.borderColor='#d97706';inp2.style.background='#fffbeb';}
-          else{state.payDateAdj[key]=nd;inp2.style.borderColor='var(--brand)';inp2.style.background='#f0fdf4';}
+          if(!nd||nd===fmtDate(b.date)){
+            delete state.payDateAdj[cfKey];
+            this.style.borderColor='#d97706';this.style.background='#fffbeb';
+          } else {
+            state.payDateAdj[cfKey]=nd;
+            this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';
+          }
           renderIntPage();
-        };})(cfKey2,cfPureInp));
-        var cfPureBadge=document.createElement('span');
-        cfPureBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
-        cfPureBadge.textContent='Carry Fwd';
-        cfPureRow.appendChild(cfPureInp);cfPureRow.appendChild(cfPureBadge);
+        });
+        var cfBadge=document.createElement('span');
+        cfBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
+        cfBadge.textContent='Carry Fwd';
+        cfRow.appendChild(cfInp);cfRow.appendChild(cfBadge);
         if(cfCurDate){
-          var cfRev2=document.createElement('button');cfRev2.textContent='↩';
-          cfRev2.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
-          cfRev2.addEventListener('click',function(){delete state.payDateAdj[cfKey2];renderIntPage();});
-          cfPureRow.appendChild(cfRev2);
+          var cfRev=document.createElement('button');cfRev.textContent='↩';
+          cfRev.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
+          cfRev.title='Reset to bill date';
+          cfRev.addEventListener('click',function(){delete state.payDateAdj[cfKey];renderIntPage();});
+          cfRow.appendChild(cfRev);
         }
-        payHist.appendChild(cfPureRow);
-        var cfPureHint=document.createElement('div');cfPureHint.style.cssText='font-size:9px;color:#92400e;margin-top:2px';
-        cfPureHint.textContent='CF credit date daalo';payHist.appendChild(cfPureHint);
+        var cfHint=document.createElement('div');
+        cfHint.style.cssText='font-size:9px;color:#92400e;margin-top:2px';
+        cfHint.textContent='CF credit date daalo';
+        payHist.appendChild(cfRow);payHist.appendChild(cfHint);
+      } else if(calc.bPays.length===0){
+        payHist.innerHTML='<span style="color:#9ca3af;font-size:11px">No payments</span>';
       } else {
-        // Has direct payments
         calc.bPays.forEach(function(p){
           var pRow=document.createElement('div');pRow.style.cssText='display:flex;align-items:center;gap:5px;margin-bottom:4px';
           var adjInp=document.createElement('input');adjInp.type='text';adjInp.className='inp-sm';
           adjInp.style.cssText='width:95px;font-size:11px;height:24px;'+(p.adjDate?'border-color:var(--brand);background:#f0fdf4':'');
           adjInp.value=p.adjDate||fmtDate(p.origDate);
-          adjInp.title='Interest ke liye date adjust karo';
-          adjInp.addEventListener('change',(function(pid,inp3){return function(){
-            var newDate=this.value.trim();var origFmt=fmtDate(p.origDate);
-            if(newDate===origFmt){delete state.payDateAdj[pid];inp3.style.borderColor='';inp3.style.background='';}
-            else{state.payDateAdj[pid]=newDate;inp3.style.borderColor='var(--brand)';inp3.style.background='#f0fdf4';}
+          adjInp.title='Interest calculation ke liye date adjust karo (cheque clearing date, etc.)';
+          adjInp.addEventListener('change',function(){
+            var newDate=this.value.trim();
+            var origFmt=fmtDate(p.origDate);
+            if(newDate===origFmt){delete state.payDateAdj[p.id];this.style.borderColor='';this.style.background='';}
+            else{state.payDateAdj[p.id]=newDate;this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';}
             renderIntPage();
-          };})(p.id,adjInp));
+          });
           var pAmt=document.createElement('span');pAmt.style.cssText='font-size:11px;color:#374151;white-space:nowrap';
           var iGrossRef='';
           if(p.grossAmt&&p.grossAmt>0){
-            var igp=(grossPayments||[]).find(function(g){return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);});
-            if(igp){var igpBnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+igpBnos+')</span>';}
-            else{iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';}
+            var igp=(grossPayments||[]).find(function(g){
+              return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);
+            });
+            if(igp){
+              var igpBnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
+              iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+igpBnos+')</span>';
+            } else {
+              iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';
+            }
           }
           pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef;
-          if(p.adjDate){var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});pRow.appendChild(revert);}
+          if(p.adjDate){
+            var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date';
+            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});
+            pRow.appendChild(revert);
+          }
           pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
         });
-        // If CF bill with remaining balance — add CF date input AFTER payments list
-        if(showCFInput){
-          var cfPartRow=document.createElement('div');cfPartRow.style.cssText='display:flex;align-items:center;gap:5px;margin-top:4px;flex-wrap:wrap';
-          var cfPartInp=document.createElement('input');cfPartInp.type='text';cfPartInp.className='inp-sm';
-          cfPartInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':'border-color:#d97706;background:#fffbeb');
-          cfPartInp.value=cfCurDate||'';cfPartInp.placeholder='CF date';
-          cfPartInp.title='Remaining balance ka CF credit date daalo';
-          cfPartInp.addEventListener('change',(function(key,inp4){return function(){
-            var nd=this.value.trim();
-            if(!nd){delete state.payDateAdj[key];inp4.style.borderColor='#d97706';inp4.style.background='#fffbeb';}
-            else{state.payDateAdj[key]=nd;inp4.style.borderColor='var(--brand)';inp4.style.background='#f0fdf4';}
-            renderIntPage();
-          };})(cfKey2,cfPartInp));
-          var cfPartBadge=document.createElement('span');
-          cfPartBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
-          cfPartBadge.textContent='\u2192 CF Credit Date';
-          cfPartRow.appendChild(cfPartInp);cfPartRow.appendChild(cfPartBadge);
-          if(cfCurDate){
-            var cfRev3=document.createElement('button');cfRev3.textContent='↩';
-            cfRev3.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
-            cfRev3.addEventListener('click',function(){delete state.payDateAdj[cfKey2];renderIntPage();});
-            cfPartRow.appendChild(cfRev3);
-          }
-          payHist.appendChild(cfPartRow);
-          var cfPartHint=document.createElement('div');cfPartHint.style.cssText='font-size:9px;color:#92400e;margin-top:1px';
-          cfPartHint.textContent='Remaining \u20b9'+fmt(Math.round(s.carryFwd||0))+' ka CF date';
-          payHist.appendChild(cfPartHint);
-        }
       }
       td4.appendChild(payHist);tr2.appendChild(td4);
 
@@ -13618,18 +13593,17 @@ function printPartyStatement(party, plState) {
   w.document.write(h);w.document.close();
 }
 
-// ── INTEREST CALCULATOR: PRINT (with Days column) ──
+// ── INTEREST CALCULATOR: PRINT ──
 function printInterestStatement() {
   var st=pageState.int||{};
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var rate=cfg2.rate||24; var freeDays=cfg2.freeDays||7;
+  var rate=cfg2.rate||24;var freeDays=cfg2.freeDays||7;
   var asOfEl=document.getElementById('int-asof');
   var asOfStr=asOfEl?asOfEl.value||today():today();
   var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
   var exactParty=st.exactParty||'';
   var q2=(st.partyFilter||'').toLowerCase();
-  var dfrom=st.dateFrom?toISO(st.dateFrom):''; var dto=st.dateTo?toISO(st.dateTo):'';
-
+  var dfrom=st.dateFrom?toISO(st.dateFrom):'';var dto=st.dateTo?toISO(st.dateTo):'';
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
     if(!st.showPaid&&s.status==='paid')return false;
@@ -13639,97 +13613,74 @@ function printInterestStatement() {
     if(dto&&toISO(b.date||'')>dto)return false;
     return true;
   });
-  if(!filteredBills.length){toast('Koi data nahi — pehle party select karo','err');return;}
-
-  // Shared interest calculation (matches screen logic)
   function calcBI(b){
     var s=getBillStatus(b);
-    var cfKey='cf_'+b.id; var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
-    var hasCF=(s.carryFwd&&s.carryFwd>0.5);
     var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),mode:p.mode||''};})
-      .sort(function(a,c){return a.date-c.date;});
+      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
+      .sort(function(a,b2){return a.date-b2.date;});
     var isPaid=s.status==='paid';
-    var billDate=new Date(toISO(b.date||today()));
     if(isPaid&&bPays.length===0){
-      var cfDate0=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
-      var cfD=Math.max(0,Math.floor((cfDate0-billDate)/86400000));
-      var cfFD=Math.max(0,cfD-freeDays);
-      var cfI=cfFD>0?Math.round(b.netAmt*(rate/100)*(cfFD/365)*100)/100:0;
-      return{interest:cfI,intDays:cfFD,bal:s.bal,isPaid:true,payStr:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':''),hasCF:true};
+      var cfKey='cf_'+b.id;var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
+      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(toISO(b.date||today()));
+      var cfDays=Math.max(0,Math.floor((cfDate-new Date(toISO(b.date||today())))/86400000));
+      var cfFree=Math.max(0,cfDays-freeDays);
+      return{interest:cfFree>0?Math.round(b.netAmt*(rate/100)*(cfFree/365)*100)/100:0,bal:s.bal,isPaid:true};
     }
-    var endDate=asOf;
-    if(isPaid){endDate=(hasCF&&cfDateStr)?new Date(toISO(cfDateStr)):(bPays.length>0?bPays[bPays.length-1].date:new Date(billDate));}
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInt=0,totalIntDays=0,fdUsed=false;
-    var payParts=[];
+    var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
+    var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
     bPays.forEach(function(p){
       if(p.date<=prevDate)return;
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=fdUsed?0:freeDays; var intDays=Math.max(0,days-fta);
+      var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
       if(days>0)fdUsed=true;
       if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      totalIntDays+=intDays;
-      payParts.push(fmtDate(p.origDate||p.date.toISOString().split('T')[0])+' \u20b9'+fmt(p.amount)+(p.mode?' ('+p.mode+')':''));
-      prevBal=Math.max(0,prevBal-p.amount); prevDate=new Date(p.date);
+      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
     });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fD=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fta2=fdUsed?0:freeDays; var fid=Math.max(0,fD-fta2);
+    if(prevBal>0&&endDate>prevDate){
+      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fta2=fdUsed?0:freeDays;var fid=Math.max(0,fd2-fta2);
       if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
-      totalIntDays+=fid;
-      if(hasCF)payParts.push('CF Credit'+(cfDateStr?(' ('+cfDateStr+')'):''));
     }
-    return{interest:Math.round(totalInt),intDays:totalIntDays,bal:s.bal,isPaid:isPaid,payStr:payParts.join('; ')||'No payments',hasCF:hasCF};
+    return{interest:totalInt,bal:s.bal,isPaid:isPaid};
   }
-
   var partyMap={};
   filteredBills.forEach(function(b){if(!partyMap[b.party])partyMap[b.party]=[];partyMap[b.party].push(b);});
+  if(!Object.keys(partyMap).length){toast('Koi data nahi — pehle party select karo ya filter lagao','err');return;}
   var grandInt=0,grandBal=0;
-
   var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Interest Statement</title>'
     +'<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
     +'h2{color:#166534;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-bottom:12px}'
     +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
     +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'.cf{color:#92400e;font-style:italic}'
     +'@media print{button{display:none}}</style></head><body>'
     +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print</button>'
     +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
     +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
-
   Object.keys(partyMap).sort().forEach(function(party){
     var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
-    var pTotBal=0,pTotInt=0,pTotDays=0;
-    h+='<table><thead>'
-      +'<tr class="ph"><th colspan="5">'+party+'</th>'
+    var pTotBal=0,pTotInt=0;
+    h+='<table><thead><tr class="ph"><th colspan="4">'+party+'</th>'
       +'<th class="num" style="color:#dc2626;background:#eff6ff">Outstanding</th>'
-      +'<th class="num" style="background:#eff6ff">Days</th>'
       +'<th class="num" style="color:#d97706;background:#eff6ff">Interest (\u20b9)</th></tr>'
-      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th>Period</th><th class="num">Balance</th><th class="num">Int Days</th><th class="num">Interest</th></tr>'
-      +'</thead><tbody>';
+      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th class="num">Balance</th><th class="num">Interest</th></tr></thead><tbody>';
     pBills.forEach(function(b){
-      var calc=calcBI(b);
-      pTotBal+=calc.bal; pTotInt+=calc.interest; pTotDays+=calc.intDays;
-      var periodStr=fmtDate(b.date)+' \u2192 '+(calc.isPaid&&calc.endDate?fmtDate(calc.endDate.toISOString?calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'):today()):fmtDate(asOfStr));
-      h+='<tr>'
-        +'<td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
+      var s=getBillStatus(b);var calc=calcBI(b);
+      pTotBal+=s.bal;pTotInt+=calc.interest;
+      var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
+      var isCF=(calc.isPaid&&bPays2.length===0);
+      var payStr=bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join(', '):(isCF?'Carry Fwd Credit':'No payments');
+      h+='<tr><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
         +'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
         +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
-        +'<td style="font-size:10px;color:#374151'+(calc.hasCF?' class="cf"':'')+'">'+(calc.payStr||'No payments')+'</td>'
-        +'<td style="font-size:10px;color:#6b7280;white-space:nowrap">'+periodStr+'</td>'
-        +'<td class="num" style="color:'+(calc.bal>0.5?'#dc2626':'#166534')+';font-weight:700">'+(calc.bal>0.5?'\u20b9'+fmt(calc.bal):'CLEAR')+'</td>'
-        +'<td class="num">'+(calc.intDays>0?calc.intDays+'d':'&mdash;')+'</td>'
-        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td>'
-        +'</tr>';
+        +'<td style="font-size:10px;color:#374151">'+payStr+'</td>'
+        +'<td class="num" style="color:'+(s.bal>0.5?'#dc2626':'#166534')+';font-weight:700">'+(s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR')+'</td>'
+        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td></tr>';
     });
-    h+='</tbody><tfoot><tr><td colspan="3"><strong>Total ('+pBills.length+' bills)</strong></td>'
-      +'<td colspan="2"></td>'
+    h+='</tbody><tfoot><tr><td colspan="4"><strong>Total ('+pBills.length+' bills)</strong></td>'
       +'<td class="num" style="color:#dc2626">\u20b9'+fmt(pTotBal)+'</td>'
-      +'<td class="num">'+(pTotDays>0?pTotDays+'d':'&mdash;')+'</td>'
-      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td>'
-      +'</tr></tfoot></table>';
-    grandBal+=pTotBal; grandInt+=pTotInt;
+      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td></tr></tfoot></table>';
+    grandBal+=pTotBal;grandInt+=pTotInt;
   });
   h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700">'
     +'Outstanding: <strong style="color:#dc2626">\u20b9'+fmt(grandBal)+'</strong>&nbsp;&nbsp; Interest: <strong style="color:#d97706">\u20b9'+fmt(grandInt)+'</strong></div>'
@@ -13743,13 +13694,13 @@ function printInterestStatement() {
 function exportInterestExcel() {
   var st=pageState.int||{};
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var rate=cfg2.rate||24; var freeDays=cfg2.freeDays||7;
+  var rate=cfg2.rate||24;var freeDays=cfg2.freeDays||7;
   var asOfEl=document.getElementById('int-asof');
   var asOfStr=asOfEl?asOfEl.value||today():today();
   var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
   var exactParty=st.exactParty||'';
   var q2=(st.partyFilter||'').toLowerCase();
-  var dfrom=st.dateFrom?toISO(st.dateFrom):''; var dto=st.dateTo?toISO(st.dateTo):'';
+  var dfrom=st.dateFrom?toISO(st.dateFrom):'';var dto=st.dateTo?toISO(st.dateTo):'';
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
     if(!st.showPaid&&s.status==='paid')return false;
@@ -13762,58 +13713,60 @@ function exportInterestExcel() {
   if(!filteredBills.length){toast('Koi data nahi!','err');return;}
   function calcBI2(b){
     var s=getBillStatus(b);
-    var cfKey='cf_'+b.id; var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
-    var hasCF=(s.carryFwd&&s.carryFwd>0.5);
     var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),origDate:p.date,mode:p.mode||''};})
-      .sort(function(a,c){return a.date-c.date;});
-    var isPaid=s.status==='paid'; var billDate=new Date(toISO(b.date||today()));
+      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
+      .sort(function(a,b2){return a.date-b2.date;});
+    var isPaid=s.status==='paid';
     if(isPaid&&bPays.length===0){
-      var cfDate0=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
-      var cfD=Math.max(0,Math.floor((cfDate0-billDate)/86400000));
-      var cfFD=Math.max(0,cfD-freeDays);
-      return{interest:cfFD>0?Math.round(b.netAmt*(rate/100)*(cfFD/365)*100)/100:0,intDays:cfFD,bal:s.bal,payStr:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':'')};
+      var cfKey='cf_'+b.id;var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
+      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(toISO(b.date||today()));
+      var cfDays=Math.max(0,Math.floor((cfDate-new Date(toISO(b.date||today())))/86400000));
+      var cfFree=Math.max(0,cfDays-freeDays);
+      return{interest:cfFree>0?Math.round(b.netAmt*(rate/100)*(cfFree/365)*100)/100:0,bal:s.bal};
     }
-    var endDate=asOf;
-    if(isPaid){endDate=(hasCF&&cfDateStr)?new Date(toISO(cfDateStr)):(bPays.length>0?bPays[bPays.length-1].date:new Date(billDate));}
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInt=0,totalIntDays=0,fdUsed=false;
-    var payParts=[];
+    var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
+    var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
     bPays.forEach(function(p){
       if(p.date<=prevDate)return;
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=fdUsed?0:freeDays; var intDays=Math.max(0,days-fta);
+      var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
       if(days>0)fdUsed=true;
       if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      totalIntDays+=intDays;
-      payParts.push(fmtDate(p.origDate||p.date.toISOString().split('T')[0])+' \u20b9'+fmt(p.amount));
-      prevBal=Math.max(0,prevBal-p.amount); prevDate=new Date(p.date);
+      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
     });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fD=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fta2=fdUsed?0:freeDays; var fid=Math.max(0,fD-fta2);
+    if(prevBal>0&&endDate>prevDate){
+      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fta2=fdUsed?0:freeDays;var fid=Math.max(0,fd2-fta2);
       if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
-      totalIntDays+=fid;
-      if(hasCF)payParts.push('CF Credit'+(cfDateStr?' ('+cfDateStr+')':''));
     }
-    return{interest:Math.round(totalInt),intDays:totalIntDays,bal:Math.round(s.bal),payStr:payParts.join('; ')||'No payments'};
+    return{interest:Math.round(totalInt),bal:s.bal};
   }
-  var rows=filteredBills.map(function(b){
-    var calc=calcBI2(b); var s=getBillStatus(b);
-    return{'Party':b.party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),
-      'Net Amt':b.netAmt||0,'Balance':calc.bal,'Status':s.status.toUpperCase(),
-      'Payments':calc.payStr,'Int Days':calc.intDays||0,'Interest (\u20b9)':calc.interest};
+  var rows=[];
+  filteredBills.forEach(function(b){
+    var calc=calcBI2(b);var s=getBillStatus(b);
+    var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
+    var isCF=(s.status==='paid'&&bPays2.length===0);
+    rows.push({
+      'Party':b.party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),
+      'Net Amt':b.netAmt||0,'Balance':Math.round(calc.bal),
+      'Status':s.status.toUpperCase(),
+      'Payment Dates':bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join('; '):(isCF?'Carry Fwd Credit':'No payments'),
+      'Interest (\u20b9)':calc.interest
+    });
   });
   var ws=XLSX.utils.json_to_sheet(rows);
   var hdrStyle={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'166534'}},alignment:{horizontal:'center'}};
-  Object.keys(rows[0]).forEach(function(k,i){var cr=XLSX.utils.encode_cell({r:0,c:i});if(!ws[cr])ws[cr]={v:k,t:'s'};ws[cr].s=hdrStyle;});
+  Object.keys(rows[0]).forEach(function(k,i){
+    var cr=XLSX.utils.encode_cell({r:0,c:i});
+    if(!ws[cr])ws[cr]={v:k,t:'s'};
+    ws[cr].s=hdrStyle;
+  });
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
-  XLSX.writeFile(wb,'Interest_'+(exactParty||'All')+'_'+today()+'.xlsx');
+  var fname='Interest_Statement'+(exactParty?'_'+exactParty.replace(/[^a-z0-9]/gi,'_'):'')+'_'+today()+'.xlsx';
+  XLSX.writeFile(wb,fname);
   toast('Excel exported! ('+filteredBills.length+' bills)');
 }
-
-
-// ── STYLED HTML REPORT ──
 function exportStyledReport(data) {
   var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totBal=data.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
