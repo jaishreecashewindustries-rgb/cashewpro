@@ -5726,7 +5726,7 @@ function openGrossPayModal(preParty) {
   // Bills list with checkboxes
   var billsCard=document.createElement('div');billsCard.style.cssText='border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:12px';
   var billsHead=document.createElement('div');billsHead.style.cssText='background:#f0fdf4;padding:8px 12px;font-size:11px;font-weight:700;color:#166534;display:flex;justify-content:space-between';
-  billsHead.innerHTML='<span>Select Bills to Cover</span><span id="gp-sel-total" style="color:#1d4ed8">\u20b90 selected</span>';
+  billsHead.innerHTML='<span>Select Bills to Cover</span>'    +'<span style="display:flex;gap:6px;align-items:center;font-size:10px">'    +'<span style="width:90px;text-align:right;color:#374151">Amount</span>'    +'<span style="width:72px;text-align:right;color:#d97706">Rebate</span>'    +'<span style="width:72px;text-align:right;color:#7c3aed">Interest</span>'    +'<span id="gp-sel-total" style="color:#1d4ed8;margin-left:4px">\u20b90 selected</span></span>';
   billsCard.appendChild(billsHead);
   
   var billsList=document.createElement('div');billsList.style.cssText='max-height:280px;overflow-y:auto';
@@ -5752,13 +5752,23 @@ function openGrossPayModal(preParty) {
       info.innerHTML='<strong>Bill #'+b.billNo+'</strong> <span style="color:#6b7280">'+fmtDate(b.date)+'</span>'+
         '<span style="margin-left:8px;color:#1d4ed8;font-weight:600">Balance: \u20b9'+fmt(s.bal)+'</span>';
       var amtInp=document.createElement('input');amtInp.type='number';amtInp.className='inp-sm';
-      amtInp.style.cssText='width:100px;text-align:right;font-size:12px';
+      amtInp.style.cssText='width:90px;text-align:right;font-size:12px';
       amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;
       amtInp.addEventListener('click',function(e){e.stopPropagation();});
+      var rebInp=document.createElement('input');rebInp.type='number';rebInp.className='inp-sm';
+      rebInp.style.cssText='width:72px;text-align:right;font-size:12px;border-color:#d97706';
+      rebInp.value='';rebInp.placeholder='Rebate';rebInp.dataset.billId=b.id;rebInp.dataset.role='rebate';
+      rebInp.title='Rebate for this bill';
+      rebInp.addEventListener('click',function(e){e.stopPropagation();});
+      var intInp=document.createElement('input');intInp.type='number';intInp.className='inp-sm';
+      intInp.style.cssText='width:72px;text-align:right;font-size:12px;border-color:#7c3aed';
+      intInp.value='';intInp.placeholder='Interest';intInp.dataset.billId=b.id;intInp.dataset.role='interest';
+      intInp.title='Interest for this bill';
+      intInp.addEventListener('click',function(e){e.stopPropagation();});
       chk.addEventListener('change',function(){updateGPTotal();});
       amtInp.addEventListener('input',function(){updateGPTotal();});
-      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp){chk.checked=!chk.checked;updateGPTotal();}});
-      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);billsList.appendChild(row);
+      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp&&e.target!==rebInp&&e.target!==intInp){chk.checked=!chk.checked;updateGPTotal();}});
+      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);row.appendChild(rebInp);row.appendChild(intInp);billsList.appendChild(row);
     });
   }
 
@@ -5810,9 +5820,11 @@ function openGrossPayModal(preParty) {
       if(!date){toast('Date required!','err');return;}
       var selected=[];
       billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
-        var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
+        var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]:not([data-role])');
+        var rInp=billsList.querySelector('input[data-bill-id="'+chk.dataset.billId+'"][data-role="rebate"]');
+        var iInp=billsList.querySelector('input[data-bill-id="'+chk.dataset.billId+'"][data-role="interest"]');
         var b=bills.find(function(x){return x.id===chk.dataset.billId;})||{};
-        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:parseFloat(inp?inp.value:0)||0,rebate:0,interest:0});
+        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:parseFloat(inp?inp.value:0)||0,rebate:parseFloat(rInp?rInp.value:0)||0,interest:parseFloat(iInp?iInp.value:0)||0});
       });
       if(!selected.length){toast('At least one bill select karo!','err');return;}
       // Create GP record
@@ -5828,7 +5840,7 @@ function openGrossPayModal(preParty) {
         chequeNo:gv('gp-chq'),receiptNo:gv('gp-rcpt'),remarks:gv('gp-rmk'),bills:selected});
       // Add individual payment records for each bill
       selected.forEach(function(sel){
-        payments.push({id:uid(),billId:sel.billId,amount:sel.amount,rebate:sel.rebate||0,interest:0,
+        payments.push({id:uid(),billId:sel.billId,amount:sel.amount,rebate:sel.rebate||0,interest:sel.interest||0,
           date:date,mode:mode,chequeNo:gv('gp-chq'),receiptNo:gv('gp-rcpt'),
           grossAmt:grossAmt,rowType:'DETAIL',groupId:gpId2,gpId:gpId2,
           remarks:'Gross Payment '+gpId2});
@@ -13861,7 +13873,7 @@ function exportStyledReport(data) {
     '.b-partial{background:#fef9c3;color:#92400e;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     '.b-paid{background:#dcfce7;color:#1a6b3c;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     'tfoot td{background:#f0faf4;font-weight:700;border-top:2px solid #1a6b3c;padding:9px 12px;font-size:12px}'+
-    '.no-print{display:block}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
+    '.no-print{display:block}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}thead tr{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}td,th{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.b-due,.b-partial,.b-paid{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}'+
     '</style></head><body>';
   // Print bar
   h+='<div class="no-print" style="background:#1a6b3c;color:#fff;padding:9px 16px;margin:-20px -20px 16px;display:flex;justify-content:space-between;align-items:center">'+
@@ -13881,7 +13893,7 @@ function exportStyledReport(data) {
     '<div class="sum-card"><div class="sum-label">Outstanding</div><div class="sum-val" style="color:#dc2626">\u20b9'+fmt(totBal)+'</div></div></div>';
   // Table
   h+='<table><thead><tr>'+
-    '<th>Bill#</th><th>Date</th><th>Party</th><th>Broker</th><th>Grade</th><th class="num">Net Amt</th><th class="num">Received</th><th>Gross Ref</th><th class="num">Balance</th><th>Status</th><th>Remarks</th>'+
+    '<th>Bill#</th><th>Date</th><th>Party</th><th>Broker</th><th>Grade</th><th class="num">Net Amt</th><th class="num">Received</th><th>Gross Ref</th><th class="num">Balance</th><th>Status</th>'+
     '</tr></thead><tbody>';
   data.forEach(function(b){
     var s=getBillStatus(b);
@@ -13903,7 +13915,6 @@ function exportStyledReport(data) {
       '<td>'+grossCell+'</td>'+
       '<td class="num" style="color:'+(s.bal>0?'#dc2626':'#1a6b3c')+';font-weight:'+(s.bal>0?'700':'400')+'">\u20b9'+fmt(s.bal)+'</td>'+
       '<td><span class="b-'+s.status+'">'+s.status.toUpperCase()+'</span></td>'+
-      '<td style="color:#6b7280">'+(b.remarks||'-')+'</td>'+
       '</tr>';
   });
   h+='</tbody><tfoot><tr>'+
@@ -13912,7 +13923,7 @@ function exportStyledReport(data) {
     '<td class="num" style="color:#1a6b3c">\u20b9'+fmt(totRecv)+'</td>'+
     '<td></td>'+
     '<td class="num" style="color:#dc2626">\u20b9'+fmt(totBal)+'</td>'+
-    '<td colspan="2"></td></tr></tfoot></table>'+
+    '<td></td></tr></tfoot></table>'+
     '<div style="margin-top:12px;font-size:10px;color:#9ca3af;text-align:center">Generated by '+cfg.company+' CashewPro | '+today()+'</div>'+
     '</body></html>';
   var w=window.open('','_blank','width=1000,height=750');
@@ -14377,6 +14388,7 @@ function openClearSuspense(entry) {
 // UNDO SYSTEM
 // ═══════════════════════════════════════
 var _undoStack = [];
+var _redoStack = [];
 var _undoTimer = null;
 
 function saveUndo(label) {
@@ -14393,6 +14405,7 @@ function saveUndo(label) {
   };
   _undoStack.push({ label: label || 'Action', time: Date.now(), snapshot: snap });
   if(_undoStack.length > 20) _undoStack.shift();
+  _redoStack = []; // new action clears redo history
   showUndoBtn(label);
   // Also save to full history system
   var cat = /[Bb]ill/.test(label) ? 'bill' : /[Pp]ay/.test(label) ? 'payment' : /[Ee]RP/.test(label) ? 'erp' : 'general';
@@ -14407,16 +14420,62 @@ function saveUndo(label) {
 
 function performUndo() {
   if(!_undoStack.length){ toast('Nothing to undo!', 'err'); return; }
+  // Save current state to redoStack before undoing
+  var curSnap = {
+    bills: JSON.parse(JSON.stringify(bills)),
+    payments: JSON.parse(JSON.stringify(payments)),
+    cheques: JSON.parse(JSON.stringify(cheques)),
+    advances: JSON.parse(JSON.stringify(advances)),
+    expenses: JSON.parse(JSON.stringify(expenses)),
+    returns_: JSON.parse(JSON.stringify(returns_)),
+    purchases: JSON.parse(JSON.stringify(purchases)),
+    suspense: JSON.parse(JSON.stringify(suspense)),
+    grossPayments: JSON.parse(JSON.stringify(grossPayments||[])),
+  };
+  _redoStack.push({ label: 'Before Undo', time: Date.now(), snapshot: curSnap });
+  if(_redoStack.length > 20) _redoStack.shift();
   var last = _undoStack.pop();
   var snap = last.snapshot;
   bills=snap.bills; payments=snap.payments; cheques=snap.cheques;
   advances=snap.advances; expenses=snap.expenses; returns_=snap.returns_;
   purchases=snap.purchases; suspense=snap.suspense;
-  invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
-  invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+  if(snap.grossPayments) grossPayments=snap.grossPayments;
+  invalidateBillStatusCache();DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
+  DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
   DB.set('purchases',purchases); DB.set('suspense',suspense);
+  DB.set('grossPayments',grossPayments);
   toast('Undo: "' + last.label + '" restored!');
   hideUndoBtn(); refresh();
+}
+
+function performRedo() {
+  if(!_redoStack.length){ toast('Kuch redo karne ke liye nahi hai!', 'err'); return; }
+  // Save current state to undoStack before redoing
+  var curSnap = {
+    bills: JSON.parse(JSON.stringify(bills)),
+    payments: JSON.parse(JSON.stringify(payments)),
+    cheques: JSON.parse(JSON.stringify(cheques)),
+    advances: JSON.parse(JSON.stringify(advances)),
+    expenses: JSON.parse(JSON.stringify(expenses)),
+    returns_: JSON.parse(JSON.stringify(returns_)),
+    purchases: JSON.parse(JSON.stringify(purchases)),
+    suspense: JSON.parse(JSON.stringify(suspense)),
+    grossPayments: JSON.parse(JSON.stringify(grossPayments||[])),
+  };
+  _undoStack.push({ label: 'Before Redo', time: Date.now(), snapshot: curSnap });
+  if(_undoStack.length > 20) _undoStack.shift();
+  var next = _redoStack.pop();
+  var snap = next.snapshot;
+  bills=snap.bills; payments=snap.payments; cheques=snap.cheques;
+  advances=snap.advances; expenses=snap.expenses; returns_=snap.returns_;
+  purchases=snap.purchases; suspense=snap.suspense;
+  if(snap.grossPayments) grossPayments=snap.grossPayments;
+  invalidateBillStatusCache();DB.set('bills',bills); DB.set('payments',payments); DB.set('cheques',cheques);
+  DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
+  DB.set('purchases',purchases); DB.set('suspense',suspense);
+  DB.set('grossPayments',grossPayments);
+  toast('↪ Redo done!');
+  refresh();
 }
 
 function showUndoBtn(label) {
@@ -19414,7 +19473,7 @@ function histRestore(entryId, skipConfirm) {
 }
 
 function histRedo() {
-  toast('Redo: use Bank Upload ya data re-enter karein','warn',3000);
+  performRedo();
 }
 
 /* ── Quick Undo (restore most recent) ───────────────────────────────────── */
