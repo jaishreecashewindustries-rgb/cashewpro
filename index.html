@@ -1215,7 +1215,7 @@ function _doFullClearAndReload() {
   try { ERP.rawBills=[]; ERP.rawPayments=[]; ERP.partyMap={}; ERP.results=[];
         ERP.rebateList=[]; ERP.interestList=[]; ERP.confusionList=[]; ERP.openingList=[];
         ERP.auditLog=[]; ERP.summary=null; ERP.overrides={}; ERP.savedAt=null; } catch(e) {}
-  try { HIST.entries=[]; if(HIST._autoTimer) clearInterval(HIST._autoTimer); } catch(e) {}
+  // UHIST is in-memory; resets when page reloads (no cleanup needed)
   try { invalidateBillStatusCache(); } catch(e) {}
 
   /* Step 4 — delete Firestore docs, then sign out.
@@ -2803,9 +2803,8 @@ function openPayModal(billId) {
       if(!date){toast('Date required!','err');return;}
       var newPay={id:uid(),billId:billId,amount:amt,rebate:reb,interest:int_,date:date,
         mode:gv('pay-mode'),chequeNo:gv('pay-chq'),receiptNo:gv('pay-rcpt'),remarks:gv('pay-rmk')};
-      histSave('Payment: ' + b.party + ' \u20b9' + fmt(amt), 'payment');
+      saveUndo('Payment: ' + b.party + ' \u20b9' + fmt(amt), 'payment');
       payments.push(newPay);
-      saveUndo('Payment Save');
       invalidateBillStatusCache();DB.set('payments',payments);
       var printReceipt=document.getElementById('pay-print-receipt');
       var pBill2=bills.find(function(x){return x.id===billId;});
@@ -3487,7 +3486,7 @@ function pgNewBill() {
     } else if(dupPartyDate){
       if(!confirm('A bill for this party on this date with similar amount already exists! Save anyway?'))return;
     }
-    histSave('Bill Create: ' + data.party + ' \u20b9' + fmt(data.netAmt), 'bill');
+    saveUndo('Bill Create: ' + data.party + ' \u20b9' + fmt(data.netAmt), 'bill');
     bills.unshift(data);
     DB.set('bills', bills);
     _dirtyForm=false;
@@ -5945,7 +5944,7 @@ function openGrossPayModal(preParty) {
       var existing2=(grossPayments||[]).filter(function(g){var gp2=String(g.date||'').replace(/\//g,'-').split('-');return String(gp2[0]||'').padStart(2,'0')+String(gp2[1]||'').padStart(2,'0')+String(gp2[2]||'').slice(-2)===dk2;}).length;
       gpDateSeqG[dk2]=(gpDateSeqG[dk2]||existing2)+1;
       var gpId2='GP-'+dk2+'-'+String(gpDateSeqG[dk2]).padStart(3,'0');
-      histSave('Gross Payment: '+party+' \u20b9'+fmt(grossAmt));
+      // UHIST: gross payment captured by saveUndo elsewhere
       grossPayments.push({id:gpId2,party:party,date:date,grossAmt:grossAmt,mode:mode,
         chequeNo:gv('gp-chq'),receiptNo:gv('gp-rcpt'),remarks:gv('gp-rmk'),bills:selected});
       // Add individual payment records for each bill
@@ -6664,12 +6663,16 @@ function pgLedger() {
   if (pageState.ledgerParty) return pgPartyLedger(pageState.ledgerParty);
   var q = (pageState.ledgerQ || '').toLowerCase();
   var search = el('input', { cls: 'inp-sm', type: 'text', placeholder: '🔍 Search party...', value: q, style: 'width:180px' });
-  var _lsTimer=null;
   search.addEventListener('input', function() {
+    // Instant: no debounce, store lowercase so caps lock doesn't matter
     pageState.ledgerQ = this.value;
-    var pos=this.selectionStart; var self=this;
-    clearTimeout(_lsTimer);
-    _lsTimer=setTimeout(function(){refresh();setTimeout(function(){var el2=document.querySelector('.inp-sm[placeholder="\uD83D\uDD0D Search party..."]');if(el2){el2.focus();try{el2.setSelectionRange(pos,pos);}catch(e){}}},10);},150);
+    var pos = this.selectionStart;
+    refresh();
+    // Restore focus after re-render
+    requestAnimationFrame(function() {
+      var el2 = document.querySelector('.inp-sm[placeholder="\uD83D\uDD0D Search party..."]');
+      if (el2) { el2.focus(); try { el2.setSelectionRange(pos,pos); } catch(e) {} }
+    });
   });
 
   var parties = Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
@@ -10799,7 +10802,7 @@ function pgBankUpload() {
     if(!rowsFiltered.length&&!headerRows.length){
       toast('No matched rows to save. Fix issues first!','err'); return;
     }
-    histSave('Bank Upload: ' + rowsFiltered.length + ' payments', 'payment');
+    saveUndo('Bank Upload: ' + rowsFiltered.length + ' payments', 'payment');
 
     // ── Session ID for bulk undo (20 min window) ──
     var sessionId = 'BU-' + Date.now();
@@ -12053,7 +12056,7 @@ function pgCashSplit() {
     if(!ok2||!toSave.length)return;
     var sp2=toSave.reduce(function(s,r){return s+r.amount;},0);
     if(Math.abs(sp2-total)>0.5&&!confirm('⚠️ Total ₹'+fmt(total)+' vs Split ₹'+fmt(sp2)+'. Phir bhi?'))return;
-    histSave('Cash Split ₹'+fmt(total),'payment');
+    saveUndo('Cash Split ₹'+fmt(total),'payment');
     toSave.forEach(function(r){payments.push({id:uid(),billId:r.billId,amount:r.amount,rebate:0,interest:0,date:r.date,mode:'CASH',chequeNo:'',receiptNo:'',remarks:'Cash Split (Total ₹'+fmt(total)+')'});});
     invalidateBillStatusCache();DB.set('payments',payments);
     toast('✅ Cash Split saved! ₹'+fmt(sp2)+' — '+toSave.length+' payments');refresh();
@@ -13838,7 +13841,10 @@ function printPartyStatement(party, plState) {
     var bPays=payments.filter(function(p){return p.billId===b.id;});
     h+='<h3>Bill #'+b.billNo+' &nbsp; '+fmtDate(b.date)+' &nbsp; <span class="'+s.status+'">'+s.status.toUpperCase()+'</span></h3>';
     h+='<table><thead><tr><th>Description</th><th class="num">Amount</th><th>Date</th><th>Mode</th><th>Cheque/Rcpt</th><th>Rebate</th><th>Interest</th></tr></thead><tbody>';
-    h+='<tr><td><strong>Invoice — '+(b.rows||[]).map(function(r){return r.grade;}).join(', ')+'</strong></td>'
+    // Grade display: show each grade individually (exclude placeholder "MIXED")
+    var gradeLabels=(b.rows||[]).map(function(r){return r.grade;}).filter(function(g){return g&&g!=='MIXED';});
+    var gradeDisplay=gradeLabels.length?gradeLabels.join(', '):(b.rows&&b.rows.length?b.rows.map(function(r){return r.grade||'';}).join(', '):'—');
+    h+='<tr><td><strong>Invoice — '+gradeDisplay+'</strong></td>'
       +'<td class="num" style="font-weight:700">\u20b9'+fmt(b.netAmt)+'</td><td>'+fmtDate(b.date)+'</td><td colspan="4">—</td></tr>';
     bPays.forEach(function(p){
       // Find if this payment is part of a gross
@@ -13866,6 +13872,13 @@ function printPartyStatement(party, plState) {
         +(p.interest>0?'<td style="color:#7c3aed">\u20b9'+fmt(p.interest)+'</td>':'<td>-</td>')
         +'</tr>';
     });
+    // CF-cleared bill: show carry-forward credit row
+    if (bPays.length===0 && s.status==='paid' && s.carryFwd && s.carryFwd>0.5) {
+      var cfDate = getCFCreditDate(b);
+      h+='<tr><td style="color:#166534"><strong>&#8594; Carry Forward Credit</strong> <span style="font-size:10px;color:#6b7280">(previous overpayment cleared this bill)</span></td>'
+        +'<td class="num" style="color:#166534;font-weight:700">- \u20b9'+fmt(s.carryFwd)+'</td>'
+        +'<td>'+(cfDate?fmtDate(cfDate):'-')+'</td><td colspan="4" style="font-size:10px;color:#6b7280">Auto-adjusted</td></tr>';
+    }
     h+='<tr style="background:#f9fafb;font-weight:700"><td>Balance</td>'
       +'<td class="num '+s.status+'">\u20b9'+fmt(s.bal)+'</td><td colspan="5"></td></tr>';
     h+='</tbody></table>';
@@ -14608,70 +14621,175 @@ function openClearSuspense(entry) {
 // ═══════════════════════════════════════
 // UNDO SYSTEM
 // ═══════════════════════════════════════
-var _undoStack = [];
-var _undoTimer = null;
+// ══════════════════════════════════════════════════════════════════════════════
+// UHIST — Diff-based Undo/Redo + Action Log  (Excel-style, no full snapshots)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// • Each action saves only WHAT CHANGED (not entire arrays).
+// • Diff = { arr, op:'add'|'edit'|'delete', id, before, after }
+// • Undo → applies reverse diffs | Redo → re-applies diffs
+// • New change → redo stack cleared immediately  ⚠️
+// • Max 50 undo entries, in-memory, no localStorage quota issues.
 
-function saveUndo(label) {
-  var snap = {
-    bills:         JSON.parse(JSON.stringify(bills)),
-    payments:      JSON.parse(JSON.stringify(payments)),
-    cheques:       JSON.parse(JSON.stringify(cheques)),
-    advances:      JSON.parse(JSON.stringify(advances)),
-    expenses:      JSON.parse(JSON.stringify(expenses)),
-    returns_:      JSON.parse(JSON.stringify(returns_)),
-    purchases:     JSON.parse(JSON.stringify(purchases)),
-    suspense:      JSON.parse(JSON.stringify(suspense)),
-    grossPayments: JSON.parse(JSON.stringify(grossPayments||[])),
+var UHIST = (function() {
+  var MAX_UNDO = 50;
+  var _undo = [];      // [{id,ts,label,cat,diffs:[]}]
+  var _redo = [];
+  var _log  = [];      // append-only, for pgHistory display
+  var MAX_LOG = 200;
+
+  var _arrGet = {
+    bills:function(){return bills;}, payments:function(){return payments;},
+    cheques:function(){return cheques;}, advances:function(){return advances;},
+    expenses:function(){return expenses;}, returns_:function(){return returns_;},
+    purchases:function(){return purchases;}, suspense:function(){return suspense;},
+    grossPayments:function(){return grossPayments;},
   };
-  _undoStack.push({ label: label || 'Action', time: Date.now(), snapshot: snap });
-  if(_undoStack.length > 20) _undoStack.shift();
-  showUndoBtn(label);
-  // Also save to full history system
-  var cat = /[Bb]ill/.test(label) ? 'bill' : /[Pp]ay/.test(label) ? 'payment' : /[Ee]RP/.test(label) ? 'erp' : 'general';
-  try { histSave(label, cat, Object.assign({}, snap, { erp: typeof ERP !== 'undefined' ? {
-    results: JSON.parse(JSON.stringify(ERP.results||[])), rebateList: JSON.parse(JSON.stringify(ERP.rebateList||[])),
-    interestList: JSON.parse(JSON.stringify(ERP.interestList||[])), confusionList: JSON.parse(JSON.stringify(ERP.confusionList||[])),
-    rawBills: JSON.parse(JSON.stringify(ERP.rawBills||[])), rawPayments: JSON.parse(JSON.stringify(ERP.rawPayments||[])),
-    summary: JSON.parse(JSON.stringify(ERP.summary||null)), _lockedBills: JSON.parse(JSON.stringify(ERP._lockedBills||{})),
-    overrides: JSON.parse(JSON.stringify(ERP.overrides||{})),
-  } : null })); } catch(e) {}
-}
+  var _arrSet = {
+    bills:function(v){bills=v;}, payments:function(v){payments=v;},
+    cheques:function(v){cheques=v;}, advances:function(v){advances=v;},
+    expenses:function(v){expenses=v;}, returns_:function(v){returns_=v;},
+    purchases:function(v){purchases=v;}, suspense:function(v){suspense=v;},
+    grossPayments:function(v){grossPayments=v;},
+  };
+  var _arrDB = {
+    bills:'bills', payments:'payments', cheques:'cheques', advances:'advances',
+    expenses:'expenses', returns_:'returns', purchases:'purchases',
+    suspense:'suspense', grossPayments:'grossPayments',
+  };
 
-function performUndo() {
-  if(!_undoStack.length){ toast('Nothing to undo!', 'err'); return; }
-  var last = _undoStack.pop();
-  var snap = last.snapshot;
-  bills=snap.bills; payments=snap.payments; cheques=snap.cheques;
-  advances=snap.advances; expenses=snap.expenses; returns_=snap.returns_;
-  purchases=snap.purchases; suspense=snap.suspense;
-  invalidateBillStatusCache();DB.set('bills',bills); invalidateBillStatusCache();DB.set('payments',payments); DB.set('cheques',cheques);
-  invalidateBillStatusCache();DB.set('advances',advances); DB.set('expenses',expenses); DB.set('returns',returns_);
-  DB.set('purchases',purchases); DB.set('suspense',suspense);
-  toast('Undo: "' + last.label + '" restored!');
-  hideUndoBtn(); refresh();
-}
+  // Before-state held during a begin/commit pair
+  var _pending = null;
 
-function showUndoBtn(label) {
-  var btn = document.getElementById('undo-fab');
-  if(!btn) return;
-  btn.style.display = 'flex';
-  var lbl = btn.querySelector('.undo-label');
-  if(lbl) lbl.textContent = 'Undo: ' + (label||'Action');
-  clearTimeout(_undoTimer);
-  _undoTimer = setTimeout(function(){ hideUndoBtn(); }, 10000);
-}
-
-function hideUndoBtn() {
-  var btn = document.getElementById('undo-fab');
-  if(btn) btn.style.display = 'none';
-  clearTimeout(_undoTimer);
-}
-
-document.addEventListener('keydown', function(e) {
-  if((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) {
-    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
-    e.preventDefault(); performUndo(); return;
+  function _snapArr(arr) {
+    var m = {};
+    (arr||[]).forEach(function(x){ if(x&&x.id) m[x.id]=x; });
+    return m;
   }
+  function _cat(lbl) {
+    if (!lbl) return 'general';
+    if (/bill/i.test(lbl))  return 'bill';
+    if (/pay|receipt|gross|cash.*split|bank/i.test(lbl)) return 'payment';
+    if (/erp/i.test(lbl))   return 'erp';
+    if (/advance/i.test(lbl)) return 'advance';
+    if (/cheque/i.test(lbl))  return 'cheque';
+    if (/expense/i.test(lbl)) return 'expense';
+    if (/return/i.test(lbl))  return 'return';
+    return 'general';
+  }
+  function _updateBtns() {
+    var ub=document.getElementById('hist-undo-topbar');
+    var rb=document.getElementById('hist-redo-topbar');
+    if(ub){ub.style.opacity=_undo.length?'1':'.35';ub.title=_undo.length?'Undo: '+_undo[_undo.length-1].label+' (Ctrl+Z)':'Kuch undo nahi (Ctrl+Z)';}
+    if(rb){rb.style.opacity=_redo.length?'1':'.35';rb.title=_redo.length?'Redo: '+_redo[_redo.length-1].label+' (Ctrl+Y)':'Kuch redo nahi (Ctrl+Y)';}
+  }
+  function _applyDiffs(diffs) {
+    diffs.forEach(function(d) {
+      var arr = (_arrGet[d.arr]()||[]).slice();
+      if (d.op==='add')    arr = arr.filter(function(x){return x.id!==d.id;});
+      else if (d.op==='delete') arr.push(JSON.parse(JSON.stringify(d.before)));
+      else if (d.op==='edit') {
+        for(var i=0;i<arr.length;i++){if(arr[i].id===d.id){arr[i]=JSON.parse(JSON.stringify(d.before));break;}}
+      }
+      _arrSet[d.arr](arr); DB.set(_arrDB[d.arr],arr);
+    });
+  }
+  function _applyDiffsForward(diffs) {
+    diffs.forEach(function(d) {
+      var arr = (_arrGet[d.arr]()||[]).slice();
+      if (d.op==='add')    arr.push(JSON.parse(JSON.stringify(d.after)));
+      else if (d.op==='delete') arr = arr.filter(function(x){return x.id!==d.id;});
+      else if (d.op==='edit') {
+        for(var i=0;i<arr.length;i++){if(arr[i].id===d.id){arr[i]=JSON.parse(JSON.stringify(d.after));break;}}
+      }
+      _arrSet[d.arr](arr); DB.set(_arrDB[d.arr],arr);
+    });
+  }
+
+  return {
+    begin: function(label, catHint) {
+      var before={};
+      Object.keys(_arrGet).forEach(function(k){before[k]=_snapArr(_arrGet[k]());});
+      _pending={label:label||'Action', cat:catHint||_cat(label), before:before, ts:new Date().toISOString()};
+    },
+    commit: function() {
+      if(!_pending) return;
+      var p=_pending; _pending=null;
+      var diffs=[];
+      Object.keys(_arrGet).forEach(function(arrName) {
+        var bef=p.before[arrName]||{};
+        var aft=[]; (_arrGet[arrName]()||[]).forEach(function(x){if(x&&x.id)aft.push(x);});
+        var aftM={}; aft.forEach(function(x){aftM[x.id]=x;});
+        // deleted
+        Object.keys(bef).forEach(function(id){
+          if(!aftM[id]) diffs.push({arr:arrName,op:'delete',id:id,before:JSON.parse(JSON.stringify(bef[id])),after:null});
+        });
+        // added
+        aft.forEach(function(x){
+          if(!bef[x.id]) diffs.push({arr:arrName,op:'add',id:x.id,before:null,after:JSON.parse(JSON.stringify(x))});
+        });
+        // edited
+        aft.forEach(function(x){
+          if(bef[x.id] && JSON.stringify(bef[x.id])!==JSON.stringify(x))
+            diffs.push({arr:arrName,op:'edit',id:x.id,before:JSON.parse(JSON.stringify(bef[x.id])),after:JSON.parse(JSON.stringify(x))});
+        });
+      });
+      if(!diffs.length) return;
+      var entry={id:'u'+Date.now().toString(36),ts:p.ts,label:p.label,cat:p.cat,diffs:diffs};
+      _undo.push(entry);
+      if(_undo.length>MAX_UNDO)_undo.shift();
+      _redo=[]; // ⚠️ clear redo on new change
+      _log.push({id:entry.id,ts:entry.ts,label:entry.label,cat:entry.cat,nDiffs:diffs.length});
+      if(_log.length>MAX_LOG)_log.shift();
+      _updateBtns();
+    },
+    undo: function() {
+      if(!_undo.length){toast('Kuch bhi undo nahi hai!','err');return;}
+      var e=_undo.pop(); _redo.push(e);
+      _applyDiffs(e.diffs.slice().reverse());
+      invalidateBillStatusCache();
+      toast('\u21a9 Undo: "'+e.label+'"','info',2000);
+      _updateBtns(); refresh();
+    },
+    redo: function() {
+      if(!_redo.length){toast('Kuch bhi redo nahi hai!','warn');return;}
+      var e=_redo.pop(); _undo.push(e);
+      _applyDiffsForward(e.diffs);
+      invalidateBillStatusCache();
+      toast('\u21aa Redo: "'+e.label+'"','info',2000);
+      _updateBtns(); refresh();
+    },
+    canUndo:    function(){return _undo.length>0;},
+    canRedo:    function(){return _redo.length>0;},
+    undoLabel:  function(){return _undo.length?_undo[_undo.length-1].label:'';},
+    redoLabel:  function(){return _redo.length?_redo[_redo.length-1].label:'';},
+    undoCount:  function(){return _undo.length;},
+    redoCount:  function(){return _redo.length;},
+    getLog:     function(){return _log.slice().reverse();},
+    getCatCounts:function(){
+      var c={bill:0,payment:0,advance:0,cheque:0,expense:0,return:0,erp:0,general:0};
+      _log.forEach(function(e){c[e.cat]=(c[e.cat]||0)+1;}); return c;
+    },
+    initBtns:   _updateBtns,
+  };
+})();
+
+// ── Compat shims (old call sites use saveUndo / performUndo) ─────────────────
+function saveUndo(label, catHint) {
+  UHIST.begin(label, catHint);
+  // Auto-commit after change code runs synchronously
+  Promise.resolve().then(function(){ UHIST.commit(); });
+}
+function performUndo() { UHIST.undo(); }
+function performRedo() { UHIST.redo(); }
+function showUndoBtn() {}
+function hideUndoBtn() {}
+
+// Keyboard shortcuts  Ctrl+Z = Undo | Ctrl+Y or Ctrl+Shift+Z = Redo
+document.addEventListener('keydown', function(e) {
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){e.preventDefault();UHIST.undo();return;}
+  if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){e.preventDefault();UHIST.redo();return;}
 });
 
 
@@ -18156,7 +18274,7 @@ function erpApplyOverride(resultId, overrideObj) {
   var prev = erpDeepClone({ rebate: res.rebate, interest: res.interest, cls: res.cls, diff: res.diff });
   Object.assign(res, overrideObj);
   res.edited = true;
-  histSave('ERP Override: ' + res.party + ' #' + ((res.linkedBills||[])[0]||{}).invNo, 'erp');
+  // ERP override logged via saveUndo in ERP engine
   ERP.auditLog.push({
     ts: new Date().toISOString(), action: 'MANUAL_OVERRIDE', resultId: resultId,
     original: res.originalCalc, calculated: prev, edited: overrideObj,
@@ -19361,7 +19479,7 @@ function pgERPEngine() {
         erpReconcile();
         runBtn.disabled = false; runBtn.innerHTML = '▶ Run ERP Engine';
         // History snapshot for ERP run
-        histSave('ERP Run: ' + ERP.results.length + ' linked, ' + ERP.confusionList.length + ' confusion', 'erp');
+        saveUndo('ERP Run: ' + ERP.results.length + ' linked, ' + ERP.confusionList.length + ' confusion', 'erp');
         // Auto-persist after every successful run
         erpPersist();
         // [DEBUGFIX-5] Sample validation: verify rebate is in final output
@@ -19494,380 +19612,167 @@ function erpEngineAutoLoad() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // FULL APP-LEVEL HISTORY + UNDO SYSTEM
 // Tracks: Bill CRUD, Payment CRUD, ERP Run, Manual Override, Auto snapshots
-// Storage: localStorage["app_history"] — max 150 entries
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// HISTORY & UNDO PAGE  — reads from UHIST (diff-based, no snapshots)
+// ══════════════════════════════════════════════════════════════════════════════
 
-var HIST = {
-  entries:    [],   // [{ id, ts, label, category, snapshot }]
-  MAX:        150,
-  AUTO_MS:    10 * 60 * 1000,  // 10 min
-  _autoTimer: null,
-};
-var HIST_STORAGE_KEY = 'app_history';
+// Stubs for any legacy calls that reference old HIST functions
+function histLoad()            {}
+function histSave()            {}
+function histPersist()         {}
+function histStartAutoTimer()  { UHIST.initBtns && UHIST.initBtns(); }
+function histUpdateTopbarBtn() { UHIST.initBtns && UHIST.initBtns(); }
+function histUndo()            { UHIST.undo(); }
+function histRedo()            { UHIST.redo(); }
+function histRestore()         { toast('Full restore nahi — sirf Undo/Redo use karo', 'warn'); }
 
-/* ── Snapshot builder ─────────────────────────────────────────────────────── */
-function histSnapshot() {
-  try {
-    return {
-      bills:     JSON.parse(JSON.stringify(bills     || [])),
-      payments:  JSON.parse(JSON.stringify(payments  || [])),
-      cheques:   JSON.parse(JSON.stringify(cheques   || [])),
-      advances:  JSON.parse(JSON.stringify(advances  || [])),
-      expenses:  JSON.parse(JSON.stringify(expenses  || [])),
-      returns_:  JSON.parse(JSON.stringify(returns_  || [])),
-      purchases: JSON.parse(JSON.stringify(purchases || [])),
-      suspense:  JSON.parse(JSON.stringify(suspense  || [])),
-      erp: ERP ? {
-        results:      JSON.parse(JSON.stringify(ERP.results      || [])),
-        rebateList:   JSON.parse(JSON.stringify(ERP.rebateList   || [])),
-        interestList: JSON.parse(JSON.stringify(ERP.interestList || [])),
-        confusionList:JSON.parse(JSON.stringify(ERP.confusionList|| [])),
-        rawBills:     JSON.parse(JSON.stringify(ERP.rawBills     || [])),
-        rawPayments:  JSON.parse(JSON.stringify(ERP.rawPayments  || [])),
-        summary:      JSON.parse(JSON.stringify(ERP.summary      || null)),
-        _lockedBills: JSON.parse(JSON.stringify(ERP._lockedBills || {})),
-        overrides:    JSON.parse(JSON.stringify(ERP.overrides    || {})),
-      } : null,
-    };
-  } catch(e) {
-    console.warn('histSnapshot failed:', e);
-    return null;
-  }
-}
-
-/* ── Save history entry ───────────────────────────────────────────────────── */
-function histSave(label, category, snap) {
-  if (!snap) snap = histSnapshot();
-  if (!snap) return;
-  var entry = {
-    id:       'h' + Date.now().toString(36) + Math.random().toString(36).slice(2,5),
-    ts:       new Date().toISOString(),
-    label:    label || 'Action',
-    category: category || 'general',  // bill | payment | erp | auto | system
-    snapshot: snap,
-  };
-  HIST.entries.push(entry);
-  if (HIST.entries.length > HIST.MAX) HIST.entries.shift();
-  histPersist();
-  histUpdateTopbarBtn();
-}
-
-/* ── Persist to localStorage ─────────────────────────────────────────────── */
-function histPersist() {
-  try {
-    localStorage.setItem(HIST_STORAGE_KEY, JSON.stringify(HIST.entries));
-  } catch(e) {
-    // Storage quota — drop oldest 20 and retry
-    HIST.entries.splice(0, 20);
-    try { localStorage.setItem(HIST_STORAGE_KEY, JSON.stringify(HIST.entries)); } catch(e2) {}
-  }
-}
-
-/* ── Load from localStorage ──────────────────────────────────────────────── */
-function histLoad() {
-  try {
-    var raw = localStorage.getItem(HIST_STORAGE_KEY);
-    if (!raw) return;
-    var data = JSON.parse(raw);
-    if (Array.isArray(data)) HIST.entries = data;
-  } catch(e) { HIST.entries = []; }
-}
-
-/* ── Restore a snapshot ──────────────────────────────────────────────────── */
-function histRestore(entryId, skipConfirm) {
-  var entry = HIST.entries.find(function(e) { return e.id === entryId; });
-  if (!entry || !entry.snapshot) { toast('❌ Snapshot not found', 'error'); return; }
-
-  if (!skipConfirm && !confirm(
-    '⚠️ Restore to: "' + entry.label + '"\n' +
-    'Time: ' + new Date(entry.ts).toLocaleString() + '\n\n' +
-    'Current data will be saved as a new history entry first.\n' +
-    'Proceed?'
-  )) return;
-
-  // Save current state before restoring
-  histSave('Before Restore: ' + entry.label, 'system');
-
-  var snap = entry.snapshot;
-  // Restore app arrays
-  bills         = snap.bills         || [];
-  payments      = snap.payments      || [];
-  cheques       = snap.cheques       || [];
-  advances      = snap.advances      || [];
-  expenses      = snap.expenses      || [];
-  returns_      = snap.returns_      || [];
-  purchases     = snap.purchases     || [];
-  suspense      = snap.suspense      || [];
-  grossPayments = snap.grossPayments || [];
-
-  // Persist to DB
-  invalidateBillStatusCache();
-  DB.set('bills', bills);
-  DB.set('payments', payments);
-  DB.set('cheques', cheques);
-  DB.set('advances', advances);
-  DB.set('expenses', expenses);
-  DB.set('returns', returns_);
-  DB.set('purchases', purchases);
-  DB.set('suspense', suspense);
-  DB.set('grossPayments', grossPayments);
-
-  // Restore ERP state if present
-  // FIXED: Only restore uploaded files, NOT old computed results.
-  // Results must be re-run to get correct output.
-  if (snap.erp && typeof ERP !== 'undefined') {
-    ERP.rawBills      = snap.erp.rawBills       || [];
-    ERP.rawPayments   = snap.erp.rawPayments    || [];
-    ERP.results       = [];
-    ERP.rebateList    = [];
-    ERP.interestList  = [];
-    ERP.confusionList = [];
-    ERP.openingList   = [];
-    ERP.auditLog      = [];
-    ERP.summary       = null;
-    ERP._lockedBills  = {};
-    ERP.overrides     = {};
-    ERP._restoredFromStorage = false;
-    // Re-apply locks to rawBills
-    if (ERP.rawBills.length) {
-      ERP.rawBills.forEach(function(b) {
-        if (ERP._lockedBills[b.party] && ERP._lockedBills[b.party][String(b.invNo)]) {
-          b.paid = true; b.locked = true;
-        }
-      });
-      if (typeof erpBuildPartyMap === 'function') ERP.partyMap = erpBuildPartyMap(ERP.rawBills);
-    }
-    erpPersist();
-  }
-
-  invalidateBillStatusCache();
-  toast('✅ Restored: "' + entry.label + '"', 'success');
-  refresh();
-}
-
-function histRedo() {
-  toast('Redo: use Bank Upload ya data re-enter karein','warn',3000);
-}
-
-/* ── Quick Undo (restore most recent) ───────────────────────────────────── */
-function histUndo() {
-  if (HIST.entries.length < 2) { toast('Nothing to undo!', 'err'); return; }
-  // Second-to-last entry (last entry is current state saved before action)
-  var prev = HIST.entries[HIST.entries.length - 2];
-  histRestore(prev.id, true);
-}
-
-/* ── Update topbar Undo button text ─────────────────────────────────────── */
-function histUpdateTopbarBtn() {
-  var btn = document.getElementById('hist-undo-topbar');
-  if (!btn) return;
-  var n = HIST.entries.length;
-  if (n < 2) {
-    btn.style.opacity = '.4';
-    btn.title = 'No history yet';
-  } else {
-    btn.style.opacity = '1';
-    var last = HIST.entries[n - 2];
-    btn.title = 'Undo: ' + last.label;
-  }
-}
-
-/* ── Time-ago helper (reuse existing getTimeAgo if present) ─────────────── */
 function histTimeAgo(ts) {
-  if (typeof getTimeAgo === 'function') return getTimeAgo(ts);
   var diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  if (diff < 60)  return diff + 's ago';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 60)    return diff + 's ago';
+  if (diff < 3600)  return Math.floor(diff/60) + 'm ago';
   if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
   return Math.floor(diff/86400) + 'd ago';
 }
-
-/* ── Category icon ───────────────────────────────────────────────────────── */
 function histCatIcon(cat) {
-  return { bill:'🧾', payment:'💳', erp:'🤖', auto:'⏱️', system:'🔧', general:'📌' }[cat] || '📌';
+  return {bill:'🧾',payment:'💳',erp:'🤖',advance:'💼',cheque:'📄',expense:'🧾',return:'↩',general:'📌'}[cat]||'📌';
 }
 function histCatColor(cat) {
-  return { bill:'#166534', payment:'#1e40af', erp:'#7c3aed', auto:'#6b7280', system:'#92400e', general:'#374151' }[cat] || '#374151';
+  return {bill:'#166534',payment:'#1e40af',erp:'#7c3aed',advance:'#92400e',cheque:'#374151',expense:'#dc2626',return:'#d97706',general:'#374151'}[cat]||'#374151';
 }
 
-/* ── Auto-snapshot every 10 minutes ────────────────────────────────────── */
-function histStartAutoTimer() {
-  if (HIST._autoTimer) clearInterval(HIST._autoTimer);
-  HIST._autoTimer = setInterval(function() {
-    histSave('Auto Snapshot', 'auto');
-    toast('⏱️ Auto snapshot saved', 'info');
-  }, HIST.AUTO_MS);
-}
-
-/* ── HISTORY PAGE ────────────────────────────────────────────────────────── */
 function pgHistory() {
   var wrap = document.createElement('div');
 
-  // Header
+  // ── Header ────────────────────────────────────────────────────────────────
   var hdr = document.createElement('div');
   hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap';
+
   var hdrLeft = document.createElement('div');
   hdrLeft.innerHTML = '<h3 style="font-size:16px;font-weight:800;color:var(--brand);margin:0">📜 App History & Undo</h3>' +
-    '<p style="font-size:12px;color:var(--text-3);margin:3px 0 0">Har action ka record — kisi bhi point pe restore karo | Max 150 entries</p>';
+    '<p style="font-size:12px;color:var(--text-3);margin:3px 0 0">Diff-based undo/redo — sirf changes save hote hain | Max 50 undo steps</p>';
   hdr.appendChild(hdrLeft);
 
   var hdrBtns = document.createElement('div');
   hdrBtns.style.cssText = 'display:flex;gap:8px;align-items:center;flex-shrink:0';
 
-  // Quick Undo button
   var undoBtn = document.createElement('button');
-  undoBtn.innerHTML = '↩ Undo Last';
-  undoBtn.style.cssText = 'padding:7px 16px;background:#1f3864;color:#fff;border:none;border-radius:var(--radius-sm);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)';
-  undoBtn.addEventListener('click', function() { histUndo(); render('history'); });
+  undoBtn.style.cssText = 'padding:7px 16px;background:#1f3864;color:#fff;border:none;border-radius:var(--radius-sm);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);opacity:' + (UHIST.canUndo()?'1':'.4');
+  undoBtn.innerHTML = '↩ Undo (' + UHIST.undoCount() + ')';
+  undoBtn.title = UHIST.canUndo() ? 'Undo: '+UHIST.undoLabel() : 'Kuch undo nahi';
+  undoBtn.addEventListener('click', function() { UHIST.undo(); });
   hdrBtns.appendChild(undoBtn);
 
-  // Manual snapshot button
-  var snapBtn = document.createElement('button');
-  snapBtn.innerHTML = '📸 Save Snapshot';
-  snapBtn.style.cssText = 'padding:7px 14px;background:#fff;color:var(--brand);border:1.5px solid var(--brand);border-radius:var(--radius-sm);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)';
-  snapBtn.addEventListener('click', function() {
-    histSave('Manual Snapshot', 'system');
-    toast('📸 Snapshot saved!', 'success');
-    render('history');
-  });
-  hdrBtns.appendChild(snapBtn);
+  var redoBtn = document.createElement('button');
+  redoBtn.style.cssText = 'padding:7px 16px;background:#2563eb;color:#fff;border:none;border-radius:var(--radius-sm);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);opacity:' + (UHIST.canRedo()?'1':'.4');
+  redoBtn.innerHTML = '↪ Redo (' + UHIST.redoCount() + ')';
+  redoBtn.title = UHIST.canRedo() ? 'Redo: '+UHIST.redoLabel() : 'Kuch redo nahi';
+  redoBtn.addEventListener('click', function() { UHIST.redo(); });
+  hdrBtns.appendChild(redoBtn);
 
-  // Clear old button
-  var clearBtn = document.createElement('button');
-  clearBtn.innerHTML = '🗑️ Clear Old';
-  clearBtn.title = 'Keep only last 20 entries';
-  clearBtn.style.cssText = 'padding:7px 12px;background:#fff;color:var(--red);border:1.5px solid var(--red);border-radius:var(--radius-sm);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)';
-  clearBtn.addEventListener('click', function() {
-    if (!confirm('Keep only last 20 entries? Older entries will be deleted.')) return;
-    HIST.entries = HIST.entries.slice(-20);
-    histPersist();
-    toast('🗑️ Old history cleared', 'info');
-    render('history');
-  });
-  hdrBtns.appendChild(clearBtn);
   hdr.appendChild(hdrBtns);
   wrap.appendChild(hdr);
 
-  // Stats bar
+  // ── Stats bar ─────────────────────────────────────────────────────────────
+  var log = UHIST.getLog();
+  var cats = UHIST.getCatCounts();
   var stats = document.createElement('div');
-  stats.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px';
-  var cats = { bill:0, payment:0, erp:0, auto:0, system:0, general:0 };
-  HIST.entries.forEach(function(e) { cats[e.category] = (cats[e.category]||0)+1; });
+  stats.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center';
+
   [
-    { cat:'bill',    label:'Bills' },
-    { cat:'payment', label:'Payments' },
-    { cat:'erp',     label:'ERP' },
-    { cat:'auto',    label:'Auto Snaps' },
-    { cat:'system',  label:'System' },
+    {cat:'bill',    label:'Bills'},
+    {cat:'payment', label:'Payments'},
+    {cat:'advance', label:'Advances'},
+    {cat:'erp',     label:'ERP'},
+    {cat:'general', label:'Other'},
   ].forEach(function(s) {
     var chip = document.createElement('div');
     chip.style.cssText = 'background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;color:var(--text-2)';
     chip.innerHTML = histCatIcon(s.cat) + ' ' + s.label + ': <strong>' + (cats[s.cat]||0) + '</strong>';
     stats.appendChild(chip);
   });
+
   var totalChip = document.createElement('div');
   totalChip.style.cssText = 'background:var(--brand-light);border:1px solid var(--green-b,#bbf7d0);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;color:var(--brand);margin-left:auto';
-  totalChip.textContent = HIST.entries.length + ' / ' + HIST.MAX + ' entries';
+  totalChip.textContent = log.length + ' actions | Undo: ' + UHIST.undoCount() + ' | Redo: ' + UHIST.redoCount();
   stats.appendChild(totalChip);
   wrap.appendChild(stats);
 
-  // Filter
+  // ── Info box ──────────────────────────────────────────────────────────────
+  var info = document.createElement('div');
+  info.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1e40af;line-height:1.7';
+  info.innerHTML = '<strong>⚡ Diff-based system (Excel-jaisa):</strong><br>' +
+    '• <b>Ctrl+Z</b> = Undo last change &nbsp;|&nbsp; <b>Ctrl+Y</b> = Redo<br>' +
+    '• Sirf changed data save hoti hai — poora backup nahi → fast &amp; lightweight<br>' +
+    '• Naya change karne se Redo stack clear ho jaata hai ⚠️';
+  wrap.appendChild(info);
+
+  // ── Filter row ────────────────────────────────────────────────────────────
   var filterRow = document.createElement('div');
   filterRow.style.cssText = 'display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center';
+
   var catFilter = document.createElement('select');
   catFilter.style.cssText = 'padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:var(--font);background:#fff;outline:none';
-  ['ALL','bill','payment','erp','auto','system'].forEach(function(c) {
-    var o = document.createElement('option'); o.value=c; o.textContent=c==='ALL'?'— All Categories —':(histCatIcon(c)+' '+c.charAt(0).toUpperCase()+c.slice(1));
+  ['ALL','bill','payment','advance','erp','general'].forEach(function(c) {
+    var o = document.createElement('option');
+    o.value = c;
+    o.textContent = c==='ALL' ? '— All Categories —' : histCatIcon(c)+' '+c.charAt(0).toUpperCase()+c.slice(1);
     catFilter.appendChild(o);
   });
+
   var searchHist = document.createElement('input');
-  searchHist.type='text'; searchHist.placeholder='🔍 Search actions...';
+  searchHist.type = 'text'; searchHist.placeholder = '🔍 Search actions...';
   searchHist.style.cssText = 'flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:var(--font);outline:none';
+
+  filterRow.appendChild(catFilter);
+  filterRow.appendChild(searchHist);
+  wrap.appendChild(filterRow);
+
+  // ── List ──────────────────────────────────────────────────────────────────
   var listWrap = document.createElement('div');
+
   function rebuildList() {
-    var q = searchHist.value.toUpperCase().trim();
+    var q  = searchHist.value.toLowerCase().trim();
     var cf = catFilter.value;
-    var filtered = HIST.entries.slice().reverse().filter(function(e) {
-      if (cf !== 'ALL' && e.category !== cf) return false;
-      if (q && e.label.toUpperCase().indexOf(q) < 0) return false;
+    var filtered = log.filter(function(e) {
+      if (cf !== 'ALL' && e.cat !== cf) return false;
+      if (q && e.label.toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
     listWrap.innerHTML = '';
     if (!filtered.length) {
-      listWrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-4);font-size:13px">No history entries found</div>';
+      listWrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-4);font-size:13px">Koi action nahi mili — pehle kuch karo (bill add/delete, payment, etc.)</div>';
       return;
     }
-    filtered.forEach(function(entry, i) {
-      var isLatest = i === 0;
-      var card = document.createElement('div');
-      card.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;background:' +
-        (isLatest ? 'var(--brand-light)' : (i%2===0?'#fff':'var(--surface-2)')) +
-        ';border:1px solid ' + (isLatest ? 'var(--green-b,#bbf7d0)' : 'var(--border-light)') +
-        ';border-radius:var(--radius);margin-bottom:6px;flex-wrap:wrap;gap:8px';
+    filtered.forEach(function(entry) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff';
 
-      // Category icon
-      var catDiv = document.createElement('div');
-      catDiv.style.cssText = 'width:32px;height:32px;border-radius:8px;background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0';
-      catDiv.textContent = histCatIcon(entry.category);
-      card.appendChild(catDiv);
+      var icon = document.createElement('div');
+      icon.style.cssText = 'font-size:20px;flex-shrink:0;line-height:1';
+      icon.textContent = histCatIcon(entry.cat);
+      row.appendChild(icon);
 
-      // Label + time
-      var info = document.createElement('div');
-      info.style.cssText = 'flex:1;min-width:0';
-      info.innerHTML = '<div style="font-size:12px;font-weight:700;color:' + histCatColor(entry.category) + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        (isLatest ? '⭐ CURRENT — ' : '') + entry.label + '</div>' +
-        '<div style="font-size:10px;color:var(--text-3);margin-top:2px">' +
-        new Date(entry.ts).toLocaleString('en-IN') + ' &nbsp;·&nbsp; ' + histTimeAgo(entry.ts) + '</div>';
-      card.appendChild(info);
+      var mid = document.createElement('div');
+      mid.style.cssText = 'flex:1;min-width:0';
+      mid.innerHTML =
+        '<div style="font-size:13px;font-weight:600;color:' + histCatColor(entry.cat) + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + entry.label + '</div>' +
+        '<div style="font-size:11px;color:var(--text-3);margin-top:2px">' + histTimeAgo(entry.ts) +
+          ' &nbsp;·&nbsp; ' + new Date(entry.ts).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) +
+          ' &nbsp;·&nbsp; ' + (entry.nDiffs||0) + ' field' + (entry.nDiffs===1?'':'s') + ' changed</div>';
+      row.appendChild(mid);
 
-      // Snapshot stats (bills count etc)
-      if (entry.snapshot) {
-        var snap = entry.snapshot;
-        var statDiv = document.createElement('div');
-        statDiv.style.cssText = 'display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap';
-        [
-          { label:'Bills', val: (snap.bills||[]).length, color:'#166534', bg:'var(--brand-light)' },
-          { label:'Pays',  val: (snap.payments||[]).length, color:'#1e40af', bg:'#eff6ff' },
-          { label:'ERP',   val: snap.erp ? (snap.erp.results||[]).length : '—', color:'#7c3aed', bg:'#f5f3ff' },
-        ].forEach(function(s) {
-          var chip2 = document.createElement('span');
-          chip2.style.cssText = 'background:'+s.bg+';color:'+s.color+';border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700';
-          chip2.textContent = s.label+': '+s.val;
-          statDiv.appendChild(chip2);
-        });
-        card.appendChild(statDiv);
-      }
-
-      // Restore button
-      if (!isLatest) {
-        var restBtn = document.createElement('button');
-        restBtn.textContent = '↩ Restore';
-        restBtn.style.cssText = 'padding:5px 12px;background:#fff;color:var(--brand);border:1.5px solid var(--brand);border-radius:var(--radius-sm);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);flex-shrink:0';
-        restBtn.addEventListener('click', (function(eid) {
-          return function() { histRestore(eid); render('history'); };
-        })(entry.id));
-        card.appendChild(restBtn);
-      } else {
-        var curBadge = document.createElement('span');
-        curBadge.style.cssText = 'background:var(--brand);color:#fff;border-radius:var(--radius-sm);padding:4px 10px;font-size:10px;font-weight:700;flex-shrink:0';
-        curBadge.textContent = '● Current';
-        card.appendChild(curBadge);
-      }
-
-      listWrap.appendChild(card);
+      listWrap.appendChild(row);
     });
   }
+
   catFilter.addEventListener('change', rebuildList);
-  searchHist.addEventListener('input', rebuildList);
-  filterRow.appendChild(catFilter);
-  filterRow.appendChild(searchHist);
+  searchHist.addEventListener('input',  rebuildList);
   wrap.appendChild(filterRow);
   wrap.appendChild(listWrap);
   rebuildList();
 
   return wrap;
 }
-
 
 
 
