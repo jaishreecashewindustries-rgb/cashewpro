@@ -9102,9 +9102,10 @@ function pgSettings() {
   } else {
     // Show archived years too
     fys.forEach(function(fyStart){
-      var fyBills2=getFYBills(fyStart);
-      var fyPays2=getFYPayments(fyBills2);
-      var fyLabel2=getFYLabel(fyStart);
+      var _fyStr2=fyStart+'-'+(fyStart+1);
+      var fyBills2=getFYBills(_fyStr2);
+      var fyPays2=getFYPayments(_fyStr2);
+      var fyLabel2=getFYLabel(_fyStr2);
       var totSales2=fyBills2.reduce(function(s,b){return s+(b.netAmt||0);},0);
       var totRecv2=fyBills2.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
       var totBal2=fyBills2.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -14924,28 +14925,17 @@ function getFinancialYears() {
   return Array.from(years).sort().reverse();
 }
 
-function getFYLabel(fyStart) {
-  return 'FY ' + fyStart + '-' + String(fyStart+1).slice(2);
-}
-
-function getFYBills(fyStart) {
-  var startISO = fyStart+'-04-01';
-  var endISO   = (fyStart+1)+'-03-31';
-  return bills.filter(function(b) {
-    var iso = toISO(b.date||'');
-    return iso >= startISO && iso <= endISO;
-  });
-}
-
-function getFYPayments(fyBills) {
-  var billIds = new Set(fyBills.map(function(b){return b.id;}));
-  return payments.filter(function(p){ return billIds.has(p.billId); });
-}
+// getFYLabel, getFYBills, getFYPayments defined above (line ~1400)
+// These were duplicate definitions — removed to avoid override conflict.
+// Export functions use fyStart as NUMBER → convert to string for our helpers.
+// Adapter: getFYPayments can receive either array or FY string
+// (Old signature: getFYPayments(fyBills array) — kept compatible below via overloaded check)
 
 function exportYearWise(fyStart) {
-  var fyLabel = getFYLabel(fyStart);
-  var fyBills = getFYBills(fyStart);
-  var fyPays  = getFYPayments(fyBills);
+  var _fyStr=fyStart+'-'+(fyStart+1);
+  var fyLabel = getFYLabel(_fyStr);
+  var fyBills = getFYBills(_fyStr);
+  var fyPays  = getFYPayments(_fyStr);
   var fyExps  = expenses.filter(function(e){
     var iso=toISO(e.date||'');
     return iso>=(fyStart+'-04-01') && iso<=((fyStart+1)+'-03-31');
@@ -15050,8 +15040,9 @@ function exportYearWise(fyStart) {
 }
 
 function archiveYear(fyStart) {
-  var fyLabel = getFYLabel(fyStart);
-  var fyBills = getFYBills(fyStart);
+  var _fyStr=fyStart+'-'+(fyStart+1);
+  var fyLabel = getFYLabel(_fyStr);
+  var fyBills = getFYBills(_fyStr);
   if(!fyBills.length){ toast('Koi data nahi is year mein!','err'); return; }
   if(!confirm(fyLabel+' ka data export + archive karna chahte ho?\n\nExport ho jayega aur phir ye bills current data se hide hongi.\n(Data delete nahi hoga, sirf archive mein jayega)')) return;
 
@@ -15062,7 +15053,7 @@ function archiveYear(fyStart) {
   var archived = DB.getObj('archived_bills', {});
   archived[fyStart] = {
     bills: fyBills,
-    payments: getFYPayments(fyBills),
+    payments: getFYPayments(_fyStr),
     archivedAt: new Date().toISOString()
   };
   DB.setObj('archived_bills', archived);
@@ -15077,7 +15068,8 @@ function archiveYear(fyStart) {
 }
 
 function restoreArchivedYear(fyStart) {
-  var fyLabel = getFYLabel(fyStart);
+  var _fyStr=fyStart+'-'+(fyStart+1);
+  var fyLabel = getFYLabel(_fyStr);
   var archived = DB.getObj('archived_bills', {});
   var arch = archived[fyStart];
   if(!arch){ toast('Archive nahi mili!','err'); return; }
@@ -15094,9 +15086,10 @@ function restoreArchivedYear(fyStart) {
 
 
 function exportYearWisePDF(fyStart) {
-  var fyLabel = getFYLabel(fyStart);
-  var fyBills = getFYBills(fyStart);
-  var fyPays  = getFYPayments(fyBills);
+  var _fyStr=fyStart+'-'+(fyStart+1);
+  var fyLabel = getFYLabel(_fyStr);
+  var fyBills = getFYBills(_fyStr);
+  var fyPays  = getFYPayments(_fyStr);
   if(!fyBills.length){ toast('Koi data nahi!','err'); return; }
   var totSales=fyBills.reduce(function(s,b){return s+(b.netAmt||0);},0);
   var totRecv=fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
