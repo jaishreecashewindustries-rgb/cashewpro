@@ -919,6 +919,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
         <button id="hist-redo-topbar" onclick="histRedo();refresh()" title="Redo (Ctrl+Y)" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='#eff6ff';this.style.color='#2563eb'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↪ Redo</button>
         <div id="sync-badge" class="saved"><span class="sdot"></span><span id="sync-lbl">Saved</span></div>
         <span id="ver-badge" style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #e5e7eb">v19-Mar-FINAL</span>
+        <span id="fy-badge" onclick="go('financial-year')" title="Click to switch FY" style="font-size:10px;color:#166534;background:#dcfce7;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bbf7d0;cursor:pointer">FY</span>
         <!-- Mobile floating sync dot -->
         <div id="mob-sync-dot" class="saved">✓</div>
         <button id="usr-btn" onclick="doLogout()" title="Logout">👤 <span id="usr-email">...</span></button>
@@ -1312,6 +1313,7 @@ _auth.onAuthStateChanged(function(user){
       erpAutoLoad();       // ERP v1: restore saved data
       erpEngineAutoLoad(); // ERP v2: restore engine data
       histLoad();          // Load full history from localStorage
+      initFYOnStartup();   // Auto-set FY, alert if new year started
       histStartAutoTimer(); // Start auto-snapshot every 10 min
       histUpdateTopbarBtn(); // Sync topbar undo button state
       // Auto backup is manual only
@@ -1386,6 +1388,60 @@ function fmtDate(dStr) {
 function fmt(n) {
   return Math.round(Number(n || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
+// ══════════════════════════════════════════════════════════════════════════════
+// FINANCIAL YEAR HELPERS — Single source of truth for all FY operations
+// ══════════════════════════════════════════════════════════════════════════════
+
+function curFYStr() {
+  var now=new Date(); var mo=now.getMonth()+1; var yr=now.getFullYear();
+  return (mo>=4)?(yr+'-'+(yr+1)):((yr-1)+'-'+yr);
+}
+function getActiveFY() { return cfg.financialYear||curFYStr(); }
+function getFYRange(fy) {
+  var p=(fy||'').split('-');
+  if(p.length<2){p=curFYStr().split('-');}
+  return {from:p[0]+'-04-01',to:p[1]+'-03-31'};
+}
+function getFYBills(fy) {
+  var r=getFYRange(fy||getActiveFY());
+  return bills.filter(function(b){var d=toISO(b.date||'');return d>=r.from&&d<=r.to;});
+}
+function getFYPayments(fy) {
+  var ids=new Set(getFYBills(fy).map(function(b){return b.id;}));
+  return payments.filter(function(p){return ids.has(p.billId);});
+}
+function getFYGrossPayments(fy) {
+  var ids=new Set(getFYBills(fy).map(function(b){return b.id;}));
+  return (grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(gb){return ids.has(gb.billId||gb.id);});});
+}
+function getFYByDate(arr,fy) {
+  var r=getFYRange(fy||getActiveFY());
+  return (arr||[]).filter(function(x){var d=toISO(x.date||'');return d>=r.from&&d<=r.to;});
+}
+function getFYLabel(fy) {
+  var p=(fy||getActiveFY()).split('-');
+  return 'FY '+p[0]+'-'+String(p[1]).slice(-2);
+}
+function getFYReceivedAmt(fy) {
+  var ids=new Set(getFYBills(fy).map(function(b){return b.id;}));
+  return payments.filter(function(p){return ids.has(p.billId)&&p.rowType!=='HEADER';}).reduce(function(s,p){return s+(p.amount||0);},0);
+}
+function getGrossFYAmount(gp,fy) {
+  var ids=new Set(getFYBills(fy).map(function(b){return b.id;}));
+  return payments.filter(function(p){return p.gpId===gp.id&&ids.has(p.billId);}).reduce(function(s,p){return s+(p.amount||0);},0);
+}
+function initFYOnStartup() {
+  var cur=curFYStr();
+  if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
+  if(cfg.financialYear!==cur&&cfg.financialYear<cur){
+    setTimeout(function(){
+      var msg='\u2603 Naya Financial Year '+cur+' shuru ho gaya!\n\nAbhi active FY: '+cfg.financialYear+'\n\nNaye FY '+cur+' mein switch karna chahte hain?\n(Purana data safe rahega)';
+      if(confirm(msg)){cfg.financialYear=cur;DB.set('cfg',cfg);if(typeof refresh==='function')refresh();}
+    },1500);
+  }
+}
+
+
 
 function el(tag, attrs, children) {
   var e = document.createElement(tag);
@@ -2232,6 +2288,7 @@ var NAV_ICONS={
 };
 
 function buildNav() {
+  setTimeout(function(){var fyb=document.getElementById('fy-badge');if(fyb)fyb.textContent=getFYLabel(getActiveFY());},0);
   var nav = document.getElementById('sb-nav');
   nav.innerHTML = '';
   // Update sidebar logo from cfg
@@ -3267,27 +3324,21 @@ function mkColFilter(th, getVals, filtersObj, key, onApply, opts) {
 
 function pgDashboard() {
   prewarmBillStatusCache();
-  var dueAmt   = bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-  // FY-aware stats
-  var activeFY = cfg.financialYear || '';
-  var fyBills = bills;
-  if(activeFY) {
-    var fyParts = activeFY.split('-');
-    var fyFrom = fyParts[0]+'-04-01';
-    var fyTo   = fyParts[1]+'-03-31';
-    fyBills = bills.filter(function(b){ var d=toISO(b.date||''); return d>=fyFrom&&d<=fyTo; });
-  }
-  var grossRecvAmt=(grossPayments||[]).reduce(function(s,g){return s+(g.grossAmt||0);},0);
-  var singlePmts=payments.filter(function(p){return p.rowType!=='DETAIL';});
-  var singleRecvAmt=singlePmts.filter(function(p){return !p.rowType||p.rowType==='SINGLE';}).reduce(function(s,p){return s+(p.amount||0);},0);
-  var partialRecvAmt=singlePmts.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
-  var recvAmt=grossRecvAmt+singleRecvAmt+partialRecvAmt;
+  // FY-aware stats (current FY only, cross-FY gross handled at payment level)
+  var activeFY = getActiveFY();
+  var fyBills  = getFYBills(activeFY);
+  var fyPayIds = new Set(fyBills.map(function(b){return b.id;}));
+  // Received: sum individual payment records linked to this FY's bills
+  // This correctly handles cross-FY gross payments (each DETAIL counted in its own FY)
+  var fyPmts   = payments.filter(function(p){return fyPayIds.has(p.billId);});
+  var recvAmt  = fyPmts.reduce(function(s,p){return p.rowType==='HEADER'?s:s+(p.amount||0);},0);
   var dueBills = fyBills.filter(function(b){return getBillStatus(b).status!=='paid';});
   var totalAmt = fyBills.reduce(function(s,b){return s+b.netAmt;},0);
+  var dueAmt   = dueBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
 
   var stats = el('div', { cls: 'stats' }, [
     el('div', { cls: 'stat' }, [
-      el('div', { cls: 'stat-label', text: 'Total Bills'+(activeFY?' (FY '+activeFY+')':'') }),
+      el('div', { cls: 'stat-label', text: 'Total Bills (' + getFYLabel(activeFY) + ')' }),
       el('div', { cls: 'stat-val', text: fyBills.length, style: 'color:#166534' }),
       el('div', { cls: 'stat-sub', text: '\u20b9' + fmt(totalAmt) })
     ]),
@@ -3577,12 +3628,13 @@ function pgAllBills() {
   state._pageLimit=200; // Show 200 rows initially, load more on scroll
   if(!state.sel)state.sel=new Set();
 
-  var uParty=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
-  var uBroker=Array.from(new Set(bills.map(function(b){return b.broker||'';}))).sort();
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
+  var uParty=Array.from(new Set(_fyBills.map(function(b){return b.party;}))).sort();
+  var uBroker=Array.from(new Set(_fyBills.map(function(b){return b.broker||'';}))).sort();
   var uStatus=['due','partial','paid'];
-  var uMonth=Array.from(new Set(bills.map(function(b){return b.date?toISO(b.date).substring(0,7):'';}).filter(Boolean))).sort();
-  var uType=Array.from(new Set(bills.map(function(b){return b.billType||'credit';}))).sort();
-  var uGrade=Array.from(new Set(bills.reduce(function(a,b){return a.concat((b.rows||[]).map(function(r){return r.grade;}));},[])));
+  var uMonth=Array.from(new Set(_fyBills.map(function(b){return b.date?toISO(b.date).substring(0,7):'';}).filter(Boolean))).sort();
+  var uType=Array.from(new Set(_fyBills.map(function(b){return b.billType||'credit';}))).sort();
+  var uGrade=Array.from(new Set(_fyBills.reduce(function(a,b){return a.concat((b.rows||[]).map(function(r){return r.grade;}));},[])));
   uGrade.sort();
 
   function hasF(k){return !!(state.filters[k]&&state.filters[k].size>0);}
@@ -3625,7 +3677,7 @@ function pgAllBills() {
     });
     return data;
   }
-  function getData(){return doSort(bills.filter(passFilter));}
+  function getData(){return doSort(_fyBills.filter(passFilter));}
 
   // Filter dropdown builder — uses mkColFilter for Enter+Select All support
   function mkFDrop(key,vals){
@@ -5312,13 +5364,21 @@ function pgDueList() {
   if(state.deleteMode===undefined)state.deleteMode=false;
   if(!state.sel)state.sel=new Set();
   var showNearlyPaid=pageState.due.showNearlyPaid||false;
-  var dueBills=bills.filter(function(b){
+  // FY filter: current FY only — no cross-year carry-forward
+  var _activeFY=getActiveFY();
+  var _fyBillsAll=getFYBills(_activeFY);
+  // Old FY unpaid bills — shown separately at bottom for reference
+  var _oldFYDue=bills.filter(function(b){
+    var d=toISO(b.date||''); var r=getFYRange(_activeFY);
+    if(d>=r.from&&d<=r.to) return false;
+    return getBillStatus(b).status!=='paid';
+  });
+  var dueBills=_fyBillsAll.filter(function(b){
     var s=getBillStatus(b);
     if(s.status==='paid'){
-      // Show if nearly paid (balance <= 100 and showNearlyPaid)
       return showNearlyPaid&&s.bal>0&&s.bal<=100;
     }
-    return true; // due + partial always shown
+    return true;
   });
   var uParty=Array.from(new Set(dueBills.map(function(b){return b.party;}))).sort();
   var uBroker=Array.from(new Set(dueBills.map(function(b){return b.broker||'';}))).sort();
@@ -5663,6 +5723,42 @@ function pgDueList() {
   var card=document.createElement('div');card.className='card';card.style.cssText='display:flex;flex-direction:column;min-height:0';
   toolbar.style.cssText+=';position:sticky;top:0;z-index:10;background:#fafafa';
   card.appendChild(toolbar);card.appendChild(tblOuter);card.appendChild(sumBar);card.appendChild(advSection);
+
+  if(_oldFYDue&&_oldFYDue.length>0){
+    var oldWrap=document.createElement('div');
+    oldWrap.style.cssText='margin-top:16px;border:2px dashed #fbbf24;border-radius:10px;padding:14px;background:#fffbeb';
+    var oldTot=_oldFYDue.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+    var oldHdr=document.createElement('div');
+    oldHdr.style.cssText='font-size:13px;font-weight:800;color:#92400e;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px';
+    oldHdr.innerHTML='⚠️ Purane FY ke Pending Bills &mdash; '+_oldFYDue.length+' bills, ₹'+fmt(oldTot)+' due<span style="font-size:11px;font-weight:400;color:#78350f;margin-left:8px">Switch karo us FY mein ya Gross Payment se clear karo</span>';
+    oldWrap.appendChild(oldHdr);
+    var oldByFY={};
+    _oldFYDue.forEach(function(b){
+      var d=toISO(b.date||'');var yr=parseInt(d.substring(0,4));var mo=parseInt(d.substring(5,7));
+      var bFY=(mo>=4)?(yr+'-'+(yr+1)):((yr-1)+'-'+yr);
+      if(!oldByFY[bFY])oldByFY[bFY]=[];oldByFY[bFY].push(b);
+    });
+    Object.keys(oldByFY).sort().reverse().forEach(function(fy){
+      var fyB=oldByFY[fy]; var fyT=fyB.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+      var fyRow=document.createElement('div');fyRow.style.cssText='margin-bottom:8px;background:#fef3c7;border-radius:6px;padding:8px 10px';
+      var fyH=document.createElement('div');fyH.style.cssText='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px';
+      var fyI=document.createElement('span');fyI.style.cssText='font-size:12px;font-weight:700;color:#92400e';
+      fyI.textContent=getFYLabel(fy)+' — ₹'+fmt(fyT)+' pending ('+fyB.length+' bills)';
+      var swB=document.createElement('button');swB.style.cssText='font-size:10px;padding:3px 10px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700';
+      swB.textContent='Switch to '+fy;
+      swB.addEventListener('click',(function(f){return function(){if(confirm('Switch to FY '+f+'?')){cfg.financialYear=f;DB.set('cfg',cfg);toast('✅ FY '+f+' active!');refresh();}};})(fy));
+      fyH.appendChild(fyI);fyH.appendChild(swB);fyRow.appendChild(fyH);
+      fyB.slice(0,5).forEach(function(b){
+        var s2=getBillStatus(b);var bR=document.createElement('div');
+        bR.style.cssText='display:flex;gap:12px;padding:3px 6px;font-size:11px;color:#78350f;border-top:1px solid #fde68a';
+        bR.innerHTML='<span style="font-weight:700">Bill #'+b.billNo+'</span><span style="color:#6b7280">'+fmtDate(b.date)+'</span><span><strong>'+b.party+'</strong></span><span style="color:#dc2626;font-weight:700">₹'+fmt(s2.bal)+' due</span>';
+        fyRow.appendChild(bR);
+      });
+      if(fyB.length>5){var mD=document.createElement('div');mD.style.cssText='font-size:10px;color:#92400e;padding:3px 6px;border-top:1px solid #fde68a';mD.textContent='... aur '+(fyB.length-5)+' aur bills';fyRow.appendChild(mD);}
+      oldWrap.appendChild(fyRow);
+    });
+    var outerD=document.createElement('div');outerD.appendChild(card);outerD.appendChild(oldWrap);return outerD;
+  }
   return card;
 }
 
@@ -5859,10 +5955,14 @@ function openGrossPayModal(preParty) {
 
   function rebuildBillsList(){
     var party=partySel.value;
+    // Show ALL outstanding bills (all FYs) — cross-FY gross allowed; each payment attributed to its own FY
     var partyBills=bills.filter(function(b){return b.party===party&&getBillStatus(b).status!=='paid';}).sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
     billsList.innerHTML='';
     if(!partyBills.length){billsList.innerHTML='<div style="padding:16px;text-align:center;color:#9ca3af;font-size:12px">No outstanding bills</div>';return;}
-    partyBills.forEach(function(b){
+    var _aFY=getActiveFY(); var billFYs=partyBills.map(function(b){var d=toISO(b.date||'');var yr=parseInt(d.substring(0,4));var mo=parseInt(d.substring(5,7));return (mo>=4)?(yr+'-'+(yr+1)):((yr-1)+'-'+yr);});
+    var _uFYs=Array.from(new Set(billFYs));
+    if(_uFYs.length>1){var _wn=document.createElement('div');_wn.style.cssText='background:#fef9c3;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#92400e';_wn.innerHTML='<strong>Cross-FY Bills:</strong> Payment sahi FY mein automatically count hogi.';billsList.appendChild(_wn);}
+    partyBills.forEach(function(b,_idx){
       var s=getBillStatus(b);
       var row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #f3f4f6;cursor:pointer';
       row.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});
@@ -5870,7 +5970,8 @@ function openGrossPayModal(preParty) {
       var chk=document.createElement('input');chk.type='checkbox';chk.dataset.billId=b.id;chk.dataset.bal=s.bal;
       chk.style.cssText='accent-color:#166534;width:15px;height:15px;flex-shrink:0;cursor:pointer';
       var info=document.createElement('div');info.style.cssText='flex:1;font-size:12px';
-      info.innerHTML='<strong>Bill #'+b.billNo+'</strong> <span style="color:#6b7280">'+fmtDate(b.date)+'</span>'+
+      var _bFY=billFYs[_idx];var _isOld=_bFY!==_aFY;var _fyTag='<span style="background:'+(_isOld?'#fde68a;color:#92400e':'#dcfce7;color:#166534')+';font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px">'+_bFY+'</span>';
+      info.innerHTML='<strong>Bill #'+b.billNo+'</strong>'+_fyTag+' <span style="color:#6b7280">'+fmtDate(b.date)+'</span>'+
         '<span style="margin-left:8px;color:#1d4ed8;font-weight:600">Balance: \u20b9'+fmt(s.bal)+'</span>';
       var amtInp=document.createElement('input');amtInp.type='number';amtInp.className='inp-sm';
       amtInp.style.cssText='width:100px;text-align:right;font-size:12px';
@@ -6279,9 +6380,10 @@ function openAddModal(title, fields, onSave) {
 
 // ── ADVANCES ──
 function pgAdvances() {
+  var _fyAdvances=getFYByDate(advances,getActiveFY());
   var state=pageState.advSt=pageState.advSt||{q:'',filters:{}};
-  var uParty=Array.from(new Set(advances.map(function(a){return a.party;}))).sort();
-  var uMode=Array.from(new Set(advances.map(function(a){return a.mode||'';}))).sort();
+  var uParty=Array.from(new Set(_fyAdvances.map(function(a){return a.party;}))).sort();
+  var uMode=Array.from(new Set(_fyAdvances.map(function(a){return a.mode||'';}))).sort();
   var uLinked=['linked','pending'];
 
   // FIX: mkFD uses mkColFilter for Enter+Select All support
@@ -6471,8 +6573,9 @@ function pgAdvances() {
 
 // ── CHEQUES ──
 function pgCheques() {
+  var _fyCheques=getFYByDate(cheques,getActiveFY());
   var state=pageState.chqSt=pageState.chqSt||{q:'',filters:{}};
-  var uParty=Array.from(new Set(cheques.map(function(c){return c.party||'';}))).sort();
+  var uParty=Array.from(new Set(_fyCheques.map(function(c){return c.party||'';}))).sort();
   var uStatus=['Received','Deposited','Cleared','Bounced'];
   var uMode=['NEFT','RTGS','IMPS','UPI','CASH','CHEQUE'];
 
@@ -6675,11 +6778,12 @@ function pgLedger() {
     });
   });
 
-  var parties = Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
+  var parties = Array.from(new Set(_fyBills.map(function(b){return b.party;}))).sort();
   var filtered = parties.filter(function(p) { return !q || p.toLowerCase().includes(q); });
 
   var data = filtered.map(function(party) {
-    var pb = bills.filter(function(b){return b.party===party;});
+    var pb = _fyBills.filter(function(b){return b.party===party;});
     return {
       party: party,
       bills: pb.length,
@@ -6702,6 +6806,7 @@ function pgLedger() {
 }
 
 function pgPartyLedger(party) {
+  var _activeFY=getActiveFY(); var _fyRange=getFYRange(_activeFY);
   var plState2=pageState['pl_'+party]=pageState['pl_'+party]||{dateFrom:'',dateTo:''};
   var pb=bills.filter(function(b){
     if(b.party!==party)return false;
@@ -7179,9 +7284,10 @@ function exportPartyLedgerExcel(party) {
 
 // ── RETURNS ──
 function pgReturns() {
+  var _fyReturns=getFYByDate(returns_,getActiveFY());
   var state=pageState.retSt=pageState.retSt||{q:'',sortKey:'date',sortDir:-1,filters:{}};
-  var uParty=Array.from(new Set(returns_.map(function(r){return r.party||'';})).values()).sort();
-  var uGrade=Array.from(new Set(returns_.map(function(r){return r.grade||'';})).values()).filter(Boolean).sort();
+  var uParty=Array.from(new Set(_fyReturns.map(function(r){return r.party||'';})).values()).sort();
+  var uGrade=Array.from(new Set(_fyReturns.map(function(r){return r.grade||'';})).values()).filter(Boolean).sort();
 
   function getData2(){
     var q=(state.q||'').toLowerCase();
@@ -7343,9 +7449,10 @@ function pgReturns() {
 
 // ── EXPENSES ──
 function pgExpenses() {
+  var _fyExpenses=getFYByDate(expenses,getActiveFY());
   var state=pageState.expSt=pageState.expSt||{q:'',sortKey:'date',sortDir:-1,filters:{}};
   var cats=['Transport','Electricity','Salary','Rent','Diesel','Repair','Other'];
-  var uCat=Array.from(new Set(expenses.map(function(e){return e.category||'Other';}))).sort();
+  var uCat=Array.from(new Set(_fyExpenses.map(function(e){return e.category||'Other';}))).sort();
 
   function getExpData(){
     var q=(state.q||'').toLowerCase();
@@ -7651,6 +7758,7 @@ function pgPurchases() {
 
 // ── REPORTS ──
 function pgReports() {
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY); var _fyLabel=getFYLabel(_activeFY);
   var state = pageState.rep = pageState.rep || {tab:'party'};
   var tabs2 = [
     {id:'party',      lbl:'Party Outstanding'},
@@ -7671,9 +7779,9 @@ function pgReports() {
   rptSum.style.cssText='padding:9px 16px;background:#f0fdf4;border-top:2px solid var(--brand-light);font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3';
   rptSum.innerHTML=
     '<span>Bills: <strong>'+bills.length+'</strong></span>'+
-    '<span>Sales: <strong style="color:#1d4ed8">&#8377;'+fmt(bills.reduce(function(s,b){return s+b.netAmt;},0))+'</strong></span>'+
-    '<span>Received: <strong style="color:#166534">&#8377;'+fmt(bills.reduce(function(s,b){return s+getBillStatus(b).recv;},0))+'</strong></span>'+
-    '<span>Outstanding: <strong style="color:#dc2626">&#8377;'+fmt(bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</strong></span>';
+    '<span>Sales: <strong style="color:#1d4ed8">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+b.netAmt;},0))+'</strong></span>'+
+    '<span>Received: <strong style="color:#166534">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0))+'</strong></span>'+
+    '<span>Outstanding: <strong style="color:#dc2626">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</strong></span>';
   wrap.appendChild(rptSum);
   // Tab bar
   var tabBar = document.createElement('div');
@@ -7798,7 +7906,7 @@ function pgReports() {
   if (state.tab==='party') {
     var parties2=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
     var data2=parties2.map(function(p){
-      var pb=bills.filter(function(b){return b.party===p;});
+      var pb=_fyBills.filter(function(b){return b.party===p;});
       return{party:p,bills:pb.length,total:pb.reduce(function(s,b){return s+b.netAmt;},0),recv:pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0),due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};
     }).sort(function(a,b){return b.due-a.due;});
     var totalDue2=data2.reduce(function(s,d){return s+d.due;},0);
@@ -7835,7 +7943,7 @@ function pgReports() {
           var eid='party-exp-'+r.party.replace(/[^a-z0-9]/gi,'_');
           var ex=document.getElementById(eid);if(ex){ex.closest('tr').remove();eb.textContent='+';return;}
           eb.textContent='-';
-          var pBills=bills.filter(function(b){return b.party===r.party;}).sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
+          var pBills=_fyBills.filter(function(b){return b.party===r.party;}).sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
           var st='<div id="'+eid+'" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px"><table style="width:100%;font-size:11px"><thead><tr style="background:#166534;color:#fff"><th style="padding:4px 8px">Bill#</th><th style="padding:4px 8px">Date</th><th style="padding:4px 8px">Broker</th><th style="padding:4px 8px;text-align:right">Amt</th><th style="padding:4px 8px;text-align:right">Recv</th><th style="padding:4px 8px;text-align:right">Balance</th><th style="padding:4px 8px">Status</th></tr></thead><tbody>';
           pBills.forEach(function(b){
             var s=getBillStatus(b);
@@ -7863,7 +7971,7 @@ function pgReports() {
 
   else if (state.tab==='broker') {
     var bmap={};
-    bills.forEach(function(b){var bk=b.broker||'No Broker';if(!bmap[bk])bmap[bk]={broker:bk,bills:0,parties:new Set(),total:0,recv:0,due:0};bmap[bk].bills++;bmap[bk].parties.add(b.party);bmap[bk].total+=b.netAmt;bmap[bk].recv+=getBillStatus(b).recv;bmap[bk].due+=getBillStatus(b).bal;});
+    _fyBills.forEach(function(b){var bk=b.broker||'No Broker';if(!bmap[bk])bmap[bk]={broker:bk,bills:0,parties:new Set(),total:0,recv:0,due:0};bmap[bk].bills++;bmap[bk].parties.add(b.party);bmap[bk].total+=b.netAmt;bmap[bk].recv+=getBillStatus(b).recv;bmap[bk].due+=getBillStatus(b).bal;});
     var data2=Object.values(bmap).map(function(d){return{broker:d.broker,bills:d.bills,parties:d.parties.size,total:d.total,recv:d.recv,due:d.due};}).sort(function(a,b){return b.due-a.due;});
     var expBtn2=el('button',{cls:'btn btn-outline btn-sm',text:'Export Excel',onclick:exportBrokerReportExcel});
     var prntBtnX=el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
@@ -7883,7 +7991,7 @@ function pgReports() {
           var eid='brkexp_'+r.broker.replace(/[^a-z0-9]/gi,'_');
           var ex=document.getElementById(eid);if(ex){ex.closest('tr').remove();eb.textContent='+';return;}
           eb.textContent='-';
-          var bBills=bills.filter(function(b){return (b.broker||'No Broker')===r.broker&&getBillStatus(b).status!=='paid';}).sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
+          var bBills=_fyBills.filter(function(b){return (b.broker||'No Broker')===r.broker&&getBillStatus(b).status!=='paid';}).sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
           var totBal=bBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
           var expDiv=document.createElement('div');
           expDiv.id=eid;expDiv.style.cssText='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px';
@@ -7970,7 +8078,7 @@ function pgReports() {
 
   else if (state.tab==='grade') {
     var gmap={};
-    bills.forEach(function(b){(b.rows||[]).forEach(function(r){if(!gmap[r.grade])gmap[r.grade]={grade:r.grade,qty:0,weight:0,amount:0,bills:0};gmap[r.grade].qty+=(r.qty||0);gmap[r.grade].weight+=r.weight;gmap[r.grade].amount+=r.taxable;gmap[r.grade].bills++;});});
+    _fyBills.forEach(function(b){(b.rows||[]).forEach(function(r){if(!gmap[r.grade])gmap[r.grade]={grade:r.grade,qty:0,weight:0,amount:0,bills:0};gmap[r.grade].qty+=(r.qty||0);gmap[r.grade].weight+=r.weight;gmap[r.grade].amount+=r.taxable;gmap[r.grade].bills++;});});
     var data2=Object.values(gmap).sort(function(a,b){return b.amount-a.amount;});
     var expBtn2=el('button',{cls:'btn btn-outline btn-sm',text:'Export Excel',onclick:exportGradeReportExcel});
     var prntGrade=el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
@@ -7994,7 +8102,7 @@ function pgReports() {
 
   else if (state.tab==='monthly') {
     var mmap={};
-    bills.forEach(function(b){var m=b.date?toISO(b.date).substring(0,7):'';if(!m)return;if(!mmap[m])mmap[m]={month:m,bills:0,sales:0,recv:0,due:0};mmap[m].bills++;mmap[m].sales+=b.netAmt;mmap[m].recv+=getBillStatus(b).recv;mmap[m].due+=getBillStatus(b).bal;});
+    _fyBills.forEach(function(b){var m=b.date?toISO(b.date).substring(0,7):'';if(!m)return;if(!mmap[m])mmap[m]={month:m,bills:0,sales:0,recv:0,due:0};mmap[m].bills++;mmap[m].sales+=b.netAmt;mmap[m].recv+=getBillStatus(b).recv;mmap[m].due+=getBillStatus(b).bal;});
     var data2=Object.values(mmap).sort(function(a,b){return b.month.localeCompare(a.month);});
     var expBtn2=el('button',{cls:'btn btn-outline btn-sm',text:'Export Excel',onclick:exportMonthlyReportExcel});
     var prntBtnX=el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
@@ -8017,7 +8125,7 @@ function pgReports() {
 
   else if (state.tab==='gst') {
     var mmap={};
-    bills.forEach(function(b){var m=b.date?toISO(b.date).substring(0,7):'';if(!m)return;if(!mmap[m])mmap[m]={month:m,taxable:0,cgst:0,sgst:0,igst:0,total:0};mmap[m].taxable+=(b.taxable||0);mmap[m].cgst+=(b.cgst||0);mmap[m].sgst+=(b.sgst||0);mmap[m].igst+=(b.igst||0);mmap[m].total+=(b.cgst||0)+(b.sgst||0)+(b.igst||0);});
+    _fyBills.forEach(function(b){var m=b.date?toISO(b.date).substring(0,7):'';if(!m)return;if(!mmap[m])mmap[m]={month:m,taxable:0,cgst:0,sgst:0,igst:0,total:0};mmap[m].taxable+=(b.taxable||0);mmap[m].cgst+=(b.cgst||0);mmap[m].sgst+=(b.sgst||0);mmap[m].igst+=(b.igst||0);mmap[m].total+=(b.cgst||0)+(b.sgst||0)+(b.igst||0);});
     var data2=Object.values(mmap).sort(function(a,b){return b.month.localeCompare(a.month);});
     var expBtn2=el('button',{cls:'btn btn-outline btn-sm',text:'Export Excel',onclick:exportGSTReportExcel});
     var prntBtnX=el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
@@ -8042,7 +8150,7 @@ function pgReports() {
 
   else if (state.tab==='interest_rpt') {
     var intMap={};
-    payments.forEach(function(p){
+    getFYPayments(_activeFY).forEach(function(p){
       if(!(p.interest>0)) return;
       var b=bills.find(function(x){return x.id===p.billId;})||{};
       var party2=b.party||'Unknown';
@@ -8127,7 +8235,7 @@ function pgReports() {
 
     if(colState.subTab==='mode'){
       var modeMap = {};
-      payments.forEach(function(p){
+      getFYPayments(_activeFY).forEach(function(p){
         var m = (p.mode||'OTHER').toUpperCase();
         if(!modeMap[m]) modeMap[m]={mode:m,count:0,total:0,rebate:0,interest:0};
         modeMap[m].count++;
@@ -8179,7 +8287,7 @@ function pgReports() {
 
     } else if(colState.subTab==='daily'){
       var dayMap={};
-      payments.forEach(function(p){
+      getFYPayments(_activeFY).forEach(function(p){
         var d=p.date||today();
         if(!dayMap[d])dayMap[d]={date:d,count:0,total:0,rebate:0,interest:0};
         dayMap[d].count++;dayMap[d].total+=p.amount||0;
@@ -8210,7 +8318,7 @@ function pgReports() {
 
     } else { // monthly2
       var mon2Map={};
-      payments.forEach(function(p){
+      getFYPayments(_activeFY).forEach(function(p){
         var m=p.date?toISO(p.date).substring(0,7):'';if(!m)return;
         if(!mon2Map[m])mon2Map[m]={month:m,count:0,total:0,rebate:0,interest:0};
         mon2Map[m].count++;mon2Map[m].total+=p.amount||0;
@@ -8250,7 +8358,7 @@ function pgReports() {
 
     // Build bill-wise rebate/interest list
     var riData = [];
-    payments.forEach(function(p){
+    getFYPayments(_activeFY).forEach(function(p){
       if(!(p.rebate>0) && !(p.interest>0)) return;
       var b = bills.find(function(x){return x.id===p.billId;})||{};
       riData.push({
@@ -8348,9 +8456,8 @@ function pgFinancialYear() {
   var wrap=document.createElement('div');
 
   // Current FY detection
-  var now=new Date();
-  var curFY=(now.getMonth()>=3)?(now.getFullYear()+'-'+(now.getFullYear()+1)):((now.getFullYear()-1)+'-'+now.getFullYear());
-  var activeFY=cfg.financialYear||curFY;
+  var curFY=curFYStr();
+  var activeFY=getActiveFY();
 
   // Compute FY list from bills
   var fySet=new Set([curFY,activeFY]);
@@ -12608,6 +12715,7 @@ function openEditCheque(c) {
 // INTEREST CALCULATOR
 // ═══════════════════════════════════════
 function pgInterest() {
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
   var state=pageState.int=pageState.int||{
     partyFilter:'',dateFrom:'',dateTo:'',
@@ -12662,7 +12770,7 @@ function pgInterest() {
 
   // ── FILTER BAR ──
   var fBar=document.createElement('div');fBar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap';
-  var allPartiesInt=Array.from(new Set(bills.filter(function(b){
+  var allPartiesInt=Array.from(new Set(_fyBills.filter(function(b){
     return state.showPaid?true:getBillStatus(b).status!=='paid';
   }).map(function(b){return b.party;}))).sort();
   // BUG4 FIX: separate exactParty (dropdown) from text search
@@ -12695,7 +12803,7 @@ function pgInterest() {
   var dto=state.dateTo?toISO(state.dateTo):'';
 
   // Filter bills — BUG4: exact match for dropdown, includes for text search
-  var filteredBills=bills.filter(function(b){
+  var filteredBills=_fyBills.filter(function(b){
     var s=getBillStatus(b);
     if(!state.showPaid && s.status==='paid') return false;
     if(state.exactParty && b.party!==state.exactParty) return false;
@@ -13049,6 +13157,7 @@ function pgInterest() {
 // AGEING ANALYSIS
 // ═══════════════════════════════════════
 function pgAgeing() {
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
   var state=pageState.age=pageState.age||{partyFilter:'',brokerFilter:''};
   var wrap=document.createElement('div');
 
@@ -13058,8 +13167,8 @@ function pgAgeing() {
   wrap.appendChild(hdr);
 
   var fBar=document.createElement('div');fBar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap';
-  var allParties2=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
-  var allBrokers2=Array.from(new Set(bills.map(function(b){return b.broker||'';}))).filter(Boolean).sort();
+  var allParties2=Array.from(new Set(_fyBills.map(function(b){return b.party;}))).sort();
+  var allBrokers2=Array.from(new Set(_fyBills.map(function(b){return b.broker||'';}))).filter(Boolean).sort();
 
   var pSel2=document.createElement('select');pSel2.className='inp-sm';pSel2.style.width='180px';
   [['','All Parties']].concat(allParties2.map(function(p){return [p,p];})).forEach(function(o){var opt=document.createElement('option');opt.value=o[0];opt.textContent=o[1];if(o[0]===state.partyFilter)opt.selected=true;pSel2.appendChild(opt);});
@@ -13075,7 +13184,7 @@ function pgAgeing() {
   fBar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'📥 Excel',onclick:function(){exportAgeingExcel();}}));
   wrap.appendChild(fBar);
 
-  var dueBills2=bills.filter(function(b){
+  var dueBills2=_fyBills.filter(function(b){
     if(getBillStatus(b).status==='paid')return false;
     if(state.partyFilter&&b.party!==state.partyFilter)return false;
     if(state.brokerFilter&&(b.broker||'')!==state.brokerFilter)return false;
@@ -13098,7 +13207,7 @@ function pgAgeing() {
   var _ageDetailDiv=document.createElement('div');
   var sumGrid=document.createElement('div');sumGrid.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px';
   buckets.forEach(function(bk){
-    var tot=bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+    var tot=bk._fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     var d=document.createElement('div');
     d.style.cssText='background:'+bk.bg+';border:2px solid '+bk.color+';border-radius:10px;padding:14px;cursor:pointer;transition:box-shadow .15s';
     d.innerHTML='<div style="font-size:11px;font-weight:700;color:'+bk.color+';text-transform:uppercase;margin-bottom:6px">'+bk.label+'</div>'+
@@ -13120,7 +13229,7 @@ function pgAgeing() {
   function renderAgeDetail(bk) {
     // If called with null, just re-compute buckets (filter changed)
     if(!bk) {
-      var dueBills3=bills.filter(function(b){
+      var dueBills3=_fyBills.filter(function(b){
         if(getBillStatus(b).status==='paid')return false;
         if(state.partyFilter&&b.party!==state.partyFilter)return false;
         if(state.brokerFilter&&(b.broker||'')!==state.brokerFilter)return false;
@@ -13136,7 +13245,7 @@ function pgAgeing() {
       var cards=sumGrid.querySelectorAll('div');
       buckets.forEach(function(bkt,i){
         if(cards[i]){
-          var tot2=bkt.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+          var tot2=bkt._fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
           cards[i].querySelector('div:nth-child(2)').textContent='₹'+fmt(tot2);
           cards[i].querySelector('div:nth-child(3)').innerHTML=bkt.bills.length+' bills — <strong>click to view</strong>';
         }
@@ -13158,7 +13267,7 @@ function pgAgeing() {
       var sec=document.createElement('div');sec.className='card';
       var sh=document.createElement('div');sh.className='card-head';
       sh.innerHTML='<h4 style="color:'+bk.color+'">'+bk.label+' <span style="background:'+bk.bg+';color:'+bk.color+';padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px">'+bk.bills.length+' bills</span></h4>'+
-        '<span style="color:'+bk.color+';font-size:13px;font-weight:700">₹'+fmt(bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</span>';
+        '<span style="color:'+bk.color+';font-size:13px;font-weight:700">₹'+fmt(bk._fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</span>';
       sec.appendChild(sh);
       var tOuter=document.createElement('div');tOuter.style.overflow='auto';
       var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
@@ -13216,7 +13325,7 @@ function pgAgeing() {
           if(c.fk){
             (function(col){
               var getAV=function(){
-                var vals=bk.bills.map(function(b){
+                var vals=bk._fyBills.map(function(b){
                   if(col.fk==='grade')return (b.rows||[]).map(function(r){return r.grade;});
                   return [b[col.fk]||''];
                 }).reduce(function(a,v){return a.concat(v);},[]);
@@ -13283,6 +13392,7 @@ function pgAgeing() {
 // PAYMENT REMINDER
 // ═══════════════════════════════════════
 function pgReminder() {
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
   var state=pageState.remind=pageState.remind||{selected:new Set(),brokerNos:{},msgTemplate:'',mode:'party'};
   if(!(state.selected instanceof Set))state.selected=new Set();
   var wrap=document.createElement('div');
@@ -13295,8 +13405,8 @@ function pgReminder() {
   var remState=pageState.remind;
   if(!remState.searchQ)remState.searchQ='';
 
-  var allDuePartiesRaw=Array.from(new Set(bills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b){return b.party;}))).sort();
-  var allDueBrokersRaw=Array.from(new Set(bills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b){return b.broker||'';}).filter(Boolean))).sort();
+  var allDuePartiesRaw=Array.from(new Set(_fyBills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b){return b.party;}))).sort();
+  var allDueBrokersRaw=Array.from(new Set(_fyBills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b){return b.broker||'';}).filter(Boolean))).sort();
 
   var remQ=(remState.searchQ||'').toLowerCase();
   var allDueParties=remQ?allDuePartiesRaw.filter(function(p){return p.toLowerCase().includes(remQ);}):allDuePartiesRaw;
@@ -13338,7 +13448,7 @@ function pgReminder() {
     lh.appendChild(selAllBtn2);lh.appendChild(clrAllBtn2);leftCard.appendChild(lh);
     var lBody=document.createElement('div');lBody.style.cssText='padding:10px;max-height:320px;overflow-y:auto';
     allDueParties.forEach(function(party){
-      var pb=bills.filter(function(b){return b.party===party&&getBillStatus(b).status!=='paid';});
+      var pb=_fyBills.filter(function(b){return b.party===party&&getBillStatus(b).status!=='paid';});
       var due=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
       var row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #f3f4f6';
       var chk=document.createElement('input');chk.type='checkbox';chk.checked=state.selected.has(party);
@@ -13373,7 +13483,7 @@ function pgReminder() {
       var sent=0;
       sel.forEach(function(party){
         var phone=state.brokerNos[party]||'';
-        var pb=bills.filter(function(b){return b.party===party&&getBillStatus(b).status!=='paid';});
+        var pb=_fyBills.filter(function(b){return b.party===party&&getBillStatus(b).status!=='paid';});
         var due=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
         var billLines=pb.map(function(b){var s=getBillStatus(b);return '#'+b.billNo+' dt.'+fmtDate(b.date)+' Bal:\u20b9'+fmt(s.bal);}).join('\n');
         var msg=tmpl.replace(/{PARTY}/g,party).replace(/{BILLS}/g,billLines).replace(/{TOTAL}/g,fmt(due));
@@ -13393,7 +13503,7 @@ function pgReminder() {
     var blh=document.createElement('div');blh.className='card-head';blh.innerHTML='<h4>Select Brokers + Phone</h4>';bleftCard.appendChild(blh);
     var blBody=document.createElement('div');blBody.style.cssText='padding:10px;max-height:320px;overflow-y:auto';
     allDueBrokers.forEach(function(broker){
-      var bBills=bills.filter(function(b){return (b.broker||'')===broker&&getBillStatus(b).status!=='paid';});
+      var bBills=_fyBills.filter(function(b){return (b.broker||'')===broker&&getBillStatus(b).status!=='paid';});
       var due=bBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
       var row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #f3f4f6';
       var chk=document.createElement('input');chk.type='checkbox';chk.checked=state.selected.has(broker);
@@ -13425,7 +13535,7 @@ function pgReminder() {
       var sent=0;
       sel.forEach(function(broker){
         var phone=state.brokerNos['b_'+broker]||'';
-        var bBills=bills.filter(function(b){return (b.broker||'')===broker&&getBillStatus(b).status!=='paid';});
+        var bBills=_fyBills.filter(function(b){return (b.broker||'')===broker&&getBillStatus(b).status!=='paid';});
         var due=bBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
         var billLines=bBills.map(function(b){var s=getBillStatus(b);return b.party+' #'+b.billNo+' Bal:\u20b9'+fmt(s.bal);}).join('\n');
         var msg=tmpl.replace(/{BROKER}/g,broker).replace(/{BILLS}/g,billLines).replace(/{TOTAL}/g,fmt(due));
@@ -13450,7 +13560,7 @@ function pgReminder() {
     });
     dthead.appendChild(dhtr);dtbl.appendChild(dthead);
     var dtbody=document.createElement('tbody');
-    bills.filter(function(b){return getBillStatus(b).status!=='paid'&&b.broker;}).sort(function(a,b2){return (a.broker||'').localeCompare(b2.broker||'');}).forEach(function(b,ri){
+    _fyBills.filter(function(b){return getBillStatus(b).status!=='paid'&&b.broker;}).sort(function(a,b2){return (a.broker||'').localeCompare(b2.broker||'');}).forEach(function(b,ri){
       var s=getBillStatus(b);var days=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);
       var tr2=document.createElement('tr');tr2.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(ri%2?'#fafafa':'#fff');
       [b.broker||'-',b.party,b.billNo||'-',fmtDate(b.date),'\u20b9'+fmt(b.netAmt),
@@ -13476,6 +13586,7 @@ function pgReminder() {
 // PARTIAL PAYMENT TRACKING
 // ═══════════════════════════════════════
 function pgPartialTracking() {
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
   var ptSum=null;
   var wrap=document.createElement('div');
   var hdr=document.createElement('div');hdr.style.cssText='margin-bottom:14px';
@@ -15053,6 +15164,7 @@ function exportYearWisePDF(fyStart) {
 // BROKERAGE STATEMENT PAGE
 // ═══════════════════════════════════════
 function pgBrokerage() {
+  var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
   var state = pageState.brok = pageState.brok || {
     q: '', broker: '', dateFrom: '', dateTo: '',
     customRate: '',   // override rate for all
@@ -15061,7 +15173,7 @@ function pgBrokerage() {
 
   // Get unique brokers from bills
   var allBrokers = Array.from(new Set(
-    bills.filter(function(b){return b.broker&&b.broker.trim();}).map(function(b){return b.broker.trim().toUpperCase();})
+    _fyBills.filter(function(b){return b.broker&&b.broker.trim();}).map(function(b){return b.broker.trim().toUpperCase();})
   )).sort();
 
   // Broker commission rates stored in settings
@@ -20385,6 +20497,7 @@ function pgAIRules() {
 
 
 function pgReceiptLedger() {
+  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=_fyPayments.filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=_fyGross.filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
   var state = pageState.rcptLedger = pageState.rcptLedger || {
     q:'', sortKey:'date', sortDir:-1, filters:{},
     dateFrom:'', dateTo:'', modeFilter:'ALL'
@@ -20447,7 +20560,7 @@ function pgReceiptLedger() {
 
   function getData() {
     var q=(state.q||'').toLowerCase();
-    return payments.filter(function(p){
+    return _fyPayments.filter(function(p){
       var b=bills.find(function(x){return x.id===p.billId;})||{};
       if(state.modeFilter&&state.modeFilter!=='ALL'&&(p.mode||'')!==state.modeFilter)return false;
       if(state.dateFrom&&toISO(p.date||'')<toISO(state.dateFrom))return false;
@@ -20479,7 +20592,7 @@ function pgReceiptLedger() {
   function buildTable(){
     var data=getData();
     var q2=(state.q||'').toLowerCase();
-    var grossVisible=(grossPayments||[]).filter(function(g){
+    var grossVisible=_fyGross.filter(function(g){
       if(state.modeFilter&&state.modeFilter!=='ALL'&&(g.mode||'')!==state.modeFilter)return false;
       if(state.dateFrom&&toISO(g.date||'')<toISO(state.dateFrom))return false;
       if(state.dateTo&&toISO(g.date||'')>toISO(state.dateTo))return false;
@@ -20735,8 +20848,8 @@ function doBankSessionUndo(sessionId) {
   var gpBefore = (grossPayments||[]).length;
   var advBefore = advances.length;
 
-  payments = payments.filter(function(p){ return p.bankSessionId !== sessionId; });
-  grossPayments = (grossPayments||[]).filter(function(g){ return g.bankSessionId !== sessionId; });
+  payments = _fyPayments.filter(function(p){ return p.bankSessionId !== sessionId; });
+  grossPayments = _fyGross.filter(function(g){ return g.bankSessionId !== sessionId; });
   advances = advances.filter(function(a){ return a.bankSessionId !== sessionId; });
 
   var pDel = pBefore - payments.length;
@@ -20998,7 +21111,7 @@ function openPaymentEditModal(payId) {
 function deleteGrossPayment(gpId) {
   var g = (grossPayments||[]).find(function(x){ return x.id===gpId; });
   if(!g) return;
-  var linkedPays = payments.filter(function(p){ return p.gpId===gpId; });
+  var linkedPays = _fyPayments.filter(function(p){ return p.gpId===gpId; });
   var body=document.createElement('div');
   body.innerHTML=
     '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:13px;color:#dc2626;font-weight:600">⚠️ Gross payment aur '+linkedPays.length+' linked payments delete honge!</div>'+
@@ -21012,7 +21125,7 @@ function deleteGrossPayment(gpId) {
     cls:'btn-red',
     fn:function(){
       grossPayments=grossPayments.filter(function(x){return x.id!==gpId;});
-      payments=payments.filter(function(p){return p.gpId!==gpId;});
+      payments=_fyPayments.filter(function(p){return p.gpId!==gpId;});
       invalidateBillStatusCache();
       DB.set('grossPayments',grossPayments);
       DB.set('payments',payments);
