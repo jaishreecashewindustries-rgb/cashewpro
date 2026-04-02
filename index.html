@@ -1325,12 +1325,12 @@ _auth.onAuthStateChanged(function(user){
     if(app) app.style.display='none';
     if(nav) nav.style.display='none';
     // reset login button
-    var btn=document.getElementById('li-btn');
-    var sp=document.getElementById('li-sp');
-    var txt=document.getElementById('li-txt');
+    var btn=document.getElementById('li-google');
+    var sp=document.getElementById('li-g-sp');
+    var txt=document.getElementById('li-g-txt');
     if(btn) btn.disabled=false;
     if(sp)  sp.className='lsp';
-    if(txt) txt.textContent='Sign In';
+    if(txt) txt.textContent='Continue with Google';
   }
 });
 
