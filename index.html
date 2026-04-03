@@ -1434,10 +1434,12 @@ function initFYOnStartup() {
   var cur=curFYStr();
   if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
   if(cfg.financialYear!==cur&&cfg.financialYear<cur){
+    // Show non-blocking toast — user can switch from Settings > Financial Year
     setTimeout(function(){
-      var msg='\u2603 Naya Financial Year '+cur+' shuru ho gaya!\n\nAbhi active FY: '+cfg.financialYear+'\n\nNaye FY '+cur+' mein switch karna chahte hain?\n(Purana data safe rahega)';
-      if(confirm(msg)){cfg.financialYear=cur;DB.set('cfg',cfg);if(typeof refresh==='function')refresh();}
-    },1500);
+      if(typeof toast==='function'){
+        toast('\u2603 FY '+cur+' shuru ho gaya! Settings > Financial Year se switch karein.','info');
+      }
+    },2000);
   }
 }
 
