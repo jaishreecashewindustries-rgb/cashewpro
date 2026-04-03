@@ -1435,9 +1435,9 @@ function initFYOnStartup() {
   if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
   if(cfg.financialYear!==cur&&cfg.financialYear<cur){
     setTimeout(function(){
-      var msg='\u26a0\ufe0f FINANCIAL YEAR SWITCH\n\nAbhi active FY: '+cfg.financialYear+'\nNaya FY: '+cur+'\n\n'CANCEL' karo agar aapka data 2025-26 mein hai!\nSirf 'OK' karo agar aap naye FY mein kaam shuru kar rahe hain.';
+      var msg='\u26a0 FY SWITCH WARNING\n\nAbhi active: '+cfg.financialYear+'\nNaya: '+cur+'\n\nCANCEL karo agar March 2026 tak data dekhna hai!\nOK sirf tab karo jab naye FY mein kaam shuru karna ho.';
       if(confirm(msg)){cfg.financialYear=cur;DB.set('cfg',cfg);if(typeof refresh==='function')refresh();
-      } else {toast('FY '+cfg.financialYear+' active raha. FY Settings se change karo.','ok');}
+      }else{toast('Active FY: '+cfg.financialYear+'. FY Settings se change karo.','ok');}
     },1500);
   }
 }
@@ -5918,26 +5918,24 @@ function openGrossPayModal(preParty) {
   // Party selector with search
   var partyDiv=document.createElement('div');partyDiv.className='fg';partyDiv.style.marginBottom='12px';
   var partyLbl=document.createElement('label');partyLbl.textContent='Party';
-  var gpSrchInp=document.createElement('input');gpSrchInp.type='text';gpSrchInp.className='inp';
-  gpSrchInp.placeholder='🔍 Search party...';gpSrchInp.style.cssText='margin-bottom:4px;font-size:13px';
-  if(preParty)gpSrchInp.value=preParty;
+  var gpSI=document.createElement('input');gpSI.type='text';gpSI.className='inp';
+  gpSI.placeholder='Search party...';gpSI.style.cssText='margin-bottom:4px;font-size:13px';
+  if(preParty)gpSI.value=preParty;
   var partySel=document.createElement('select');partySel.className='inp';partySel.id='gp-party';
   partySel.size=5;partySel.style.cssText='height:auto;min-height:90px;font-size:12px;border-top:none;border-radius:0 0 6px 6px';
-  function _gpFilterParties(){
-    var q=gpSrchInp.value.toLowerCase();
-    partySel.innerHTML='';
+  function _gpFP(){
+    var q=gpSI.value.toLowerCase();partySel.innerHTML='';
     allParties.filter(function(p){return !q||p.toLowerCase().includes(q);}).forEach(function(p){
       var o=document.createElement('option');o.value=p;o.textContent=p;
-      if(p===preParty)o.selected=true;
-      partySel.appendChild(o);
+      if(p===preParty)o.selected=true;partySel.appendChild(o);
     });
     if(!partySel.value&&partySel.options.length)partySel.selectedIndex=0;
     rebuildBillsList();
   }
-  gpSrchInp.addEventListener('input',_gpFilterParties);
+  gpSI.addEventListener('input',_gpFP);
   partySel.addEventListener('change',function(){rebuildBillsList();});
-  _gpFilterParties();
-  partyDiv.appendChild(partyLbl);partyDiv.appendChild(gpSrchInp);partyDiv.appendChild(partySel);body.appendChild(partyDiv);
+  _gpFP();
+  partyDiv.appendChild(partyLbl);partyDiv.appendChild(gpSI);partyDiv.appendChild(partySel);body.appendChild(partyDiv);
 
   // Payment info
   var infoGrid=document.createElement('div');infoGrid.className='grid g2';infoGrid.style.marginBottom='12px';
@@ -5993,32 +5991,23 @@ function openGrossPayModal(preParty) {
         '<span style="margin-left:8px;color:#1d4ed8;font-weight:600">Balance: \u20b9'+fmt(s.bal)+'</span>';
       var amtInp=document.createElement('input');amtInp.type='number';amtInp.className='inp-sm';
       amtInp.style.cssText='width:100px;text-align:right;font-size:12px';
-      amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;amtInp.dataset.origBal=s.bal.toFixed(2);
-      var rebInp=document.createElement('input');rebInp.type='number';rebInp.className='inp-sm';
-      rebInp.style.cssText='width:68px;text-align:right;font-size:11px';rebInp.placeholder='Reb%';
-      rebInp.min='0';rebInp.max='5';rebInp.step='0.01';rebInp.dataset.rebFor=b.id;
-      var rebLbl=document.createElement('span');rebLbl.style.cssText='font-size:10px;color:#92400e;white-space:nowrap';rebLbl.textContent='Reb%';
-      var intInp=document.createElement('input');intInp.type='number';intInp.className='inp-sm';
-      intInp.style.cssText='width:78px;text-align:right;font-size:11px';intInp.placeholder='Int ₹';
-      intInp.min='0';intInp.dataset.intFor=b.id;
-      var intLbl=document.createElement('span');intLbl.style.cssText='font-size:10px;color:#7c3aed;white-space:nowrap';intLbl.textContent='Int₹';
-      rebInp.addEventListener('click',function(e){e.stopPropagation();});
-      intInp.addEventListener('click',function(e){e.stopPropagation();});
-      rebInp.addEventListener('input',function(){
-        var pct=parseFloat(this.value)||0;
-        var bal=parseFloat(amtInp.dataset.origBal)||s.bal;
-        amtInp.value=pct>0?(bal*(1-pct/100)).toFixed(2):bal.toFixed(2);
-        updateGPTotal();
+      amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;amtInp.dataset.ob=s.bal.toFixed(2);
+      var rI=document.createElement('input');rI.type='number';rI.className='inp-sm';
+      rI.style.cssText='width:66px;text-align:right;font-size:11px';rI.placeholder='Reb%';rI.dataset.rebFor=b.id;
+      var iI=document.createElement('input');iI.type='number';iI.className='inp-sm';
+      iI.style.cssText='width:74px;text-align:right;font-size:11px';iI.placeholder='Int';iI.dataset.intFor=b.id;
+      rI.addEventListener('click',function(e){e.stopPropagation();});
+      iI.addEventListener('click',function(e){e.stopPropagation();});
+      rI.addEventListener('input',function(){
+        var p=parseFloat(this.value)||0,bl=parseFloat(amtInp.dataset.ob)||s.bal;
+        amtInp.value=p>0?(bl*(1-p/100)).toFixed(2):bl.toFixed(2);updateGPTotal();
       });
       amtInp.addEventListener('click',function(e){e.stopPropagation();});
       chk.addEventListener('change',function(){updateGPTotal();});
       amtInp.addEventListener('input',function(){updateGPTotal();});
-      intInp.addEventListener('input',function(){updateGPTotal();});
-      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp&&e.target!==rebInp&&e.target!==intInp){chk.checked=!chk.checked;updateGPTotal();}});
-      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);
-      row.appendChild(rebLbl);row.appendChild(rebInp);
-      row.appendChild(intLbl);row.appendChild(intInp);
-      billsList.appendChild(row);
+      iI.addEventListener('input',function(){updateGPTotal();});
+      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp&&e.target!==rI&&e.target!==iI){chk.checked=!chk.checked;updateGPTotal();}});
+      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);row.appendChild(rI);row.appendChild(iI);billsList.appendChild(row);
     });
   }
 
@@ -6026,8 +6015,8 @@ function openGrossPayModal(preParty) {
     var total=0;
     billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
       var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
-      var intI=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
-      total+=(inp?parseFloat(inp.value)||0:0)+(intI?parseFloat(intI.value)||0:0);
+      var iInp=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
+      total+=(inp?parseFloat(inp.value)||0:0)+(iInp?parseFloat(iInp.value)||0:0);
     });
     var stEl=document.getElementById('gp-sel-total');
     if(stEl)stEl.textContent='\u20b9'+fmt(total)+' selected';
@@ -6072,13 +6061,10 @@ function openGrossPayModal(preParty) {
       billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
         var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
         var b=bills.find(function(x){return x.id===chk.dataset.billId;})||{};
-        var rebI2=billsList.querySelector('input[data-reb-for="'+chk.dataset.billId+'"]');
-        var intI2=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
-        var rebPct2=parseFloat(rebI2&&rebI2.value)||0;
-        var netPaid2=parseFloat(inp?inp.value:0)||0;
-        var rebAmt2=rebPct2>0?Math.round(netPaid2/(1-rebPct2/100)*rebPct2/100*100)/100:0;
-        var intAmt2=parseFloat(intI2&&intI2.value)||0;
-        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:netPaid2,rebate:rebAmt2,interest:intAmt2});
+        var rI2=billsList.querySelector('input[data-reb-for="'+chk.dataset.billId+'"]');
+        var iI2=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
+        var rP=parseFloat(rI2&&rI2.value)||0,nP=parseFloat(inp?inp.value:0)||0;
+        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:nP,rebate:rP>0?Math.round(nP/(1-rP/100)*rP/100*100)/100:0,interest:parseFloat(iI2&&iI2.value)||0});
       });
       if(!selected.length){toast('At least one bill select karo!','err');return;}
       // Create GP record
@@ -12864,27 +12850,18 @@ function pgInterest() {
 
   var grandTotBal=0,grandTotInt=0;
 
-  // ── INTEREST CALCULATION — SEGMENT-BASED ──────────────────────────────
-  // Har payment ke beech alag segment. Free days ONLY pehle segment mein.
-  // CF bills: balance carry forward se cleared.
+  // ── INTEREST CALCULATION — SEGMENT-BASED (freeDaysLeft per segment) ──
   function calcBillInterest(b) {
     var s=getBillStatus(b);
     var bPays=payments.filter(function(p){return p.billId===b.id;})
       .map(function(p){
         var adjStr=state.payDateAdj[p.id]||'';
-        return {
-          id:p.id, amount:p.amount+(p.rebate||0),
-          origDate:p.date, adjDate:adjStr,
-          date:new Date(toISO(adjStr||p.date||today())),
-          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||''
-        };
+        return {id:p.id,amount:p.amount+(p.rebate||0),origDate:p.date,adjDate:adjStr,
+          date:new Date(toISO(adjStr||p.date||today())),mode:p.mode||'',receipt:p.receiptNo||p.chequeNo||''};
       }).sort(function(a,b2){return a.date-b2.date;});
-
     var billDate=new Date(toISO(b.date||today()));
     var isPaid=s.status==='paid';
-
-    // CF bill: paid, no direct payments
-    if(isPaid && bPays.length===0){
+    if(isPaid&&bPays.length===0){
       var cfKey='cf_'+b.id;
       var cfDateStr=state.payDateAdj[cfKey]||getCFCreditDate(b)||'';
       var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
@@ -12892,106 +12869,74 @@ function pgInterest() {
       var cfIntDays=Math.max(0,cfDays-freeDays);
       var cfInt=cfIntDays>0?Math.round(b.netAmt*(rate/100)*(cfIntDays/365)*100)/100:0;
       return{interest:cfInt,schedule:[{
-        from:new Date(billDate),to:new Date(cfDate),
-        bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,
-        label:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':''),segType:'cf'
+        from:new Date(billDate),to:new Date(cfDate),bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,
+        label:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':'')
       }],bPays:[],isPaid:true,endDate:cfDate};
     }
-
     var endDate=asOf;
-    if(isPaid && bPays.length>0){
-      var cfKey2='cf_'+b.id; var cfDateStr2=state.payDateAdj[cfKey2]||'';
+    if(isPaid&&bPays.length>0){
+      var cfKey2='cf_'+b.id;var cfDateStr2=state.payDateAdj[cfKey2]||'';
       endDate=cfDateStr2?new Date(toISO(cfDateStr2)):new Date(bPays[bPays.length-1].date);
     }
-
-    var prevDate=new Date(billDate);
-    var prevBal=b.netAmt;
-    var totalInterest=0;
-    var schedule=[];
-    var freeDaysLeft=freeDays; // consumed only in first segment
-
+    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInterest=0,schedule=[],freeDaysLeft=freeDays;
     bPays.forEach(function(p){
-      if(p.date<=prevDate) return;
+      if(p.date<=prevDate)return;
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var intDays=Math.max(0,days-freeDaysLeft);
-      freeDaysLeft=Math.max(0,freeDaysLeft-days);
+      var intDays=Math.max(0,days-freeDaysLeft);freeDaysLeft=Math.max(0,freeDaysLeft-days);
       var segInt=intDays>0&&prevBal>0?Math.round(prevBal*(rate/100)*(intDays/365)*100)/100:0;
       totalInterest+=segInt;
-      schedule.push({
-        from:new Date(prevDate),to:new Date(p.date),
-        bal:prevBal,days:days,intDays:intDays,int:segInt,
-        label:'Payment \u20b9'+fmt(p.amount)+(p.mode?' ('+p.mode+')':''),segType:'payment'
-      });
-      prevBal=Math.max(0,prevBal-p.amount);
-      prevDate=new Date(p.date);
+      schedule.push({from:new Date(prevDate),to:new Date(p.date),bal:prevBal,days:days,intDays:intDays,int:segInt,
+        label:'Payment ₹'+fmt(p.amount)+(p.mode?' ('+p.mode+')':'')});
+      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
     });
-
-    if(prevBal>0.5 && endDate>prevDate){
-      var finalDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var finalIntDays=Math.max(0,finalDays-freeDaysLeft);
-      freeDaysLeft=Math.max(0,freeDaysLeft-finalDays);
-      var finalInt=finalIntDays>0?Math.round(prevBal*(rate/100)*(finalIntDays/365)*100)/100:0;
-      totalInterest+=finalInt;
-      schedule.push({
-        from:new Date(prevDate),to:new Date(endDate),
-        bal:prevBal,days:finalDays,intDays:finalIntDays,int:finalInt,
-        label:isPaid?'(Closed)':'Outstanding',segType:'final'
-      });
+    if(prevBal>0.5&&endDate>prevDate){
+      var fDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fIntDays=Math.max(0,fDays-freeDaysLeft);
+      var fInt=fIntDays>0?Math.round(prevBal*(rate/100)*(fIntDays/365)*100)/100:0;
+      totalInterest+=fInt;
+      schedule.push({from:new Date(prevDate),to:new Date(endDate),bal:prevBal,days:fDays,intDays:fIntDays,int:fInt,
+        label:isPaid?'(Closed)':'Outstanding'});
     }
-
     return {interest:totalInterest,schedule:schedule,bPays:bPays,isPaid:isPaid,endDate:endDate};
   }
       // Period summary
       var td5=document.createElement('td');td5.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;white-space:nowrap';
-      var _eStr=calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1');
-      td5.textContent=fmtDate(b.date)+' \u2192 '+fmtDate(_eStr);
+      var _eS=calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1');
+      td5.textContent=fmtDate(b.date)+' → '+fmtDate(_eS);
       tr2.appendChild(td5);
-
       var totIntDays=calc.schedule.reduce(function(s2,e){return s2+(e.intDays||0);},0);
       var td6=document.createElement('td');td6.style.cssText='padding:7px 10px;text-align:right;font-size:12px';
-      td6.textContent=totIntDays>0?totIntDays+'d':'\u2014';
+      td6.textContent=totIntDays>0?totIntDays+'d':'—';
       tr2.appendChild(td6);
-
       var td7=document.createElement('td');td7.style.cssText='padding:7px 10px;text-align:right;font-size:12px';
-      if(calc.interest>0.5){td7.innerHTML='<strong style="color:var(--amber)">\u20b9'+fmt(calc.interest)+'</strong>';}
-      else{td7.innerHTML='<span style="color:var(--brand)">\u2014</span>';}
+      if(calc.interest>0.5){td7.innerHTML='<strong style="color:var(--amber)">₹'+fmt(calc.interest)+'</strong>';}
+      else{td7.innerHTML='<span style="color:var(--brand)">—</span>';}
       tr2.appendChild(td7);
-
       var td8=document.createElement('td');td8.style.cssText='padding:7px 10px;white-space:nowrap';
       if(!calc.isPaid){var pb=el('button',{cls:'btn btn-xs btn-green',text:'Pay'});pb.addEventListener('click',function(){openPayModal(b.id);});td8.appendChild(pb);}
       tr2.appendChild(td8);
       tbody.appendChild(tr2);
-
-      // ── Segment detail rows ──────────────────────────────────────────────
+      // Segment rows
       if(calc.schedule&&calc.schedule.length>0){
+        var _fD=function(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));};
         calc.schedule.forEach(function(seg,si){
-          var segRow=document.createElement('tr');
-          segRow.style.cssText='border-bottom:1px solid #f0f0f0;font-size:11px';
-          for(var _ei=0;_ei<6;_ei++){segRow.appendChild(document.createElement('td'));}
-          var segC=seg.int>0.5?'#92400e':'#6b7280';
-          var segBg=seg.int>0.5?'#fffbeb':'#f8fafc';
-          var _iF=function(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));};
-          var ptd=document.createElement('td');
-          ptd.style.cssText='padding:3px 10px;color:'+segC+';font-size:11px;background:'+segBg+';border-left:3px solid '+(seg.int>0.5?'#d97706':'#e5e7eb');
-          ptd.innerHTML='<span style="font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;margin-right:4px;font-weight:700">Seg'+(si+1)+'</span>'+_iF(seg.from)+' \u2192 '+_iF(seg.to)+'<span style="color:#9ca3af;font-size:10px;margin-left:6px">\u20b9'+fmt(seg.bal)+' bal</span>';
-          segRow.appendChild(ptd);
-          var dtd=document.createElement('td');
-          dtd.style.cssText='padding:3px 10px;text-align:right;color:'+segC+';font-size:11px;background:'+segBg;
-          dtd.innerHTML=(seg.intDays||0)+'d<span style="color:#9ca3af;font-size:10px">/'+seg.days+'d</span>';
-          segRow.appendChild(dtd);
-          var itd=document.createElement('td');
-          itd.style.cssText='padding:3px 10px;text-align:right;font-size:11px;background:'+segBg;
-          if(seg.int>0.5){
-            itd.innerHTML='<strong style="color:#d97706">\u20b9'+fmt(seg.int)+'</strong><div style="font-size:9px;color:#9ca3af">\u20b9'+fmt(seg.bal)+'\u00d7'+(seg.intDays||0)+'d\u00f7365\u00d7'+rate+'%</div>';
-          } else {
-            itd.innerHTML='<span style="color:#9ca3af">\u2014</span><div style="font-size:9px;color:#c4b5a0">free/nil</div>';
-          }
-          segRow.appendChild(itd);
-          var atd=document.createElement('td');
-          atd.style.cssText='padding:3px 10px;font-size:10px;color:#6b7280;background:'+segBg;
-          atd.textContent=seg.label||'';
-          segRow.appendChild(atd);
-          tbody.appendChild(segRow);
+          var sR=document.createElement('tr');sR.style.cssText='border-bottom:1px solid #f0f0f0';
+          for(var _e=0;_e<6;_e++){sR.appendChild(document.createElement('td'));}
+          var sC=seg.int>0.5?'#92400e':'#6b7280',sBg=seg.int>0.5?'#fffbeb':'#f8fafc';
+          var p1=document.createElement('td');
+          p1.style.cssText='padding:3px 10px;color:'+sC+';font-size:11px;background:'+sBg+';border-left:3px solid '+(seg.int>0.5?'#d97706':'#e5e7eb');
+          p1.innerHTML='<span style="font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;margin-right:4px;font-weight:700">Seg'+(si+1)+'</span>'+_fD(seg.from)+' → '+_fD(seg.to)+'<span style="color:#9ca3af;font-size:10px;margin-left:5px">₹'+fmt(seg.bal)+'</span>';
+          sR.appendChild(p1);
+          var p2=document.createElement('td');p2.style.cssText='padding:3px 10px;text-align:right;font-size:11px;color:'+sC+';background:'+sBg;
+          p2.innerHTML=(seg.intDays||0)+'d<span style="color:#9ca3af;font-size:10px">/'+seg.days+'d</span>';
+          sR.appendChild(p2);
+          var p3=document.createElement('td');p3.style.cssText='padding:3px 10px;text-align:right;font-size:11px;background:'+sBg;
+          if(seg.int>0.5){p3.innerHTML='<strong style="color:#d97706">₹'+fmt(seg.int)+'</strong><div style="font-size:9px;color:#9ca3af">₹'+fmt(seg.bal)+' x '+(seg.intDays||0)+'d/365 x '+rate+'%</div>';}
+          else{p3.innerHTML='<span style="color:#9ca3af">—</span><div style="font-size:9px;color:#c4b5a0">free/nil</div>';}
+          sR.appendChild(p3);
+          var p4=document.createElement('td');p4.style.cssText='padding:3px 10px;font-size:10px;color:#6b7280;background:'+sBg;
+          p4.textContent=seg.label||'';sR.appendChild(p4);
+          tbody.appendChild(sR);
         });
       }
     });
@@ -13892,107 +13837,84 @@ function printInterestStatement() {
     if(dto&&toISO(b.date||'')>dto)return false;
     return true;
   });
-  function _calcSegs(b,st2,rate2,freeDays2,asOf2){
+  function _cS(b,st2,r,fd,aOf){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st2.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),label:'Payment \u20b9'+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};})
+    var bP=payments.filter(function(p){return p.billId===b.id;})
+      .map(function(p){var a=(st2.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(a||p.date||today())),label:'Pymt '+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};})
       .sort(function(a,b2){return a.date-b2.date;});
-    var isPaid=s.status==='paid';
-    var billDate=new Date(toISO(b.date||today()));
-    if(isPaid&&bPays.length===0){
-      var cfDs=(st2.payDateAdj||{})['cf_'+b.id]||getCFCreditDate(b)||'';
-      var cfDate=cfDs?new Date(toISO(cfDs)):new Date(billDate);
-      var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
-      var cfIntDays=Math.max(0,cfDays-freeDays2);
-      var cfInt=cfIntDays>0?Math.round(b.netAmt*(rate2/100)*(cfIntDays/365)*100)/100:0;
-      return{interest:cfInt,bal:s.bal,isPaid:true,schedule:[{from:billDate,to:cfDate,bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,label:'Carry Fwd Credit'}]};
+    var ip=s.status==='paid',bd=new Date(toISO(b.date||today()));
+    if(ip&&bP.length===0){
+      var cDs=(st2.payDateAdj||{})['cf_'+b.id]||getCFCreditDate(b)||'';
+      var cD=cDs?new Date(toISO(cDs)):new Date(bd);
+      var cDy=Math.max(0,Math.floor((cD-bd)/86400000)),cId=Math.max(0,cDy-fd);
+      var cI=cId>0?Math.round(b.netAmt*(r/100)*(cId/365)*100)/100:0;
+      return{interest:cI,bal:s.bal,isPaid:true,schedule:[{from:bd,to:cD,bal:b.netAmt,days:cDy,intDays:cId,int:cI,label:'CF Credit'}]};
     }
-    var endDate=asOf2;
-    if(isPaid&&bPays.length>0){var cfDs2=(st2.payDateAdj||{})['cf_'+b.id]||'';endDate=cfDs2?new Date(toISO(cfDs2)):new Date(bPays[bPays.length-1].date);}
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInt=0,freeDaysLeft=freeDays2,schedule=[];
-    bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var intDays=Math.max(0,days-freeDaysLeft);freeDaysLeft=Math.max(0,freeDaysLeft-days);
-      var si2=intDays>0&&prevBal>0?Math.round(prevBal*(rate2/100)*(intDays/365)*100)/100:0;
-      totalInt+=si2;
-      schedule.push({from:new Date(prevDate),to:new Date(p.date),bal:prevBal,days:days,intDays:intDays,int:si2,label:p.label});
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+    var eD=aOf;
+    if(ip&&bP.length>0){var cd2=(st2.payDateAdj||{})['cf_'+b.id]||'';eD=cd2?new Date(toISO(cd2)):new Date(bP[bP.length-1].date);}
+    var pD=new Date(bd),pB=b.netAmt,tI=0,fdL=fd,sc=[];
+    bP.forEach(function(p){
+      if(p.date<=pD)return;
+      var dy=Math.max(0,Math.floor((p.date-pD)/86400000)),id=Math.max(0,dy-fdL);fdL=Math.max(0,fdL-dy);
+      var si=id>0&&pB>0?Math.round(pB*(r/100)*(id/365)*100)/100:0;tI+=si;
+      sc.push({from:new Date(pD),to:new Date(p.date),bal:pB,days:dy,intDays:id,int:si,label:p.label});
+      pB=Math.max(0,pB-p.amount);pD=new Date(p.date);
     });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fid=Math.max(0,fd2-freeDaysLeft);
-      var fi=fid>0?Math.round(prevBal*(rate2/100)*(fid/365)*100)/100:0;
-      totalInt+=fi;
-      schedule.push({from:new Date(prevDate),to:new Date(endDate),bal:prevBal,days:fd2,intDays:fid,int:fi,label:isPaid?'(Closed)':'Outstanding'});
+    if(pB>0.5&&eD>pD){
+      var fd2=Math.max(0,Math.floor((eD-pD)/86400000)),fid=Math.max(0,fd2-fdL);
+      var fi=fid>0?Math.round(pB*(r/100)*(fid/365)*100)/100:0;tI+=fi;
+      sc.push({from:new Date(pD),to:new Date(eD),bal:pB,days:fd2,intDays:fid,int:fi,label:ip?'(Closed)':'Outstanding'});
     }
-    return{interest:totalInt,bal:s.bal,isPaid:isPaid,schedule:schedule};
+    return{interest:tI,bal:s.bal,isPaid:ip,schedule:sc};
   }
-  function _isoFmt2(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
-
+  function _dF(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
   var partyMap={};
   filteredBills.forEach(function(b){if(!partyMap[b.party])partyMap[b.party]=[];partyMap[b.party].push(b);});
-  if(!Object.keys(partyMap).length){toast('Koi data nahi — pehle party select karo ya filter lagao','err');return;}
+  if(!Object.keys(partyMap).length){toast('Koi data nahi','err');return;}
   var grandInt=0,grandBal=0;
   var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Interest Statement</title>'
-    +'<style>'
-    +'body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
-    +'h2{color:#166534;margin-bottom:4px}'
+    +'<style>body{font-family:Arial,sans-serif;font-size:11px;padding:14px;color:#111}'
     +'table{width:100%;border-collapse:collapse;margin-bottom:14px}'
-    +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}'
-    +'th.num{text-align:right}'
-    +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top}'
-    +'td.num{text-align:right}'
-    +'.ph td{background:#f0fdf4;font-weight:700;color:#166534;font-size:12px}'
-    +'.bill-row td{background:#fff;font-weight:600}'
-    +'.seg-row td{background:#fafafa;font-size:10px}'
-    +'.seg-int{background:#fffbeb}'
-    +'.seg-lbl{font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;margin-right:4px;font-weight:700}'
+    +'th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}'
+    +'th.r{text-align:right}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}'
+    +'td.r{text-align:right}tr.ph td{background:#f0fdf4;font-weight:700;color:#166534}'
+    +'tr.br td{font-weight:600}tr.sr td{background:#fafafa;font-size:10px}'
     +'tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'@media print{button{display:none!important}}'
-    +'</style></head><body>'
-    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">&#128438; Print / PDF</button>'
-    +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
-    +'<div style="font-size:10px;color:#6b7280;margin-bottom:8px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+' | Generated: '+new Date().toLocaleString('en-IN')+'</div>';
-
+    +'@media print{button{display:none}}</style></head><body>'
+    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print / PDF</button>'
+    +'<h2 style="color:#166534;margin-bottom:4px">'+(cfg.company||'')+' — Interest Statement</h2>'
+    +'<div style="font-size:10px;color:#6b7280;margin-bottom:10px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+' | Generated: '+new Date().toLocaleString('en-IN')+'</div>';
   Object.keys(partyMap).sort().forEach(function(party){
     var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
     var pTotBal=0,pTotInt=0;
     h+='<table><thead><tr class="ph"><td colspan="8"><strong>'+party+'</strong></td></tr>'
-      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th>'
-      +'<th>Period From</th><th>Period To</th>'
-      +'<th class="num">Days</th><th class="num">Int Days</th><th class="num">Interest (\u20b9)</th>'
+      +'<tr><th>Bill#</th><th>Date</th><th class="r">Net Amt</th>'
+      +'<th>From</th><th>To</th><th class="r">Days</th><th class="r">Int Days</th><th class="r">Interest (₹)</th>'
       +'</tr></thead><tbody>';
     pBills.forEach(function(b){
-      var s=getBillStatus(b);var calc=_calcSegs(b,st,rate,freeDays,asOf);
+      var s=getBillStatus(b);var calc=_cS(b,st,rate,freeDays,asOf);
       pTotBal+=s.bal;pTotInt+=calc.interest;
-      h+='<tr class="bill-row"><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
-        +'<td>'+fmtDate(b.date)+'</td><td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
+      h+='<tr class="br"><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:3px;font-size:9px">PAID</span>':'')+'</td>'
+        +'<td>'+fmtDate(b.date)+'</td><td class="r">₹'+fmt(b.netAmt)+'</td>'
         +'<td colspan="4" style="color:#6b7280;font-size:10px">'+calc.schedule.length+' segment(s)</td>'
-        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td>'
-        +'</tr>';
+        +'<td class="r">'+(calc.interest>0.5?'<strong style="color:#d97706">₹'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td></tr>';
       calc.schedule.forEach(function(seg,si){
-        var hasBdr=seg.int>0.5?'border-left:3px solid #d97706':'border-left:3px solid #e5e7eb';
-        h+='<tr class="seg-row"><td style="'+hasBdr+';padding-left:10px"><span class="seg-lbl">Seg'+(si+1)+'</span>'+seg.label+'</td>'
-          +'<td>'+_isoFmt2(seg.from)+'</td>'
-          +'<td>'+_isoFmt2(seg.to)+'</td>'
-          +'<td class="num">'+seg.days+'d</td>'
-          +'<td class="num">'+seg.intDays+'d</td>'
-          +'<td class="num '+(seg.int>0.5?'seg-int':'')+'">'
-            +(seg.int>0.5?'<strong style="color:#d97706">\u20b9'+fmt(seg.int)+'</strong>':'<span style="color:#9ca3af">\u2014</span>')
-          +'</td>'
-          +'</tr>';
+        h+='<tr class="sr"><td style="padding-left:10px;border-left:3px solid '+(seg.int>0.5?'#d97706':'#e5e7eb')+'">Seg'+(si+1)+': '+seg.label+'</td>'
+          +'<td>'+_dF(seg.from)+'</td><td>'+_dF(seg.to)+'</td>'
+          +'<td class="r">'+seg.days+'d</td><td class="r">'+seg.intDays+'d</td>'
+          +'<td class="r">₹'+fmt(seg.bal)+'</td>'
+          +'<td class="r">'+(seg.int>0.5?'<strong style="color:#d97706">₹'+fmt(seg.int)+'</strong>':'&mdash;')+'</td></tr>';
       });
     });
     h+='</tbody><tfoot><tr><td colspan="7"><strong>Total ('+pBills.length+' bills)</strong></td>'
-      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td>'
+      +'<td class="r">'+(pTotInt>0?'<strong style="color:#d97706">₹'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td>'
       +'</tr></tfoot></table>';
     grandBal+=pTotBal;grandInt+=pTotInt;
   });
-  h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700;font-size:13px">'
-    +'Outstanding: <strong style="color:#dc2626">\u20b9'+fmt(grandBal)+'</strong>&nbsp;&nbsp; Interest: <strong style="color:#d97706">\u20b9'+fmt(grandInt)+'</strong>'
-    +'</div></body></html>';
-  var win=window.open('','_blank');if(!win){toast('Please allow popups!','err');return;}
+  h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700">'
+    +'Outstanding: <strong style="color:#dc2626">₹'+fmt(grandBal)+'</strong>&nbsp;&nbsp;'
+    +'Interest: <strong style="color:#d97706">₹'+fmt(grandInt)+'</strong></div></body></html>';
+  var win=window.open('','_blank');if(!win){toast('Allow popups!','err');return;}
   win.document.write(h);win.document.close();
 }
 
@@ -14015,75 +13937,65 @@ function exportInterestExcel() {
     return true;
   });
   if(!filteredBills.length){toast('Koi data nahi!','err');return;}
-  function _calcSegs(b,st2,rate2,freeDays2,asOf2){
+  function _cS(b,st2,r,fd,aOf){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st2.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),label:'Payment \u20b9'+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};})
+    var bP=payments.filter(function(p){return p.billId===b.id;})
+      .map(function(p){var a=(st2.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(a||p.date||today())),label:'Pymt '+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};})
       .sort(function(a,b2){return a.date-b2.date;});
-    var isPaid=s.status==='paid';
-    var billDate=new Date(toISO(b.date||today()));
-    if(isPaid&&bPays.length===0){
-      var cfDs=(st2.payDateAdj||{})['cf_'+b.id]||getCFCreditDate(b)||'';
-      var cfDate=cfDs?new Date(toISO(cfDs)):new Date(billDate);
-      var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
-      var cfIntDays=Math.max(0,cfDays-freeDays2);
-      var cfInt=cfIntDays>0?Math.round(b.netAmt*(rate2/100)*(cfIntDays/365)*100)/100:0;
-      return{interest:cfInt,bal:s.bal,isPaid:true,schedule:[{from:billDate,to:cfDate,bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,label:'Carry Fwd Credit'}]};
+    var ip=s.status==='paid',bd=new Date(toISO(b.date||today()));
+    if(ip&&bP.length===0){
+      var cDs=(st2.payDateAdj||{})['cf_'+b.id]||getCFCreditDate(b)||'';
+      var cD=cDs?new Date(toISO(cDs)):new Date(bd);
+      var cDy=Math.max(0,Math.floor((cD-bd)/86400000)),cId=Math.max(0,cDy-fd);
+      var cI=cId>0?Math.round(b.netAmt*(r/100)*(cId/365)*100)/100:0;
+      return{interest:cI,bal:s.bal,isPaid:true,schedule:[{from:bd,to:cD,bal:b.netAmt,days:cDy,intDays:cId,int:cI,label:'CF Credit'}]};
     }
-    var endDate=asOf2;
-    if(isPaid&&bPays.length>0){var cfDs2=(st2.payDateAdj||{})['cf_'+b.id]||'';endDate=cfDs2?new Date(toISO(cfDs2)):new Date(bPays[bPays.length-1].date);}
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInt=0,freeDaysLeft=freeDays2,schedule=[];
-    bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var intDays=Math.max(0,days-freeDaysLeft);freeDaysLeft=Math.max(0,freeDaysLeft-days);
-      var si2=intDays>0&&prevBal>0?Math.round(prevBal*(rate2/100)*(intDays/365)*100)/100:0;
-      totalInt+=si2;
-      schedule.push({from:new Date(prevDate),to:new Date(p.date),bal:prevBal,days:days,intDays:intDays,int:si2,label:p.label});
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+    var eD=aOf;
+    if(ip&&bP.length>0){var cd2=(st2.payDateAdj||{})['cf_'+b.id]||'';eD=cd2?new Date(toISO(cd2)):new Date(bP[bP.length-1].date);}
+    var pD=new Date(bd),pB=b.netAmt,tI=0,fdL=fd,sc=[];
+    bP.forEach(function(p){
+      if(p.date<=pD)return;
+      var dy=Math.max(0,Math.floor((p.date-pD)/86400000)),id=Math.max(0,dy-fdL);fdL=Math.max(0,fdL-dy);
+      var si=id>0&&pB>0?Math.round(pB*(r/100)*(id/365)*100)/100:0;tI+=si;
+      sc.push({from:new Date(pD),to:new Date(p.date),bal:pB,days:dy,intDays:id,int:si,label:p.label});
+      pB=Math.max(0,pB-p.amount);pD=new Date(p.date);
     });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fid=Math.max(0,fd2-freeDaysLeft);
-      var fi=fid>0?Math.round(prevBal*(rate2/100)*(fid/365)*100)/100:0;
-      totalInt+=fi;
-      schedule.push({from:new Date(prevDate),to:new Date(endDate),bal:prevBal,days:fd2,intDays:fid,int:fi,label:isPaid?'(Closed)':'Outstanding'});
+    if(pB>0.5&&eD>pD){
+      var fd2=Math.max(0,Math.floor((eD-pD)/86400000)),fid=Math.max(0,fd2-fdL);
+      var fi=fid>0?Math.round(pB*(r/100)*(fid/365)*100)/100:0;tI+=fi;
+      sc.push({from:new Date(pD),to:new Date(eD),bal:pB,days:fd2,intDays:fid,int:fi,label:ip?'(Closed)':'Outstanding'});
     }
-    return{interest:totalInt,bal:s.bal,isPaid:isPaid,schedule:schedule};
+    return{interest:tI,bal:s.bal,isPaid:ip,schedule:sc};
   }
-  function _isoFmt2(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
-
-  var aoa=[];
-  var HDR=['Party','Bill#','Bill Date','Net Amt','Status','Row Type','Seg#','Period From','Period To','Days','Int Days','Balance','Interest (\u20b9)','Label'];
-  aoa.push(HDR);
+  function _dF(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
+  var aoa=[['Party','Bill#','Bill Date','Net Amt','Status','Row Type','Seg#','From','To','Days','Int Days','Balance','Interest']];
   filteredBills.sort(function(a,b2){
     if(a.party<b2.party)return -1;if(a.party>b2.party)return 1;
     return toISO(a.date||'').localeCompare(toISO(b2.date||''));
   }).forEach(function(b){
-    var s=getBillStatus(b);var calc=_calcSegs(b,st,rate,freeDays,asOf);
-    aoa.push([b.party,b.billNo||'',fmtDate(b.date),b.netAmt||0,s.status.toUpperCase(),'BILL','','','','','',Math.round(calc.bal),Math.round(calc.interest),'']);
+    var s=getBillStatus(b);var calc=_cS(b,st,rate,freeDays,asOf);
+    aoa.push([b.party,b.billNo||'',fmtDate(b.date),b.netAmt||0,s.status.toUpperCase(),'BILL','','','','','',Math.round(calc.bal),Math.round(calc.interest)]);
     calc.schedule.forEach(function(seg,si){
-      aoa.push([b.party,b.billNo||'',fmtDate(b.date),'','','SEGMENT',si+1,_isoFmt2(seg.from),_isoFmt2(seg.to),seg.days,seg.intDays,Math.round(seg.bal),Math.round(seg.int),seg.label||'']);
+      aoa.push([b.party,b.billNo||'',fmtDate(b.date),'','','SEGMENT',si+1,_dF(seg.from),_dF(seg.to),seg.days,seg.intDays,Math.round(seg.bal),Math.round(seg.int)]);
     });
   });
   var ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:28},{wch:8},{wch:12},{wch:12},{wch:10},{wch:10},{wch:6},{wch:12},{wch:12},{wch:8},{wch:8},{wch:13},{wch:13},{wch:28}];
-  var hFill={fgColor:{rgb:'166534'}};var hFont={bold:true,color:{rgb:'FFFFFF'},sz:10};
-  HDR.forEach(function(k,ci){var cr=XLSX.utils.encode_cell({r:0,c:ci});if(!ws[cr])ws[cr]={v:k,t:'s'};ws[cr].s={font:hFont,fill:hFill,alignment:{horizontal:'center'}};});
+  ws['!cols']=[{wch:28},{wch:8},{wch:12},{wch:12},{wch:10},{wch:10},{wch:6},{wch:12},{wch:12},{wch:8},{wch:8},{wch:12},{wch:12}];
+  var hFl={fgColor:{rgb:'166534'}},hFt={bold:true,color:{rgb:'FFFFFF'},sz:10};
+  aoa[0].forEach(function(k,ci){var cr=XLSX.utils.encode_cell({r:0,c:ci});if(!ws[cr])ws[cr]={v:k,t:'s'};ws[cr].s={font:hFt,fill:hFl,alignment:{horizontal:'center'}};});
   aoa.forEach(function(row,ri){
     if(ri===0)return;
-    var isBill=row[5]==='BILL';var hasInt=parseFloat(row[12])>0.5;
+    var iB=row[5]==='BILL',hI=parseFloat(row[12])>0.5;
     row.forEach(function(v,ci){
       var cr=XLSX.utils.encode_cell({r:ri,c:ci});
       if(!ws[cr])ws[cr]={v:v===''?'':v,t:typeof v==='number'?'n':'s'};
-      ws[cr].s={font:{bold:isBill,sz:isBill?10:9},fill:{fgColor:{rgb:isBill?'EFF6FF':(hasInt&&!isBill?'FFFBEB':'FAFAFA')}},alignment:{horizontal:typeof v==='number'?'right':'left'},border:{bottom:{style:'thin',color:{rgb:'E5E7EB'}}}};
+      ws[cr].s={font:{bold:iB,sz:iB?10:9},fill:{fgColor:{rgb:iB?'EFF6FF':(hI?'FFFBEB':'FAFAFA')}},alignment:{horizontal:typeof v==='number'?'right':'left'},border:{bottom:{style:'thin',color:{rgb:'E5E7EB'}}}};
     });
-    if(!isBill&&hasInt){var ic=XLSX.utils.encode_cell({r:ri,c:12});if(ws[ic])ws[ic].s.font={bold:true,color:{rgb:'D97706'},sz:9};}
+    if(!iB&&hI){var ic=XLSX.utils.encode_cell({r:ri,c:12});if(ws[ic])ws[ic].s.font={bold:true,color:{rgb:'D97706'},sz:9};}
   });
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
-  var fname='Interest_Statement'+(exactParty?'_'+exactParty.replace(/[^a-z0-9]/gi,'_'):'')+'_'+today()+'.xlsx';
-  XLSX.writeFile(wb,fname);
-  toast('\u2705 Excel exported \u2014 '+filteredBills.length+' bills, segment-wise');
+  XLSX.writeFile(wb,'Interest_'+(exactParty?exactParty.replace(/[^a-z0-9]/gi,'_'):'All')+'_'+today()+'.xlsx');
+  toast('✅ Excel exported — '+filteredBills.length+' bills, segment-wise');
 }
 
 function exportStyledReport(data) {
