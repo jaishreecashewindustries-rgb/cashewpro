@@ -20490,7 +20490,7 @@ function pgAIRules() {
 
 
 function pgReceiptLedger() {
-  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=_fyPayments.filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=_fyGross.filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
+  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=(payments||[]).filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=(grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
   var state = pageState.rcptLedger = pageState.rcptLedger || {
     q:'', sortKey:'date', sortDir:-1, filters:{},
     dateFrom:'', dateTo:'', modeFilter:'ALL'
