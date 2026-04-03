@@ -908,9 +908,9 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
       <!-- Search wrap -->
-      <div id="search-wrap" style="flex:1;max-width:320px;margin:0 10px;position:relative;display:flex;align-items:center;gap:6px">
-        <input type="text" id="global-search" placeholder="🔍 Search..." 
-          style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#f9fafb;outline:none;box-sizing:border-box">
+      <div id="search-wrap" style="flex:1;max-width:500px;min-width:220px;margin:0 10px;position:relative;display:flex;align-items:center;gap:6px">
+        <input type="text" id="global-search" placeholder="🔍 Search bills, parties, amounts..." 
+          style="width:100%;padding:6px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:12.5px;background:#f9fafb;outline:none;box-sizing:border-box;font-family:var(--font);transition:border-color .15s" onfocus="this.style.borderColor='#166534';this.style.background='#fff'" onblur="this.style.borderColor='#d1d5db';this.style.background='#f9fafb'">
         <button id="mob-search-close" onclick="toggleMobSearch()">✕</button>
         <div id="gs-results" style="display:none;position:absolute;top:38px;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:500;max-height:360px;overflow-y:auto"></div>
       </div>
@@ -20660,7 +20660,7 @@ function pgReceiptLedger() {
     var thead=document.createElement('thead');
     var htr=document.createElement('tr');htr.style.background='#f0fdf4';
     var rlSortMap={Date:'date',Party:'party',Amount:'amount',Rebate:'rebate',Interest:'interest'};
-    ['#','Date','Party','Type','Amount','Rebate','Interest','Mode','Cheque/Rcpt','Bills Covered','Remarks'].forEach(function(h){
+    ['#','Date','Party','Type','Amount','Rebate','Interest','Mode','Cheque/Rcpt','Bills Covered','Remarks','Action'].forEach(function(h){
       var th=document.createElement('th');
       var sk=rlSortMap[h];
       th.style.cssText='padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#166534;border-bottom:2px solid #bbf7d0;white-space:nowrap'+(sk?';cursor:pointer':'');
@@ -20679,7 +20679,7 @@ function pgReceiptLedger() {
     var totalRows=grossVisible.length+singleFiltered.length;
     if(!totalRows){
       var etr=document.createElement('tr');var etd=document.createElement('td');
-      etd.setAttribute('colspan',11);etd.style.cssText='text-align:center;padding:40px;color:#9ca3af;font-size:13px';
+      etd.setAttribute('colspan',12);etd.style.cssText='text-align:center;padding:40px;color:#9ca3af;font-size:13px';
       etd.textContent='No receipts found';etr.appendChild(etd);tbody.appendChild(etr);
     }
 
@@ -20722,6 +20722,17 @@ function pgReceiptLedger() {
         if(!(g.bills||[]).length)billsDiv.innerHTML='<span style="color:#9ca3af;font-size:10px">—</span>';
         tdg(billsDiv);
         tdg(g.remarks||'-',{color:'#6b7280'});
+        // Action buttons for GROSS row
+        var actDivG=document.createElement('div');actDivG.style.cssText='display:flex;gap:4px;flex-wrap:nowrap';
+        var editBtnG=document.createElement('button');editBtnG.className='btn btn-xs btn-outline';editBtnG.textContent='✏️ Edit';
+        editBtnG.style.cssText='padding:3px 8px;font-size:11px;border-radius:5px;cursor:pointer;white-space:nowrap';
+        editBtnG.addEventListener('click',(function(gid){return function(){openGrossEditModal(gid);};})(g.id));
+        var delBtnG=document.createElement('button');delBtnG.className='btn btn-xs';
+        delBtnG.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;padding:3px 8px;font-size:11px;border-radius:5px;cursor:pointer;white-space:nowrap';
+        delBtnG.textContent='🗑 Del';
+        delBtnG.addEventListener('click',(function(gid){return function(){deleteGrossPayment(gid);};})(g.id));
+        actDivG.appendChild(editBtnG);actDivG.appendChild(delBtnG);
+        tdg(actDivG);
         tbody.appendChild(trg);
       } else {
         var p=item.data;var b=item.bill||{};
@@ -20749,15 +20760,34 @@ function pgReceiptLedger() {
         td((p.chequeNo||'-')+(p.receiptNo&&p.receiptNo!==p.chequeNo?' / '+p.receiptNo:''),{mono:true});
         td('Bill #'+(b.billNo||'?'));
         td(p.remarks||'-',{color:'#6b7280'});
+        // Action buttons for single/partial row
+        var actDiv=document.createElement('div');actDiv.style.cssText='display:flex;gap:4px;flex-wrap:nowrap';
+        var editBtn=document.createElement('button');editBtn.className='btn btn-xs btn-outline';editBtn.textContent='✏️ Edit';
+        editBtn.style.cssText='padding:3px 8px;font-size:11px;border-radius:5px;cursor:pointer;white-space:nowrap';
+        editBtn.addEventListener('click',(function(pid){return function(){openPaymentEditModal(pid);setTimeout(function(){buildTable();},300);};})(p.id));
+        var delBtn=document.createElement('button');delBtn.className='btn btn-xs';
+        delBtn.style.cssText='background:#fee2e2;color:#dc2626;border:1px solid #fecaca;padding:3px 8px;font-size:11px;border-radius:5px;cursor:pointer;white-space:nowrap';
+        delBtn.textContent='🗑';delBtn.title='Delete this payment';
+        delBtn.addEventListener('click',(function(pid,pref){return function(){
+          var bd=document.createElement('div');
+          bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:10px;margin-bottom:8px;font-size:12px;color:#dc2626">₹'+fmt(pref.amount||0)+' — '+fmtDate(pref.date)+' delete hoga</div><div style="font-size:11px;color:#6b7280">Bill outstanding restore ho jaayegi</div>';
+          openModal('Payment Delete',bd,[{label:'Delete',cls:'btn-red',fn:function(){
+            payments=payments.filter(function(x){return x.id!==pid;});
+            invalidateBillStatusCache();DB.set('payments',payments);
+            closeModal();toast('Payment deleted');refresh();
+          }}]);
+        };})(p.id,p));
+        actDiv.appendChild(editBtn);actDiv.appendChild(delBtn);
+        td(actDiv);
         tbody.appendChild(tr);
       }
     });
     tbl.appendChild(tbody);
     var tfoot=document.createElement('tfoot');
     var tftr=document.createElement('tr');tftr.style.cssText='background:#f0fdf4;font-weight:700;border-top:2px solid #166534';
-    var footVals=['','','','TOTAL','\u20b9'+fmt(totalRecv),'\u20b9'+fmt(rebTotal),'\u20b9'+fmt(intTotal),'','','',''];
-    var footRight=[false,false,false,false,true,true,true,false,false,false,false];
-    var footColors=['','','','#166534','#166534','#d97706','#7c3aed','','','',''];
+    var footVals=['','','','TOTAL','\u20b9'+fmt(totalRecv),'\u20b9'+fmt(rebTotal),'\u20b9'+fmt(intTotal),'','','','',''];
+    var footRight=[false,false,false,false,true,true,true,false,false,false,false,false];
+    var footColors=['','','','#166534','#166534','#d97706','#7c3aed','','','','',''];
     footVals.forEach(function(v,ci){
       var ftd=document.createElement('td');
       ftd.style.cssText='padding:8px 10px;font-size:12px'+(footRight[ci]?';text-align:right':'')+(footColors[ci]?';color:'+footColors[ci]:'');
@@ -21140,7 +21170,7 @@ function openPaymentEditModal(payId) {
 function deleteGrossPayment(gpId) {
   var g = (grossPayments||[]).find(function(x){ return x.id===gpId; });
   if(!g) return;
-  var linkedPays = _fyPayments.filter(function(p){ return p.gpId===gpId; });
+  var linkedPays = (payments||[]).filter(function(p){ return p.gpId===gpId; });
   var body=document.createElement('div');
   body.innerHTML=
     '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:13px;color:#dc2626;font-weight:600">⚠️ Gross payment aur '+linkedPays.length+' linked payments delete honge!</div>'+
@@ -21154,7 +21184,7 @@ function deleteGrossPayment(gpId) {
     cls:'btn-red',
     fn:function(){
       grossPayments=grossPayments.filter(function(x){return x.id!==gpId;});
-      payments=_fyPayments.filter(function(p){return p.gpId!==gpId;});
+      payments=payments.filter(function(p){return p.gpId!==gpId;});
       invalidateBillStatusCache();
       DB.set('grossPayments',grossPayments);
       DB.set('payments',payments);
