@@ -221,7 +221,7 @@ input, select, textarea { font-family: var(--font); }
 /* Global search */
 #global-search {
   flex: 1;
-  max-width: 380px;
+  max-width: 560px;
   padding: 7px 12px 7px 34px;
   border: 1.5px solid var(--border);
   border-radius: 8px;
@@ -5914,12 +5914,31 @@ function openGrossPayModal(preParty) {
   var body=document.createElement('div');
   var allParties=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
   
-  // Party selector
+  // Party selector with search box
   var partyDiv=document.createElement('div');partyDiv.className='fg';partyDiv.style.marginBottom='12px';
   var partyLbl=document.createElement('label');partyLbl.textContent='Party';
+  var gpPartySearch=document.createElement('input');
+  gpPartySearch.type='text';gpPartySearch.className='inp';
+  gpPartySearch.placeholder='Search party name...';
+  gpPartySearch.style.cssText='margin-bottom:4px;font-size:13px';
+  if(preParty)gpPartySearch.value=preParty;
   var partySel=document.createElement('select');partySel.className='inp';partySel.id='gp-party';
-  allParties.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;if(p===preParty)o.selected=true;partySel.appendChild(o);});
-  partyDiv.appendChild(partyLbl);partyDiv.appendChild(partySel);body.appendChild(partyDiv);
+  partySel.size=5;partySel.style.cssText='height:auto;min-height:90px;font-size:12px;border-top:none;border-radius:0 0 6px 6px';
+  function _gpFilterParties(){
+    var q=gpPartySearch.value.toLowerCase();
+    partySel.innerHTML='';
+    allParties.filter(function(p){return !q||p.toLowerCase().includes(q);}).forEach(function(p){
+      var o=document.createElement('option');o.value=p;o.textContent=p;
+      if(p===preParty)o.selected=true;
+      partySel.appendChild(o);
+    });
+    if(!partySel.value&&partySel.options.length)partySel.selectedIndex=0;
+    rebuildBillsList();
+  }
+  gpPartySearch.addEventListener('input',_gpFilterParties);
+  partySel.addEventListener('change',function(){rebuildBillsList();});
+  _gpFilterParties();
+  partyDiv.appendChild(partyLbl);partyDiv.appendChild(gpPartySearch);partyDiv.appendChild(partySel);body.appendChild(partyDiv);
 
   // Payment info
   var infoGrid=document.createElement('div');infoGrid.className='grid g2';infoGrid.style.marginBottom='12px';
@@ -5943,7 +5962,7 @@ function openGrossPayModal(preParty) {
   // Bills list with checkboxes
   var billsCard=document.createElement('div');billsCard.style.cssText='border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:12px';
   var billsHead=document.createElement('div');billsHead.style.cssText='background:#f0fdf4;padding:8px 12px;font-size:11px;font-weight:700;color:#166534;display:flex;justify-content:space-between';
-  billsHead.innerHTML='<span>Select Bills to Cover</span><span id="gp-sel-total" style="color:#1d4ed8">\u20b90 selected</span>';
+  billsHead.innerHTML='<span>Select Bills to Cover</span><span style="display:flex;gap:8px;align-items:center"><span style="font-size:10px;color:#92400e">Reb%</span><span style="font-size:10px;color:#7c3aed">Int ₹</span><span id="gp-sel-total" style="color:#1d4ed8">₹0 selected</span></span>';
   billsCard.appendChild(billsHead);
   
   var billsList=document.createElement('div');billsList.style.cssText='max-height:280px;overflow-y:auto';
@@ -5975,12 +5994,33 @@ function openGrossPayModal(preParty) {
         '<span style="margin-left:8px;color:#1d4ed8;font-weight:600">Balance: \u20b9'+fmt(s.bal)+'</span>';
       var amtInp=document.createElement('input');amtInp.type='number';amtInp.className='inp-sm';
       amtInp.style.cssText='width:100px;text-align:right;font-size:12px';
-      amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;
+      amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;amtInp.dataset.origBal=s.bal.toFixed(2);
+      var rebInp=document.createElement('input');rebInp.type='number';rebInp.className='inp-sm';
+      rebInp.style.cssText='width:68px;text-align:right;font-size:11px';rebInp.placeholder='Reb%';
+      rebInp.min='0';rebInp.max='5';rebInp.step='0.01';rebInp.dataset.rebFor=b.id;
+      var rebLbl=document.createElement('span');rebLbl.style.cssText='font-size:10px;color:#92400e;white-space:nowrap';rebLbl.textContent='Reb%';
+      var intInp=document.createElement('input');intInp.type='number';intInp.className='inp-sm';
+      intInp.style.cssText='width:78px;text-align:right;font-size:11px';intInp.placeholder='Int ₹';
+      intInp.min='0';intInp.dataset.intFor=b.id;
+      var intLbl=document.createElement('span');intLbl.style.cssText='font-size:10px;color:#7c3aed;white-space:nowrap';intLbl.textContent='Int₹';
+      rebInp.addEventListener('click',function(e){e.stopPropagation();});
+      intInp.addEventListener('click',function(e){e.stopPropagation();});
+      rebInp.addEventListener('input',function(){
+        var pct=parseFloat(this.value)||0;
+        var bal=parseFloat(amtInp.dataset.origBal)||s.bal;
+        if(pct>0)amtInp.value=(bal*(1-pct/100)).toFixed(2);
+        else amtInp.value=bal.toFixed(2);
+        updateGPTotal();
+      });
       amtInp.addEventListener('click',function(e){e.stopPropagation();});
       chk.addEventListener('change',function(){updateGPTotal();});
       amtInp.addEventListener('input',function(){updateGPTotal();});
-      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp){chk.checked=!chk.checked;updateGPTotal();}});
-      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);billsList.appendChild(row);
+      intInp.addEventListener('input',function(){updateGPTotal();});
+      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp&&e.target!==rebInp&&e.target!==intInp){chk.checked=!chk.checked;updateGPTotal();}});
+      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);
+      row.appendChild(rebLbl);row.appendChild(rebInp);
+      row.appendChild(intLbl);row.appendChild(intInp);
+      billsList.appendChild(row);
     });
   }
 
@@ -5988,7 +6028,8 @@ function openGrossPayModal(preParty) {
     var total=0;
     billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
       var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
-      total+=(inp?parseFloat(inp.value)||0:0);
+      var intI=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
+      total+=(inp?parseFloat(inp.value)||0:0)+(intI?parseFloat(intI.value)||0:0);
     });
     var stEl=document.getElementById('gp-sel-total');
     if(stEl)stEl.textContent='\u20b9'+fmt(total)+' selected';
@@ -6017,7 +6058,6 @@ function openGrossPayModal(preParty) {
   setTimeout(function(){
     amtInpEl=document.getElementById('gp-amt');
     if(amtInpEl){amtInpEl._manualEdit=false;amtInpEl.addEventListener('input',function(){this._manualEdit=true;updateGPSummary();});}
-    partySel.addEventListener('change',function(){rebuildBillsList();});
     rebuildBillsList();
   },0);
 
@@ -6034,7 +6074,13 @@ function openGrossPayModal(preParty) {
       billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
         var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
         var b=bills.find(function(x){return x.id===chk.dataset.billId;})||{};
-        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:parseFloat(inp?inp.value:0)||0,rebate:0,interest:0});
+        var rebI2=billsList.querySelector('input[data-reb-for="'+chk.dataset.billId+'"]');
+        var intI2=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
+        var rebPct2=parseFloat(rebI2&&rebI2.value)||0;
+        var netPaid2=parseFloat(inp?inp.value:0)||0;
+        var rebAmt2=rebPct2>0?Math.round(netPaid2/(1-rebPct2/100)*rebPct2/100*100)/100:0;
+        var intAmt2=parseFloat(intI2&&intI2.value)||0;
+        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:netPaid2,rebate:rebAmt2,interest:intAmt2});
       });
       if(!selected.length){toast('At least one bill select karo!','err');return;}
       // Create GP record
@@ -6052,7 +6098,7 @@ function openGrossPayModal(preParty) {
       selected.forEach(function(sel){
         payments.push({id:uid(),billId:sel.billId,amount:sel.amount,rebate:sel.rebate||0,interest:0,
           date:date,mode:mode,chequeNo:gv('gp-chq'),receiptNo:gv('gp-rcpt'),
-          grossAmt:grossAmt,rowType:'DETAIL',groupId:gpId2,gpId:gpId2,
+          rebate:sel.rebate||0,interest:sel.interest||0,grossAmt:grossAmt,rowType:'DETAIL',groupId:gpId2,gpId:gpId2,
           remarks:'Gross Payment '+gpId2});
       });
       invalidateBillStatusCache();
@@ -12869,17 +12915,16 @@ function pgInterest() {
     var prevBal=b.netAmt;
     var totalInterest=0;
     var schedule=[];
-    var freeDaysUsed=false;
+    var freeDaysLeft=freeDays; // free days consumed only in first segment
 
     // Process each payment
     bPays.forEach(function(p){
       if(p.date<=prevDate) return; // skip if before bill date
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=freeDaysUsed?0:freeDays;
-      var intDays=Math.max(0,days-fta);
-      if(days>0) freeDaysUsed=true;
-      var periodInt=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      if(intDays>0&&prevBal>0) totalInterest+=periodInt;
+      var intDays=Math.max(0,days-freeDaysLeft);
+      freeDaysLeft=Math.max(0,freeDaysLeft-days);
+      var periodInt=intDays>0&&prevBal>0?Math.round(prevBal*(rate/100)*(intDays/365)*100)/100:0;
+      totalInterest+=periodInt;
       schedule.push({
         from:new Date(prevDate),to:new Date(p.date),
         bal:prevBal,days:days,intDays:intDays,int:periodInt,
@@ -12892,15 +12937,14 @@ function pgInterest() {
     // Final period: last event → endDate
     if(prevBal>0 && endDate>prevDate){
       var finalDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      // Apply free days if not yet consumed (e.g. no payments at all)
-      var finalFta=freeDaysUsed?0:freeDays;
-      var finalIntDays=Math.max(0,finalDays-finalFta);
-      var finalInt=Math.round(prevBal*(rate/100)*(finalIntDays/365)*100)/100;
-      if(finalIntDays>0) totalInterest+=finalInt;
+      var finalIntDays=Math.max(0,finalDays-freeDaysLeft);
+      freeDaysLeft=Math.max(0,freeDaysLeft-finalDays);
+      var finalInt=finalIntDays>0?Math.round(prevBal*(rate/100)*(finalIntDays/365)*100)/100:0;
+      totalInterest+=finalInt;
       schedule.push({
         from:new Date(prevDate),to:new Date(endDate),
         bal:prevBal,days:finalDays,intDays:finalIntDays,int:finalInt,
-        label:isPaid?'(Closed)':'Outstanding'
+        label:isPaid?'(Closed)':'Outstanding',segType:'final'
       });
     }
 
@@ -14007,13 +14051,16 @@ function printPartyStatement(party, plState) {
 function printInterestStatement() {
   var st=pageState.int||{};
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var rate=cfg2.rate||24;var freeDays=cfg2.freeDays||7;
+  var rate=cfg2.rate||24; var freeDays=cfg2.freeDays||7;
   var asOfEl=document.getElementById('int-asof');
   var asOfStr=asOfEl?asOfEl.value||today():today();
   var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
   var exactParty=st.exactParty||'';
   var q2=(st.partyFilter||'').toLowerCase();
-  var dfrom=st.dateFrom?toISO(st.dateFrom):'';var dto=st.dateTo?toISO(st.dateTo):'';
+  var dfrom=st.dateFrom?toISO(st.dateFrom):''; var dto=st.dateTo?toISO(st.dateTo):'';
+
+  // Reuse main calcBillInterest — needs rate/freeDays/asOf/state in closure
+  // We snapshot pageState.int to ensure correct state
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
     if(!st.showPaid&&s.status==='paid')return false;
@@ -14023,109 +14070,159 @@ function printInterestStatement() {
     if(dto&&toISO(b.date||'')>dto)return false;
     return true;
   });
-  function calcBI(b){
+
+  // Inline segment calc (mirrors calcBillInterest, uses local rate/freeDays/asOf/st)
+  function calcSegments(b){
     var s=getBillStatus(b);
     var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
-      .sort(function(a,b2){return a.date-b2.date;});
+      .map(function(p){
+        var adj=(st.payDateAdj||{})[p.id]||'';
+        return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),
+               mode:p.mode||'',label:'Payment \u20b9'+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};
+      }).sort(function(a,b2){return a.date-b2.date;});
     var isPaid=s.status==='paid';
+    var billDate=new Date(toISO(b.date||today()));
+
     if(isPaid&&bPays.length===0){
-      var cfKey='cf_'+b.id;var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
-      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(toISO(b.date||today()));
-      var cfDays=Math.max(0,Math.floor((cfDate-new Date(toISO(b.date||today())))/86400000));
-      var cfFree=Math.max(0,cfDays-freeDays);
-      return{interest:cfFree>0?Math.round(b.netAmt*(rate/100)*(cfFree/365)*100)/100:0,bal:s.bal,isPaid:true};
+      var cfKey='cf_'+b.id; var cfDateStr=(st.payDateAdj||{})[cfKey]||getCFCreditDate(b)||'';
+      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
+      var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
+      var cfIntDays=Math.max(0,cfDays-freeDays);
+      var cfInt=cfIntDays>0?Math.round(b.netAmt*(rate/100)*(cfIntDays/365)*100)/100:0;
+      return{interest:cfInt,bal:s.bal,isPaid:true,schedule:[{
+        from:billDate,to:cfDate,bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,label:'Carry Fwd Credit'
+      }]};
     }
-    var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
-    var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
+    var endDate=asOf;
+    if(isPaid&&bPays.length>0){
+      var cfKey2='cf_'+b.id; var cfDs2=(st.payDateAdj||{})[cfKey2]||'';
+      endDate=cfDs2?new Date(toISO(cfDs2)):new Date(bPays[bPays.length-1].date);
+    }
+    var prevDate=new Date(billDate); var prevBal=b.netAmt; var totalInt=0;
+    var freeDaysLeft=freeDays; var schedule=[];
     bPays.forEach(function(p){
       if(p.date<=prevDate)return;
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
-      if(days>0)fdUsed=true;
-      if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+      var intDays=Math.max(0,days-freeDaysLeft);
+      freeDaysLeft=Math.max(0,freeDaysLeft-days);
+      var segInt=intDays>0&&prevBal>0?Math.round(prevBal*(rate/100)*(intDays/365)*100)/100:0;
+      totalInt+=segInt;
+      schedule.push({from:new Date(prevDate),to:new Date(p.date),bal:prevBal,days:days,intDays:intDays,int:segInt,label:p.label});
+      prevBal=Math.max(0,prevBal-p.amount); prevDate=new Date(p.date);
     });
-    if(prevBal>0&&endDate>prevDate){
-      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fta2=fdUsed?0:freeDays;var fid=Math.max(0,fd2-fta2);
-      if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
+    if(prevBal>0.5&&endDate>prevDate){
+      var fd=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fid=Math.max(0,fd-freeDaysLeft);
+      var fi=fid>0?Math.round(prevBal*(rate/100)*(fid/365)*100)/100:0;
+      totalInt+=fi;
+      schedule.push({from:new Date(prevDate),to:new Date(endDate),bal:prevBal,days:fd,intDays:fid,int:fi,label:isPaid?'(Closed)':'Outstanding'});
     }
-    return{interest:totalInt,bal:s.bal,isPaid:isPaid};
+    return{interest:totalInt,bal:s.bal,isPaid:isPaid,schedule:schedule};
   }
+
   var partyMap={};
   filteredBills.forEach(function(b){if(!partyMap[b.party])partyMap[b.party]=[];partyMap[b.party].push(b);});
-  if(!Object.keys(partyMap).length){toast('Koi data nahi — pehle party select karo ya filter lagao','err');return;}
+  if(!Object.keys(partyMap).length){toast('Koi data nahi \u2014 pehle party select karo ya filter lagao','err');return;}
   var grandInt=0,grandBal=0;
+
+  function isoFmt(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
+
   var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Interest Statement</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
-    +'h2{color:#166534;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-bottom:12px}'
-    +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
-    +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
-    +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'@media print{button{display:none}}</style></head><body>'
-    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print</button>'
+    +'<style>'
+    +'body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
+    +'h2{color:#166534;margin-bottom:4px}'
+    +'table{width:100%;border-collapse:collapse;margin-bottom:14px}'
+    +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}'
+    +'th.num{text-align:right}'
+    +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top}'
+    +'td.num{text-align:right}'
+    +'.ph td{background:#f0fdf4;font-weight:700;color:#166534;font-size:12px}'
+    +'.bill-row td{background:#fff;font-weight:600}'
+    +'.seg-row td{background:#fafafa;font-size:10px;color:#555}'
+    +'.seg-row td.seg-int{background:#fffbeb}'
+    +'.seg-lbl{font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;margin-right:4px;font-weight:700}'
+    +'tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
+    +'@media print{button{display:none!important}}'
+    +'</style></head><body>'
+    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">&#128438; Print / PDF</button>'
     +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
-    +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
+    +'<div style="font-size:10px;color:#6b7280;margin-bottom:8px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+' | Generated: '+new Date().toLocaleString('en-IN')+'</div>';
+
   Object.keys(partyMap).sort().forEach(function(party){
     var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
     var pTotBal=0,pTotInt=0;
-    h+='<table><thead><tr class="ph"><th colspan="5">'+party+'</th>'
-      +'<th class="num" style="color:#dc2626;background:#eff6ff">Outstanding</th>'
-      +'<th class="num" style="color:#d97706;background:#eff6ff">Interest (\u20b9)</th></tr>'
-      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th class="num">Period</th><th class="num">Balance</th><th class="num">Interest</th></tr></thead><tbody>';
+
+    h+='<table>'
+      +'<thead>'
+      +'<tr class="ph"><td colspan="8"><strong>'+party+'</strong></td></tr>'
+      +'<tr>'
+      +'<th>Bill#</th><th>Date</th><th class="num">Net Amt</th>'
+      +'<th>Period From</th><th>Period To</th>'
+      +'<th class="num">Days</th><th class="num">Int Days</th>'
+      +'<th class="num">Balance</th><th class="num">Interest (\u20b9)</th>'
+      +'</tr>'
+      +'</thead><tbody>';
+
     pBills.forEach(function(b){
-      var s=getBillStatus(b);var calc=calcBI(b);
-      pTotBal+=s.bal;pTotInt+=calc.interest;
-      var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
-      var isCF=(calc.isPaid&&bPays2.length===0);
-      var payStr=bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join(', '):(isCF?'Carry Fwd Credit':'No payments');
-      // Calculate int days for print
-      var printIntDays=0;
-      var printPrevDate=new Date(toISO(b.date||today()));var printPrevBal=b.netAmt;var printFdUsed=false;
-      var isPaid2=s.status==='paid';
-      var printEndDate=asOf;
-      if(isPaid2&&bPays2.length>0)printEndDate=new Date(toISO(bPays2[bPays2.length-1].date||today()));
-      bPays2.forEach(function(p){
-        var pDate=new Date(toISO(p.date||today()));if(pDate<=printPrevDate)return;
-        var days=Math.max(0,Math.floor((pDate-printPrevDate)/86400000));
-        var fta=printFdUsed?0:freeDays;if(days>0)printFdUsed=true;
-        printIntDays+=Math.max(0,days-fta);
-        printPrevBal=Math.max(0,printPrevBal-(p.amount||0)+(p.rebate||0));printPrevDate=pDate;
-      });
-      if(printPrevBal>0.5){var fd2=Math.max(0,Math.floor((printEndDate-printPrevDate)/86400000));printIntDays+=Math.max(0,fd2-(printFdUsed?0:freeDays));}
-      h+='<tr><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
+      var s=getBillStatus(b); var calc=calcSegments(b);
+      pTotBal+=s.bal; pTotInt+=calc.interest;
+
+      // Bill summary row
+      h+='<tr class="bill-row">'
+        +'<td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px;font-weight:700">PAID</span>':'')+'</td>'
         +'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
         +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
-        +'<td style="font-size:10px;color:#374151">'+payStr+'</td>'
-        +'<td class="num" style="color:#6b7280">'+(printIntDays>0?printIntDays+'d':'—')+'</td>'
-        +'<td class="num" style="color:'+(s.bal>0.5?'#dc2626':'#166534')+';font-weight:700">'+(s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR')+'</td>'
-        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td></tr>';
+        +'<td colspan="4" style="color:#6b7280;font-size:10px">'
+          +(calc.schedule.length?calc.schedule.length+' segment(s)':'No activity')
+        +'</td>'
+        +'<td class="num" style="color:'+(s.bal>0.5?'#dc2626':'#166534')+'">'+(s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR')+'</td>'
+        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td>'
+        +'</tr>';
+
+      // Segment rows
+      calc.schedule.forEach(function(seg,si){
+        var hasBorder=seg.int>0.5?'border-left:3px solid #d97706':'border-left:3px solid #e5e7eb';
+        h+='<tr class="seg-row">'
+          +'<td style="'+hasBorder+';padding-left:10px"><span class="seg-lbl">Seg'+(si+1)+'</span>'+seg.label+'</td>'
+          +'<td>'+isoFmt(seg.from)+'</td>'
+          +'<td style="white-space:nowrap">\u21920 '+isoFmt(seg.to)+'</td>'
+          +'<td class="num">'+seg.days+'d</td>'
+          +'<td class="num">'+seg.intDays+'d</td>'
+          +'<td class="num">\u20b9'+fmt(seg.bal)+'</td>'
+          +'<td class="num '+(seg.int>0.5?'seg-int':'')+'">'
+            +(seg.int>0.5?'<strong style="color:#d97706">\u20b9'+fmt(seg.int)+'</strong>':'<span style="color:#9ca3af">\u2014</span>')
+          +'</td>'
+          +'</tr>';
+      });
     });
-    h+='</tbody><tfoot><tr><td colspan="5"><strong>Total ('+pBills.length+' bills)</strong></td>'
+
+    h+='</tbody><tfoot><tr>'
+      +'<td colspan="7"><strong>Total ('+pBills.length+' bills)</strong></td>'
       +'<td class="num" style="color:#dc2626">\u20b9'+fmt(pTotBal)+'</td>'
-      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td></tr></tfoot></table>';
-    grandBal+=pTotBal;grandInt+=pTotInt;
+      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td>'
+      +'</tr></tfoot></table>';
+    grandBal+=pTotBal; grandInt+=pTotInt;
   });
-  h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700">'
-    +'Outstanding: <strong style="color:#dc2626">\u20b9'+fmt(grandBal)+'</strong>&nbsp;&nbsp; Interest: <strong style="color:#d97706">\u20b9'+fmt(grandInt)+'</strong></div>'
-    +'<div style="font-size:10px;color:#9ca3af;margin-top:12px">Generated: '+new Date().toLocaleString('en-IN')+'</div>'
+
+  h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700;font-size:13px">'
+    +'Total Outstanding: <strong style="color:#dc2626">\u20b9'+fmt(grandBal)+'</strong>'
+    +'&nbsp;&nbsp;&nbsp; Total Interest: <strong style="color:#d97706">\u20b9'+fmt(grandInt)+'</strong>'
+    +'</div>'
     +'</body></html>';
   var win=window.open('','_blank');if(!win){toast('Please allow popups!','err');return;}
   win.document.write(h);win.document.close();
 }
 
-// ── INTEREST CALCULATOR: EXCEL ──
 function exportInterestExcel() {
   var st=pageState.int||{};
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var rate=cfg2.rate||24;var freeDays=cfg2.freeDays||7;
+  var rate=cfg2.rate||24; var freeDays=cfg2.freeDays||7;
   var asOfEl=document.getElementById('int-asof');
   var asOfStr=asOfEl?asOfEl.value||today():today();
   var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
   var exactParty=st.exactParty||'';
   var q2=(st.partyFilter||'').toLowerCase();
-  var dfrom=st.dateFrom?toISO(st.dateFrom):'';var dto=st.dateTo?toISO(st.dateTo):'';
+  var dfrom=st.dateFrom?toISO(st.dateFrom):''; var dto=st.dateTo?toISO(st.dateTo):'';
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
     if(!st.showPaid&&s.status==='paid')return false;
@@ -14136,62 +14233,127 @@ function exportInterestExcel() {
     return true;
   });
   if(!filteredBills.length){toast('Koi data nahi!','err');return;}
-  function calcBI2(b){
+
+  // Inline segment calc (same as print version)
+  function calcSegs(b){
     var s=getBillStatus(b);
     var bPays=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
-      .sort(function(a,b2){return a.date-b2.date;});
+      .map(function(p){
+        var adj=(st.payDateAdj||{})[p.id]||'';
+        return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today())),
+               label:'Payment \u20b9'+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};
+      }).sort(function(a,b2){return a.date-b2.date;});
     var isPaid=s.status==='paid';
+    var billDate=new Date(toISO(b.date||today()));
     if(isPaid&&bPays.length===0){
-      var cfKey='cf_'+b.id;var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
-      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(toISO(b.date||today()));
-      var cfDays=Math.max(0,Math.floor((cfDate-new Date(toISO(b.date||today())))/86400000));
-      var cfFree=Math.max(0,cfDays-freeDays);
-      return{interest:cfFree>0?Math.round(b.netAmt*(rate/100)*(cfFree/365)*100)/100:0,bal:s.bal};
+      var cfKey='cf_'+b.id; var cfDs=(st.payDateAdj||{})[cfKey]||getCFCreditDate(b)||'';
+      var cfDate=cfDs?new Date(toISO(cfDs)):new Date(billDate);
+      var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
+      var cfIntDays=Math.max(0,cfDays-freeDays);
+      var cfInt=cfIntDays>0?Math.round(b.netAmt*(rate/100)*(cfIntDays/365)*100)/100:0;
+      return{interest:cfInt,bal:s.bal,isPaid:true,schedule:[{
+        from:billDate,to:cfDate,bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,label:'Carry Fwd Credit'
+      }]};
     }
-    var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
-    var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
+    var endDate=asOf;
+    if(isPaid&&bPays.length>0){
+      var cfDs2=(st.payDateAdj||{})['cf_'+b.id]||'';
+      endDate=cfDs2?new Date(toISO(cfDs2)):new Date(bPays[bPays.length-1].date);
+    }
+    var prevDate=new Date(billDate); var prevBal=b.netAmt; var totalInt=0;
+    var freeDaysLeft=freeDays; var schedule=[];
     bPays.forEach(function(p){
       if(p.date<=prevDate)return;
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
-      if(days>0)fdUsed=true;
-      if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+      var intDays=Math.max(0,days-freeDaysLeft);
+      freeDaysLeft=Math.max(0,freeDaysLeft-days);
+      var si=intDays>0&&prevBal>0?Math.round(prevBal*(rate/100)*(intDays/365)*100)/100:0;
+      totalInt+=si;
+      schedule.push({from:new Date(prevDate),to:new Date(p.date),bal:prevBal,days:days,intDays:intDays,int:si,label:p.label});
+      prevBal=Math.max(0,prevBal-p.amount); prevDate=new Date(p.date);
     });
-    if(prevBal>0&&endDate>prevDate){
-      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fta2=fdUsed?0:freeDays;var fid=Math.max(0,fd2-fta2);
-      if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
+    if(prevBal>0.5&&endDate>prevDate){
+      var fd=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fid=Math.max(0,fd-freeDaysLeft);
+      var fi=fid>0?Math.round(prevBal*(rate/100)*(fid/365)*100)/100:0;
+      totalInt+=fi;
+      schedule.push({from:new Date(prevDate),to:new Date(endDate),bal:prevBal,days:fd,intDays:fid,int:fi,label:isPaid?'(Closed)':'Outstanding'});
     }
-    return{interest:Math.round(totalInt),bal:s.bal};
+    return{interest:totalInt,bal:s.bal,isPaid:isPaid,schedule:schedule};
   }
-  var rows=[];
-  filteredBills.forEach(function(b){
-    var calc=calcBI2(b);var s=getBillStatus(b);
-    var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
-    var isCF=(s.status==='paid'&&bPays2.length===0);
-    rows.push({
-      'Party':b.party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),
-      'Net Amt':b.netAmt||0,'Balance':Math.round(calc.bal),
-      'Status':s.status.toUpperCase(),
-      'Payment Dates':bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join('; '):(isCF?'Carry Fwd Credit':'No payments'),
-      'Interest (\u20b9)':calc.interest
+
+  function isoFmt(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
+
+  // Build rows — one BILL header row + one row per segment
+  var aoa=[]; // array of arrays for sheet
+  var HDR=['Party','Bill#','Bill Date','Net Amt','Status','Row Type','Seg#','Period From','Period To','Days','Int Days','Balance','Interest (\u20b9)','Segment Label'];
+  aoa.push(HDR);
+
+  filteredBills.sort(function(a,b2){
+    if(a.party<b2.party)return -1; if(a.party>b2.party)return 1;
+    return toISO(a.date||'').localeCompare(toISO(b2.date||''));
+  }).forEach(function(b){
+    var s=getBillStatus(b); var calc=calcSegs(b);
+    // Bill summary row
+    aoa.push([
+      b.party, b.billNo||'', fmtDate(b.date), b.netAmt||0,
+      s.status.toUpperCase(), 'BILL', '', '', '',
+      '', '', Math.round(calc.bal), Math.round(calc.interest), ''
+    ]);
+    // Segment rows
+    calc.schedule.forEach(function(seg,si){
+      aoa.push([
+        b.party, b.billNo||'', fmtDate(b.date), '',
+        '', 'SEGMENT', si+1, isoFmt(seg.from), isoFmt(seg.to),
+        seg.days, seg.intDays, Math.round(seg.bal), Math.round(seg.int), seg.label||''
+      ]);
     });
   });
-  var ws=XLSX.utils.json_to_sheet(rows);
-  var hdrStyle={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'166534'}},alignment:{horizontal:'center'}};
-  Object.keys(rows[0]).forEach(function(k,i){
-    var cr=XLSX.utils.encode_cell({r:0,c:i});
+
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+
+  // Column widths
+  ws['!cols']=[{wch:28},{wch:8},{wch:12},{wch:12},{wch:10},{wch:10},{wch:6},{wch:12},{wch:12},{wch:8},{wch:8},{wch:13},{wch:13},{wch:28}];
+
+  // Style header row
+  var hdrFill={fgColor:{rgb:'166534'}}; var hdrFont={bold:true,color:{rgb:'FFFFFF'},sz:10};
+  HDR.forEach(function(k,ci){
+    var cr=XLSX.utils.encode_cell({r:0,c:ci});
     if(!ws[cr])ws[cr]={v:k,t:'s'};
-    ws[cr].s=hdrStyle;
+    ws[cr].s={font:hdrFont,fill:hdrFill,alignment:{horizontal:'center',wrapText:true}};
   });
+
+  // Style data rows
+  aoa.forEach(function(row,ri){
+    if(ri===0)return;
+    var isBill=row[5]==='BILL';
+    var isSeg=row[5]==='SEGMENT';
+    var hasInt=parseFloat(row[12])>0.5;
+    row.forEach(function(v,ci){
+      var cr=XLSX.utils.encode_cell({r:ri,c:ci});
+      if(!ws[cr])ws[cr]={v:v===''?'':v, t:typeof v==='number'?'n':'s'};
+      var fill=isBill?{fgColor:{rgb:'EFF6FF'}}:(hasInt&&isSeg?{fgColor:{rgb:'FFFBEB'}}:{fgColor:{rgb:'FAFAFA'}});
+      ws[cr].s={
+        font:{bold:isBill,sz:isBill?10:9,color:isBill?{rgb:'1F2937'}:{rgb:'374151'}},
+        fill:fill,
+        alignment:{horizontal:typeof v==='number'?'right':'left',wrapText:false},
+        border:{bottom:{style:'thin',color:{rgb:'E5E7EB'}}}
+      };
+    });
+    // Highlight interest cell
+    if(isSeg&&hasInt){
+      var intCr=XLSX.utils.encode_cell({r:ri,c:12});
+      if(ws[intCr])ws[intCr].s.font={bold:true,color:{rgb:'D97706'},sz:9};
+    }
+  });
+
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
   var fname='Interest_Statement'+(exactParty?'_'+exactParty.replace(/[^a-z0-9]/gi,'_'):'')+'_'+today()+'.xlsx';
   XLSX.writeFile(wb,fname);
-  toast('Excel exported! ('+filteredBills.length+' bills)');
+  toast('\u2705 Excel exported \u2014 '+filteredBills.length+' bills, segment-wise breakup');
 }
+
 function exportStyledReport(data) {
   var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totBal=data.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -20490,7 +20652,7 @@ function pgAIRules() {
 
 
 function pgReceiptLedger() {
-  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=_fyPayments.filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=_fyGross.filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
+  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=payments.filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=(grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
   var state = pageState.rcptLedger = pageState.rcptLedger || {
     q:'', sortKey:'date', sortDir:-1, filters:{},
     dateFrom:'', dateTo:'', modeFilter:'ALL'
