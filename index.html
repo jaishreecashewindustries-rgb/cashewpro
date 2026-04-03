@@ -180,8 +180,12 @@ input, select, textarea { font-family: var(--font); }
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible; /* FIX: was 'hidden' — also clipped search dropdown */
   min-width: 0;
+}
+/* Keep page scroll intact — .page handles its own scroll */
+.page {
+  overflow-y: auto;
 }
 
 /* ── TOPBAR ── */
@@ -195,7 +199,7 @@ input, select, textarea { font-family: var(--font); }
   gap: 6px;
   flex-shrink: 0;
   box-shadow: 0 1px 0 var(--border-light);
-  overflow: hidden;
+  overflow: visible; /* FIX: was 'hidden' — caused search dropdown to be clipped */
   min-width: 0;
 }
 .topbar h3 {
@@ -917,7 +921,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
         <input type="text" id="global-search" placeholder="🔍 Search bills, parties, amounts..." 
           style="width:100%;padding:6px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:12.5px;background:#f9fafb;outline:none;box-sizing:border-box;font-family:var(--font);transition:border-color .15s" onfocus="this.style.borderColor='#166534';this.style.background='#fff'" onblur="this.style.borderColor='#d1d5db';this.style.background='#f9fafb'">
         <button id="mob-search-close" onclick="toggleMobSearch()">✕</button>
-        <div id="gs-results" style="display:none;position:absolute;top:38px;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:500;max-height:360px;overflow-y:auto"></div>
+        <div id="gs-results" style="display:none;position:fixed;top:52px;left:auto;right:auto;width:420px;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:5000;max-height:360px;overflow-y:auto"></div>
       </div>
       <div class="tb-actions">
         <button id="hist-undo-topbar" onclick="histUndo();refresh()" title="Undo (Ctrl+Z)" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 7px;font-size:10px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='var(--brand-light)';this.style.color='var(--brand)'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↩</button>
@@ -15800,6 +15804,11 @@ function restoreFromCloudBackup() {
           DB.set('grossPayments',grossPayments);
           saveBackupToHistory('Restored from Cloud Backup');
           toast('✅ Cloud backup restore hua! Bills: '+bills.length+', Gross: '+grossPayments.length);
+          // FIX: Sync active FY badge after cloud restore
+          if(cfg.financialYear) {
+            var fyBadge = document.getElementById('fy-badge');
+            if(fyBadge) fyBadge.textContent = 'FY ' + cfg.financialYear;
+          }
           refresh();
         } catch(e){ toast('Restore error: '+e.message,'err'); }
       }
@@ -16020,6 +16029,13 @@ function restoreFromJSON(file) {
 
       saveBackupToHistory('Restored from: '+(meta.label||file.name||'backup'));
       toast('✅ Restore complete! Bills: '+bills.length+', Payments: '+payments.length+', Gross: '+grossPayments.length+extraNote);
+
+      // FIX: Explicitly sync active FY from restored settings so Jan 2026+ payments are visible
+      if(cfg.financialYear) {
+        var fyBadge = document.getElementById('fy-badge');
+        if(fyBadge) fyBadge.textContent = 'FY ' + cfg.financialYear;
+      }
+
       refresh();
     }, 1500);
   };
@@ -16222,6 +16238,11 @@ function invalidateGsIndex() { _gsIndex = null; }
     var q=this.value.trim().toLowerCase();
     clearTimeout(gsTimer);
     if(!q||q.length<2){closeGs();return;}
+    // Position the dropdown below the search input (fixed positioning)
+    var rect=gsInp.getBoundingClientRect();
+    gsRes.style.left=rect.left+'px';
+    gsRes.style.width=Math.max(rect.width,320)+'px';
+    gsRes.style.top=(rect.bottom+4)+'px';
     gsTimer=setTimeout(function(){
       // Build index lazily (first search, or after data changes)
       if(!_gsIndex) _buildGsIndex();
