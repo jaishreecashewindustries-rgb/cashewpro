@@ -221,7 +221,7 @@ input, select, textarea { font-family: var(--font); }
 /* Global search */
 #global-search {
   flex: 1;
-  max-width: 560px;
+  max-width: 380px;
   padding: 7px 12px 7px 34px;
   border: 1.5px solid var(--border);
   border-radius: 8px;
@@ -1435,9 +1435,8 @@ function initFYOnStartup() {
   if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
   if(cfg.financialYear!==cur&&cfg.financialYear<cur){
     setTimeout(function(){
-      var msg='\u26a0 FY SWITCH WARNING\n\nAbhi active: '+cfg.financialYear+'\nNaya: '+cur+'\n\nCANCEL karo agar March 2026 tak data dekhna hai!\nOK sirf tab karo jab naye FY mein kaam shuru karna ho.';
-      if(confirm(msg)){cfg.financialYear=cur;DB.set('cfg',cfg);if(typeof refresh==='function')refresh();
-      }else{toast('Active FY: '+cfg.financialYear+'. FY Settings se change karo.','ok');}
+      var msg='\u2603 Naya Financial Year '+cur+' shuru ho gaya!\n\nAbhi active FY: '+cfg.financialYear+'\n\nNaye FY '+cur+' mein switch karna chahte hain?\n(Purana data safe rahega)';
+      if(confirm(msg)){cfg.financialYear=cur;DB.set('cfg',cfg);if(typeof refresh==='function')refresh();}
     },1500);
   }
 }
@@ -5915,27 +5914,12 @@ function openGrossPayModal(preParty) {
   var body=document.createElement('div');
   var allParties=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
   
-  // Party selector with search
+  // Party selector
   var partyDiv=document.createElement('div');partyDiv.className='fg';partyDiv.style.marginBottom='12px';
   var partyLbl=document.createElement('label');partyLbl.textContent='Party';
-  var gpSI=document.createElement('input');gpSI.type='text';gpSI.className='inp';
-  gpSI.placeholder='Search party...';gpSI.style.cssText='margin-bottom:4px;font-size:13px';
-  if(preParty)gpSI.value=preParty;
   var partySel=document.createElement('select');partySel.className='inp';partySel.id='gp-party';
-  partySel.size=5;partySel.style.cssText='height:auto;min-height:90px;font-size:12px;border-top:none;border-radius:0 0 6px 6px';
-  function _gpFP(){
-    var q=gpSI.value.toLowerCase();partySel.innerHTML='';
-    allParties.filter(function(p){return !q||p.toLowerCase().includes(q);}).forEach(function(p){
-      var o=document.createElement('option');o.value=p;o.textContent=p;
-      if(p===preParty)o.selected=true;partySel.appendChild(o);
-    });
-    if(!partySel.value&&partySel.options.length)partySel.selectedIndex=0;
-    rebuildBillsList();
-  }
-  gpSI.addEventListener('input',_gpFP);
-  partySel.addEventListener('change',function(){rebuildBillsList();});
-  _gpFP();
-  partyDiv.appendChild(partyLbl);partyDiv.appendChild(gpSI);partyDiv.appendChild(partySel);body.appendChild(partyDiv);
+  allParties.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;if(p===preParty)o.selected=true;partySel.appendChild(o);});
+  partyDiv.appendChild(partyLbl);partyDiv.appendChild(partySel);body.appendChild(partyDiv);
 
   // Payment info
   var infoGrid=document.createElement('div');infoGrid.className='grid g2';infoGrid.style.marginBottom='12px';
@@ -5991,23 +5975,12 @@ function openGrossPayModal(preParty) {
         '<span style="margin-left:8px;color:#1d4ed8;font-weight:600">Balance: \u20b9'+fmt(s.bal)+'</span>';
       var amtInp=document.createElement('input');amtInp.type='number';amtInp.className='inp-sm';
       amtInp.style.cssText='width:100px;text-align:right;font-size:12px';
-      amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;amtInp.dataset.ob=s.bal.toFixed(2);
-      var rI=document.createElement('input');rI.type='number';rI.className='inp-sm';
-      rI.style.cssText='width:66px;text-align:right;font-size:11px';rI.placeholder='Reb%';rI.dataset.rebFor=b.id;
-      var iI=document.createElement('input');iI.type='number';iI.className='inp-sm';
-      iI.style.cssText='width:74px;text-align:right;font-size:11px';iI.placeholder='Int';iI.dataset.intFor=b.id;
-      rI.addEventListener('click',function(e){e.stopPropagation();});
-      iI.addEventListener('click',function(e){e.stopPropagation();});
-      rI.addEventListener('input',function(){
-        var p=parseFloat(this.value)||0,bl=parseFloat(amtInp.dataset.ob)||s.bal;
-        amtInp.value=p>0?(bl*(1-p/100)).toFixed(2):bl.toFixed(2);updateGPTotal();
-      });
+      amtInp.value=s.bal.toFixed(2);amtInp.placeholder='Amount';amtInp.dataset.billId=b.id;
       amtInp.addEventListener('click',function(e){e.stopPropagation();});
       chk.addEventListener('change',function(){updateGPTotal();});
       amtInp.addEventListener('input',function(){updateGPTotal();});
-      iI.addEventListener('input',function(){updateGPTotal();});
-      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp&&e.target!==rI&&e.target!==iI){chk.checked=!chk.checked;updateGPTotal();}});
-      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);row.appendChild(rI);row.appendChild(iI);billsList.appendChild(row);
+      row.addEventListener('click',function(e){if(e.target!==chk&&e.target!==amtInp){chk.checked=!chk.checked;updateGPTotal();}});
+      row.appendChild(chk);row.appendChild(info);row.appendChild(amtInp);billsList.appendChild(row);
     });
   }
 
@@ -6015,8 +5988,7 @@ function openGrossPayModal(preParty) {
     var total=0;
     billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
       var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
-      var iInp=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
-      total+=(inp?parseFloat(inp.value)||0:0)+(iInp?parseFloat(iInp.value)||0:0);
+      total+=(inp?parseFloat(inp.value)||0:0);
     });
     var stEl=document.getElementById('gp-sel-total');
     if(stEl)stEl.textContent='\u20b9'+fmt(total)+' selected';
@@ -6045,6 +6017,7 @@ function openGrossPayModal(preParty) {
   setTimeout(function(){
     amtInpEl=document.getElementById('gp-amt');
     if(amtInpEl){amtInpEl._manualEdit=false;amtInpEl.addEventListener('input',function(){this._manualEdit=true;updateGPSummary();});}
+    partySel.addEventListener('change',function(){rebuildBillsList();});
     rebuildBillsList();
   },0);
 
@@ -6061,10 +6034,7 @@ function openGrossPayModal(preParty) {
       billsList.querySelectorAll('input[type=checkbox]:checked').forEach(function(chk){
         var inp=billsList.querySelector('input[type=number][data-bill-id="'+chk.dataset.billId+'"]');
         var b=bills.find(function(x){return x.id===chk.dataset.billId;})||{};
-        var rI2=billsList.querySelector('input[data-reb-for="'+chk.dataset.billId+'"]');
-        var iI2=billsList.querySelector('input[data-int-for="'+chk.dataset.billId+'"]');
-        var rP=parseFloat(rI2&&rI2.value)||0,nP=parseFloat(inp?inp.value:0)||0;
-        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:nP,rebate:rP>0?Math.round(nP/(1-rP/100)*rP/100*100)/100:0,interest:parseFloat(iI2&&iI2.value)||0});
+        selected.push({billId:chk.dataset.billId,billNo:b.billNo,amount:parseFloat(inp?inp.value:0)||0,rebate:0,interest:0});
       });
       if(!selected.length){toast('At least one bill select karo!','err');return;}
       // Create GP record
@@ -6082,7 +6052,7 @@ function openGrossPayModal(preParty) {
       selected.forEach(function(sel){
         payments.push({id:uid(),billId:sel.billId,amount:sel.amount,rebate:sel.rebate||0,interest:0,
           date:date,mode:mode,chequeNo:gv('gp-chq'),receiptNo:gv('gp-rcpt'),
-          rebate:sel.rebate||0,interest:sel.interest||0,grossAmt:grossAmt,rowType:'DETAIL',groupId:gpId2,gpId:gpId2,
+          grossAmt:grossAmt,rowType:'DETAIL',groupId:gpId2,gpId:gpId2,
           remarks:'Gross Payment '+gpId2});
       });
       invalidateBillStatusCache();
@@ -12850,95 +12820,310 @@ function pgInterest() {
 
   var grandTotBal=0,grandTotInt=0;
 
-  // ── INTEREST CALCULATION — SEGMENT-BASED (freeDaysLeft per segment) ──
+  // ── INTEREST CALCULATION FUNCTION ──
+  // For a bill: calculate interest using running balance method
+  // Paid bill: end date = last payment date (not asOf)
+  // Outstanding: end date = asOf
   function calcBillInterest(b) {
     var s=getBillStatus(b);
     var bPays=payments.filter(function(p){return p.billId===b.id;})
       .map(function(p){
         var adjStr=state.payDateAdj[p.id]||'';
-        return {id:p.id,amount:p.amount+(p.rebate||0),origDate:p.date,adjDate:adjStr,
-          date:new Date(toISO(adjStr||p.date||today())),mode:p.mode||'',receipt:p.receiptNo||p.chequeNo||''};
+        return {
+          id:p.id, amount:p.amount+(p.rebate||0),
+          origDate:p.date, adjDate:adjStr,
+          date:new Date(toISO(adjStr||p.date||today())),
+          mode:p.mode||'', receipt:p.receiptNo||p.chequeNo||''
+        };
       }).sort(function(a,b2){return a.date-b2.date;});
+
     var billDate=new Date(toISO(b.date||today()));
     var isPaid=s.status==='paid';
-    if(isPaid&&bPays.length===0){
+
+    // BUG5 FIX: CF bill (paid, no direct payments) — use user-set CF date, else auto-detect
+    if(isPaid && bPays.length===0){
       var cfKey='cf_'+b.id;
-      var cfDateStr=state.payDateAdj[cfKey]||getCFCreditDate(b)||'';
+      var cfDateStr=state.payDateAdj[cfKey]||'';
+      // Auto-detect: use previous bill's last payment date if user hasn't set manually
+      if(!cfDateStr){cfDateStr=getCFCreditDate(b)||'';}
       var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(billDate);
       var cfDays=Math.max(0,Math.floor((cfDate-billDate)/86400000));
-      var cfIntDays=Math.max(0,cfDays-freeDays);
-      var cfInt=cfIntDays>0?Math.round(b.netAmt*(rate/100)*(cfIntDays/365)*100)/100:0;
-      return{interest:cfInt,schedule:[{
-        from:new Date(billDate),to:new Date(cfDate),bal:b.netAmt,days:cfDays,intDays:cfIntDays,int:cfInt,
+      var cfFreeDays=Math.max(0,cfDays-freeDays);
+      var cfInterest=cfFreeDays>0?Math.round(b.netAmt*(rate/100)*(cfFreeDays/365)*100)/100:0;
+      return{interest:cfInterest,schedule:[{
+        from:new Date(billDate),to:new Date(cfDate),
+        bal:b.netAmt,days:cfDays,intDays:cfFreeDays,int:cfInterest,
         label:'Carry Fwd Credit'+(cfDateStr?' ('+cfDateStr+')':'')
       }],bPays:[],isPaid:true,endDate:cfDate};
     }
+
     var endDate=asOf;
-    if(isPaid&&bPays.length>0){
-      var cfKey2='cf_'+b.id;var cfDateStr2=state.payDateAdj[cfKey2]||'';
-      endDate=cfDateStr2?new Date(toISO(cfDateStr2)):new Date(bPays[bPays.length-1].date);
+    if(isPaid && bPays.length>0){
+      // Check if a CF date was set for remaining balance after payments
+      var cfKey2='cf_'+b.id;
+      var cfDateStr2=state.payDateAdj[cfKey2]||'';
+      endDate=cfDateStr2?new Date(toISO(cfDateStr2)):bPays[bPays.length-1].date;
     }
-    var prevDate=new Date(billDate),prevBal=b.netAmt,totalInterest=0,schedule=[],freeDaysLeft=freeDays;
+
+    var prevDate=new Date(billDate);
+    var prevBal=b.netAmt;
+    var totalInterest=0;
+    var schedule=[];
+    var freeDaysUsed=false;
+
+    // Process each payment
     bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
+      if(p.date<=prevDate) return; // skip if before bill date
       var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
-      var intDays=Math.max(0,days-freeDaysLeft);freeDaysLeft=Math.max(0,freeDaysLeft-days);
-      var segInt=intDays>0&&prevBal>0?Math.round(prevBal*(rate/100)*(intDays/365)*100)/100:0;
-      totalInterest+=segInt;
-      schedule.push({from:new Date(prevDate),to:new Date(p.date),bal:prevBal,days:days,intDays:intDays,int:segInt,
-        label:'Payment ₹'+fmt(p.amount)+(p.mode?' ('+p.mode+')':'')});
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+      var fta=freeDaysUsed?0:freeDays;
+      var intDays=Math.max(0,days-fta);
+      if(days>0) freeDaysUsed=true;
+      var periodInt=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
+      if(intDays>0&&prevBal>0) totalInterest+=periodInt;
+      schedule.push({
+        from:new Date(prevDate),to:new Date(p.date),
+        bal:prevBal,days:days,intDays:intDays,int:periodInt,
+        label:'Payment \u20b9'+fmt(p.amount)+(p.mode?' ('+p.mode+')':'')
+      });
+      prevBal=Math.max(0,prevBal-p.amount);
+      prevDate=new Date(p.date);
     });
-    if(prevBal>0.5&&endDate>prevDate){
-      var fDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
-      var fIntDays=Math.max(0,fDays-freeDaysLeft);
-      var fInt=fIntDays>0?Math.round(prevBal*(rate/100)*(fIntDays/365)*100)/100:0;
-      totalInterest+=fInt;
-      schedule.push({from:new Date(prevDate),to:new Date(endDate),bal:prevBal,days:fDays,intDays:fIntDays,int:fInt,
-        label:isPaid?'(Closed)':'Outstanding'});
+
+    // Final period: last event → endDate
+    if(prevBal>0 && endDate>prevDate){
+      var finalDays=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      // Apply free days if not yet consumed (e.g. no payments at all)
+      var finalFta=freeDaysUsed?0:freeDays;
+      var finalIntDays=Math.max(0,finalDays-finalFta);
+      var finalInt=Math.round(prevBal*(rate/100)*(finalIntDays/365)*100)/100;
+      if(finalIntDays>0) totalInterest+=finalInt;
+      schedule.push({
+        from:new Date(prevDate),to:new Date(endDate),
+        bal:prevBal,days:finalDays,intDays:finalIntDays,int:finalInt,
+        label:isPaid?'(Closed)':'Outstanding'
+      });
     }
+
     return {interest:totalInterest,schedule:schedule,bPays:bPays,isPaid:isPaid,endDate:endDate};
   }
-      // Period summary
+
+  // ── RENDER EACH PARTY ──
+  // Paginated party list
+  var INT_PG=10; if(!pageState.int._intPg) pageState.int._intPg=0;
+  var allIntKeys=Object.keys(partyMap).sort();
+  var _intDiv=document.createElement('div'); wrap.appendChild(_intDiv);
+  function renderIntPage(){
+    _intDiv.innerHTML='';
+    var pg=pageState.int._intPg||0;
+    var totalIPg=Math.max(1,Math.ceil(allIntKeys.length/INT_PG));
+    if(pg>=totalIPg)pg=0; pageState.int._intPg=pg;
+    var pageKeys=allIntKeys.slice(pg*INT_PG,(pg+1)*INT_PG);
+    if(!pageKeys.length){_intDiv.innerHTML='<div style="text-align:center;padding:40px;color:#9ca3af">Koi bills nahi hain</div>';return;}
+    var grandTotBal=0,grandTotInt=0;
+    pageKeys.forEach(function(party){
+    var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
+    var partyCard=document.createElement('div');partyCard.className='card';partyCard.style.marginBottom='10px';
+
+    // Party header with outstanding + total interest
+    var pDue=pBills.filter(function(b){return getBillStatus(b).status!=='paid';}).reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+    var pHead=document.createElement('div');pHead.className='card-head';
+    pHead.innerHTML='<h4 style="color:var(--brand)">'+party+'</h4>'+
+      '<span style="font-size:12px;color:var(--red)">Outstanding: <strong>\u20b9'+fmt(pDue)+'</strong></span>';
+    partyCard.appendChild(pHead);
+
+    var tOuter=document.createElement('div');tOuter.style.overflow='auto';
+    var tbl=document.createElement('table');tbl.style.width='100%';
+    var thead=document.createElement('thead');var htr=document.createElement('tr');htr.style.background='#f9fafb';
+    ['','Bill#','Date','Net Amt','Balance','Payment Dates (editable)','Period','Int Days','Interest (₹)','Action'].forEach(function(h){
+      var th=document.createElement('th');
+      th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left';
+      th.textContent=h;
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);tbl.appendChild(thead);
+    var tbody=document.createElement('tbody');
+    var partyTotBal=0,partyTotInt=0;
+
+    pBills.forEach(function(b){
+      var s=getBillStatus(b);
+      var calc=calcBillInterest(b);
+      partyTotBal+=s.bal;partyTotInt+=calc.interest;
+
+      var tr2=document.createElement('tr');
+      var rowBg=calc.isPaid?'#f0fdf4':'#fff';
+      tr2.style.cssText='border-bottom:1px solid #f3f4f6;background:'+rowBg;
+
+      // Checkbox
+      var chkTd=document.createElement('td');chkTd.style.cssText='padding:7px 8px;width:30px';
+      var billChk=document.createElement('input');billChk.type='checkbox';
+      billChk.checked=state.selectedBills.size===0||state.selectedBills.has(b.id);
+      billChk.style.cssText='accent-color:var(--brand);width:14px;height:14px;cursor:pointer';
+      billChk.addEventListener('change',function(){
+        if(this.checked){state.selectedBills.delete(b.id);}
+        else{state.selectedBills.add(b.id);}
+        tr2.style.opacity=this.checked?'1':'0.4';
+      });
+      chkTd.appendChild(billChk);tr2.appendChild(chkTd);
+
+      // Bill# + paid badge
+      var td0=document.createElement('td');td0.style.cssText='padding:7px 10px;font-weight:600;font-size:12px;white-space:nowrap';
+      td0.innerHTML=b.billNo||'-';
+      if(calc.isPaid){td0.innerHTML+=' <span style="font-size:9px;background:#dcfce7;color:#166534;padding:1px 5px;border-radius:8px;font-weight:700">PAID</span>';}
+      tr2.appendChild(td0);
+
+      // Bill Date
+      var td1=document.createElement('td');td1.style.cssText='padding:7px 10px;font-size:12px;white-space:nowrap';td1.textContent=fmtDate(b.date);tr2.appendChild(td1);
+      // Net Amt
+      var td2=document.createElement('td');td2.style.cssText='padding:7px 10px;text-align:right;font-size:12px';td2.textContent='\u20b9'+fmt(b.netAmt);tr2.appendChild(td2);
+      // Balance
+      var td3=document.createElement('td');td3.style.cssText='padding:7px 10px;text-align:right;font-size:12px;color:'+(s.bal>0.5?'var(--red)':'var(--brand)')+';font-weight:700';
+      td3.textContent=s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR';tr2.appendChild(td3);
+
+      // Payment dates — editable for interest calc
+      var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;min-width:200px';
+      var payHist=document.createElement('div');
+      var isCFBill=(calc.isPaid&&calc.bPays.length===0);
+      if(isCFBill){
+        // CF bill — show editable date field for interest calculation
+        var cfKey='cf_'+b.id;
+        var cfCurDate=state.payDateAdj[cfKey]||'';
+        // Auto-detect CF credit date from previous bill's payment if not manually set
+        var cfAutoDate=getCFCreditDate(b);
+        var cfDefaultDate=cfCurDate||(cfAutoDate||fmtDate(b.date));
+        var cfRow=document.createElement('div');cfRow.style.cssText='display:flex;align-items:center;gap:5px;flex-wrap:wrap';
+        var cfInp=document.createElement('input');cfInp.type='text';cfInp.className='inp-sm';
+        cfInp.style.cssText='width:100px;font-size:11px;height:24px;'+(cfCurDate?'border-color:var(--brand);background:#f0fdf4':(cfAutoDate?'border-color:#059669;background:#f0fdf4':'border-color:#d97706;background:#fffbeb'));
+        cfInp.value=cfDefaultDate;
+        cfInp.title='CF credit milne ki date'+(cfAutoDate?' (auto-detected from previous bill payment)':' — is date tak interest calculate hoga');
+        cfInp.addEventListener('change',function(){
+          var nd=this.value.trim();
+          if(!nd||nd===fmtDate(b.date)){
+            delete state.payDateAdj[cfKey];
+            this.style.borderColor='#d97706';this.style.background='#fffbeb';
+          } else {
+            state.payDateAdj[cfKey]=nd;
+            this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';
+          }
+          renderIntPage();
+        });
+        var cfBadge=document.createElement('span');
+        cfBadge.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700;white-space:nowrap';
+        cfBadge.textContent='Carry Fwd';
+        cfRow.appendChild(cfInp);cfRow.appendChild(cfBadge);
+        if(cfAutoDate&&!cfCurDate){
+          var cfAutoHint=document.createElement('span');
+          cfAutoHint.style.cssText='font-size:9px;color:#059669;background:#f0fdf4;padding:1px 4px;border-radius:3px;font-weight:600';
+          cfAutoHint.textContent='auto';cfAutoHint.title='Auto-detected from prev bill payment';
+          cfRow.appendChild(cfAutoHint);
+        }
+        if(cfCurDate){
+          var cfRev=document.createElement('button');cfRev.textContent='↩';
+          cfRev.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
+          cfRev.title='Reset to auto-detected date';
+          cfRev.addEventListener('click',function(){delete state.payDateAdj[cfKey];renderIntPage();});
+          cfRow.appendChild(cfRev);
+        }
+        var cfHint=document.createElement('div');
+        cfHint.style.cssText='font-size:9px;color:#92400e;margin-top:2px';
+        cfHint.textContent=cfAutoDate?'Auto-detected: prev bill payment date':'CF credit date daalo';
+        payHist.appendChild(cfRow);payHist.appendChild(cfHint);
+      } else if(calc.bPays.length===0){
+        payHist.innerHTML='<span style="color:#9ca3af;font-size:11px">No payments</span>';
+      } else {
+        calc.bPays.forEach(function(p){
+          var pRow=document.createElement('div');pRow.style.cssText='display:flex;align-items:center;gap:5px;margin-bottom:4px';
+          var adjInp=document.createElement('input');adjInp.type='text';adjInp.className='inp-sm';
+          adjInp.style.cssText='width:95px;font-size:11px;height:24px;'+(p.adjDate?'border-color:var(--brand);background:#f0fdf4':'');
+          adjInp.value=p.adjDate||fmtDate(p.origDate);
+          adjInp.title='Interest calculation ke liye date adjust karo (cheque clearing date, etc.)';
+          adjInp.addEventListener('change',function(){
+            var newDate=this.value.trim();
+            var origFmt=fmtDate(p.origDate);
+            if(newDate===origFmt){delete state.payDateAdj[p.id];this.style.borderColor='';this.style.background='';}
+            else{state.payDateAdj[p.id]=newDate;this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';}
+            renderIntPage();
+          });
+          var pAmt=document.createElement('span');pAmt.style.cssText='font-size:11px;color:#374151;white-space:nowrap';
+          var iGrossRef='';
+          if(p.grossAmt&&p.grossAmt>0){
+            var igp=(grossPayments||[]).find(function(g){
+              return (p.gpId&&g.id===p.gpId)||(g.party===b.party&&g.date===p.origDate&&g.grossAmt===p.grossAmt);
+            });
+            if(igp){
+              var igpBnos=(igp.bills||[]).map(function(gb){return '#'+gb.billNo;}).join(',');
+              iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(igp.grossAmt)+' | '+igpBnos+')</span>';
+            } else {
+              iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';
+            }
+          }
+          pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef;
+          if(p.adjDate){
+            var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date';
+            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});
+            pRow.appendChild(revert);
+          }
+          pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
+        });
+        // If bill is paid but last payment didn't fully clear (CF cleared remainder)
+        // show CF date input
+        if(calc.isPaid){
+          var remBal2=b.netAmt-calc.bPays.reduce(function(s,p){return s+(p.amount||0);},0);
+          if(remBal2>0.5){
+            var cfKey3='cf_'+b.id;
+            var cfCurDate3=(state.payDateAdj||{})[cfKey3]||'';
+            var cfRow3=document.createElement('div');cfRow3.style.cssText='display:flex;align-items:center;gap:5px;margin-top:4px;padding-top:4px;border-top:1px dashed #d97706';
+            var cfInp3=document.createElement('input');cfInp3.type='text';cfInp3.className='inp-sm';
+            cfInp3.style.cssText='width:95px;font-size:11px;height:24px;border-color:#d97706;background:#fffbeb';
+            cfInp3.value=cfCurDate3||'';cfInp3.placeholder='CF date';
+            cfInp3.title='Carry Forward credit date — remaining ₹'+fmt(Math.round(remBal2))+' cleared via CF';
+            cfInp3.addEventListener('change',(function(key3){return function(){
+              var nd=this.value.trim();
+              if(!nd){delete state.payDateAdj[key3];}
+              else{state.payDateAdj[key3]=nd;}
+              renderIntPage();
+            };})(cfKey3));
+            var cfBadge3=document.createElement('span');cfBadge3.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700';
+            cfBadge3.textContent='CF ₹'+fmt(Math.round(remBal2));
+            cfRow3.appendChild(cfInp3);cfRow3.appendChild(cfBadge3);
+            if(cfCurDate3){
+              var cfRev3=document.createElement('button');cfRev3.textContent='↩';cfRev3.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';cfRev3.title='Reset';
+              cfRev3.addEventListener('click',(function(key3){return function(){delete state.payDateAdj[key3];renderIntPage();};})(cfKey3));
+              cfRow3.appendChild(cfRev3);
+            }
+            var cfHint3=document.createElement('div');cfHint3.style.cssText='font-size:9px;color:#92400e;margin-top:1px';cfHint3.textContent='CF credit date (optional)';
+            payHist.appendChild(cfRow3);payHist.appendChild(cfHint3);
+          }
+        }
+      }
+      td4.appendChild(payHist);tr2.appendChild(td4);
+
+      // Period info — from/to
       var td5=document.createElement('td');td5.style.cssText='padding:7px 10px;font-size:11px;color:#6b7280;white-space:nowrap';
-      var _eS=calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1');
-      td5.textContent=fmtDate(b.date)+' → '+fmtDate(_eS);
+      td5.textContent=fmtDate(b.date)+' → '+fmtDate(calc.endDate.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));
       tr2.appendChild(td5);
-      var totIntDays=calc.schedule.reduce(function(s2,e){return s2+(e.intDays||0);},0);
+
+      // Total interest days
+      var totIntDays=calc.schedule.reduce(function(s2,e){return s2+e.intDays;},0);
       var td6=document.createElement('td');td6.style.cssText='padding:7px 10px;text-align:right;font-size:12px';
-      td6.textContent=totIntDays>0?totIntDays+'d':'—';
+      // Show schedule tooltip
+      var schTip=calc.schedule.filter(function(s2){return s2.intDays>0;}).map(function(s2){
+        var fd=s2.from.toISOString().split('T')[0];var td2=s2.to.toISOString().split('T')[0];
+        return fmtDate(fd.replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'))+' → '+fmtDate(td2.replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'))+': '+s2.intDays+'d @\u20b9'+fmt(s2.bal);
+      }).join('\n');
+      td6.textContent=totIntDays+'d';td6.title=schTip||'No interest period';
       tr2.appendChild(td6);
+
+      // Interest amount
       var td7=document.createElement('td');td7.style.cssText='padding:7px 10px;text-align:right;font-size:12px';
-      if(calc.interest>0.5){td7.innerHTML='<strong style="color:var(--amber)">₹'+fmt(calc.interest)+'</strong>';}
+      if(calc.interest>0.5){td7.innerHTML='<strong style="color:var(--amber)">\u20b9'+fmt(calc.interest)+'</strong>';}
       else{td7.innerHTML='<span style="color:var(--brand)">—</span>';}
       tr2.appendChild(td7);
+
+      // Action
       var td8=document.createElement('td');td8.style.cssText='padding:7px 10px;white-space:nowrap';
       if(!calc.isPaid){var pb=el('button',{cls:'btn btn-xs btn-green',text:'Pay'});pb.addEventListener('click',function(){openPayModal(b.id);});td8.appendChild(pb);}
       tr2.appendChild(td8);
       tbody.appendChild(tr2);
-      // Segment rows
-      if(calc.schedule&&calc.schedule.length>0){
-        var _fD=function(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));};
-        calc.schedule.forEach(function(seg,si){
-          var sR=document.createElement('tr');sR.style.cssText='border-bottom:1px solid #f0f0f0';
-          for(var _e=0;_e<6;_e++){sR.appendChild(document.createElement('td'));}
-          var sC=seg.int>0.5?'#92400e':'#6b7280',sBg=seg.int>0.5?'#fffbeb':'#f8fafc';
-          var p1=document.createElement('td');
-          p1.style.cssText='padding:3px 10px;color:'+sC+';font-size:11px;background:'+sBg+';border-left:3px solid '+(seg.int>0.5?'#d97706':'#e5e7eb');
-          p1.innerHTML='<span style="font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:3px;margin-right:4px;font-weight:700">Seg'+(si+1)+'</span>'+_fD(seg.from)+' → '+_fD(seg.to)+'<span style="color:#9ca3af;font-size:10px;margin-left:5px">₹'+fmt(seg.bal)+'</span>';
-          sR.appendChild(p1);
-          var p2=document.createElement('td');p2.style.cssText='padding:3px 10px;text-align:right;font-size:11px;color:'+sC+';background:'+sBg;
-          p2.innerHTML=(seg.intDays||0)+'d<span style="color:#9ca3af;font-size:10px">/'+seg.days+'d</span>';
-          sR.appendChild(p2);
-          var p3=document.createElement('td');p3.style.cssText='padding:3px 10px;text-align:right;font-size:11px;background:'+sBg;
-          if(seg.int>0.5){p3.innerHTML='<strong style="color:#d97706">₹'+fmt(seg.int)+'</strong><div style="font-size:9px;color:#9ca3af">₹'+fmt(seg.bal)+' x '+(seg.intDays||0)+'d/365 x '+rate+'%</div>';}
-          else{p3.innerHTML='<span style="color:#9ca3af">—</span><div style="font-size:9px;color:#c4b5a0">free/nil</div>';}
-          sR.appendChild(p3);
-          var p4=document.createElement('td');p4.style.cssText='padding:3px 10px;font-size:10px;color:#6b7280;background:'+sBg;
-          p4.textContent=seg.label||'';sR.appendChild(p4);
-          tbody.appendChild(sR);
-        });
-      }
     });
 
     // Party totals footer
@@ -13826,7 +14011,8 @@ function printInterestStatement() {
   var asOfEl=document.getElementById('int-asof');
   var asOfStr=asOfEl?asOfEl.value||today():today();
   var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
-  var exactParty=st.exactParty||'';var q2=(st.partyFilter||'').toLowerCase();
+  var exactParty=st.exactParty||'';
+  var q2=(st.partyFilter||'').toLowerCase();
   var dfrom=st.dateFrom?toISO(st.dateFrom):'';var dto=st.dateTo?toISO(st.dateTo):'';
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
@@ -13837,87 +14023,99 @@ function printInterestStatement() {
     if(dto&&toISO(b.date||'')>dto)return false;
     return true;
   });
-  function _cS(b,st2,r,fd,aOf){
+  function calcBI(b){
     var s=getBillStatus(b);
-    var bP=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var a=(st2.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(a||p.date||today())),label:'Pymt '+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};})
+    var bPays=payments.filter(function(p){return p.billId===b.id;})
+      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
       .sort(function(a,b2){return a.date-b2.date;});
-    var ip=s.status==='paid',bd=new Date(toISO(b.date||today()));
-    if(ip&&bP.length===0){
-      var cDs=(st2.payDateAdj||{})['cf_'+b.id]||getCFCreditDate(b)||'';
-      var cD=cDs?new Date(toISO(cDs)):new Date(bd);
-      var cDy=Math.max(0,Math.floor((cD-bd)/86400000)),cId=Math.max(0,cDy-fd);
-      var cI=cId>0?Math.round(b.netAmt*(r/100)*(cId/365)*100)/100:0;
-      return{interest:cI,bal:s.bal,isPaid:true,schedule:[{from:bd,to:cD,bal:b.netAmt,days:cDy,intDays:cId,int:cI,label:'CF Credit'}]};
+    var isPaid=s.status==='paid';
+    if(isPaid&&bPays.length===0){
+      var cfKey='cf_'+b.id;var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
+      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(toISO(b.date||today()));
+      var cfDays=Math.max(0,Math.floor((cfDate-new Date(toISO(b.date||today())))/86400000));
+      var cfFree=Math.max(0,cfDays-freeDays);
+      return{interest:cfFree>0?Math.round(b.netAmt*(rate/100)*(cfFree/365)*100)/100:0,bal:s.bal,isPaid:true};
     }
-    var eD=aOf;
-    if(ip&&bP.length>0){var cd2=(st2.payDateAdj||{})['cf_'+b.id]||'';eD=cd2?new Date(toISO(cd2)):new Date(bP[bP.length-1].date);}
-    var pD=new Date(bd),pB=b.netAmt,tI=0,fdL=fd,sc=[];
-    bP.forEach(function(p){
-      if(p.date<=pD)return;
-      var dy=Math.max(0,Math.floor((p.date-pD)/86400000)),id=Math.max(0,dy-fdL);fdL=Math.max(0,fdL-dy);
-      var si=id>0&&pB>0?Math.round(pB*(r/100)*(id/365)*100)/100:0;tI+=si;
-      sc.push({from:new Date(pD),to:new Date(p.date),bal:pB,days:dy,intDays:id,int:si,label:p.label});
-      pB=Math.max(0,pB-p.amount);pD=new Date(p.date);
+    var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
+    var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
+    bPays.forEach(function(p){
+      if(p.date<=prevDate)return;
+      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
+      var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
+      if(days>0)fdUsed=true;
+      if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
+      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
     });
-    if(pB>0.5&&eD>pD){
-      var fd2=Math.max(0,Math.floor((eD-pD)/86400000)),fid=Math.max(0,fd2-fdL);
-      var fi=fid>0?Math.round(pB*(r/100)*(fid/365)*100)/100:0;tI+=fi;
-      sc.push({from:new Date(pD),to:new Date(eD),bal:pB,days:fd2,intDays:fid,int:fi,label:ip?'(Closed)':'Outstanding'});
+    if(prevBal>0&&endDate>prevDate){
+      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fta2=fdUsed?0:freeDays;var fid=Math.max(0,fd2-fta2);
+      if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
     }
-    return{interest:tI,bal:s.bal,isPaid:ip,schedule:sc};
+    return{interest:totalInt,bal:s.bal,isPaid:isPaid};
   }
-  function _dF(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
   var partyMap={};
   filteredBills.forEach(function(b){if(!partyMap[b.party])partyMap[b.party]=[];partyMap[b.party].push(b);});
-  if(!Object.keys(partyMap).length){toast('Koi data nahi','err');return;}
+  if(!Object.keys(partyMap).length){toast('Koi data nahi — pehle party select karo ya filter lagao','err');return;}
   var grandInt=0,grandBal=0;
   var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Interest Statement</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:11px;padding:14px;color:#111}'
-    +'table{width:100%;border-collapse:collapse;margin-bottom:14px}'
-    +'th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}'
-    +'th.r{text-align:right}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}'
-    +'td.r{text-align:right}tr.ph td{background:#f0fdf4;font-weight:700;color:#166534}'
-    +'tr.br td{font-weight:600}tr.sr td{background:#fafafa;font-size:10px}'
-    +'tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
+    +'<style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:16px}'
+    +'h2{color:#166534;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-bottom:12px}'
+    +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
+    +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
+    +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
     +'@media print{button{display:none}}</style></head><body>'
-    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print / PDF</button>'
-    +'<h2 style="color:#166534;margin-bottom:4px">'+(cfg.company||'')+' — Interest Statement</h2>'
-    +'<div style="font-size:10px;color:#6b7280;margin-bottom:10px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+' | Generated: '+new Date().toLocaleString('en-IN')+'</div>';
+    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print</button>'
+    +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
+    +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
   Object.keys(partyMap).sort().forEach(function(party){
     var pBills=partyMap[party].sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
     var pTotBal=0,pTotInt=0;
-    h+='<table><thead><tr class="ph"><td colspan="8"><strong>'+party+'</strong></td></tr>'
-      +'<tr><th>Bill#</th><th>Date</th><th class="r">Net Amt</th>'
-      +'<th>From</th><th>To</th><th class="r">Days</th><th class="r">Int Days</th><th class="r">Interest (₹)</th>'
-      +'</tr></thead><tbody>';
+    h+='<table><thead><tr class="ph"><th colspan="5">'+party+'</th>'
+      +'<th class="num" style="color:#dc2626;background:#eff6ff">Outstanding</th>'
+      +'<th class="num" style="color:#d97706;background:#eff6ff">Interest (\u20b9)</th></tr>'
+      +'<tr><th>Bill#</th><th>Date</th><th class="num">Net Amt</th><th>Payments</th><th class="num">Period</th><th class="num">Balance</th><th class="num">Interest</th></tr></thead><tbody>';
     pBills.forEach(function(b){
-      var s=getBillStatus(b);var calc=_cS(b,st,rate,freeDays,asOf);
+      var s=getBillStatus(b);var calc=calcBI(b);
       pTotBal+=s.bal;pTotInt+=calc.interest;
-      h+='<tr class="br"><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:3px;font-size:9px">PAID</span>':'')+'</td>'
-        +'<td>'+fmtDate(b.date)+'</td><td class="r">₹'+fmt(b.netAmt)+'</td>'
-        +'<td colspan="4" style="color:#6b7280;font-size:10px">'+calc.schedule.length+' segment(s)</td>'
-        +'<td class="r">'+(calc.interest>0.5?'<strong style="color:#d97706">₹'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td></tr>';
-      calc.schedule.forEach(function(seg,si){
-        h+='<tr class="sr"><td style="padding-left:10px;border-left:3px solid '+(seg.int>0.5?'#d97706':'#e5e7eb')+'">Seg'+(si+1)+': '+seg.label+'</td>'
-          +'<td>'+_dF(seg.from)+'</td><td>'+_dF(seg.to)+'</td>'
-          +'<td class="r">'+seg.days+'d</td><td class="r">'+seg.intDays+'d</td>'
-          +'<td class="r">₹'+fmt(seg.bal)+'</td>'
-          +'<td class="r">'+(seg.int>0.5?'<strong style="color:#d97706">₹'+fmt(seg.int)+'</strong>':'&mdash;')+'</td></tr>';
+      var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
+      var isCF=(calc.isPaid&&bPays2.length===0);
+      var payStr=bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join(', '):(isCF?'Carry Fwd Credit':'No payments');
+      // Calculate int days for print
+      var printIntDays=0;
+      var printPrevDate=new Date(toISO(b.date||today()));var printPrevBal=b.netAmt;var printFdUsed=false;
+      var isPaid2=s.status==='paid';
+      var printEndDate=asOf;
+      if(isPaid2&&bPays2.length>0)printEndDate=new Date(toISO(bPays2[bPays2.length-1].date||today()));
+      bPays2.forEach(function(p){
+        var pDate=new Date(toISO(p.date||today()));if(pDate<=printPrevDate)return;
+        var days=Math.max(0,Math.floor((pDate-printPrevDate)/86400000));
+        var fta=printFdUsed?0:freeDays;if(days>0)printFdUsed=true;
+        printIntDays+=Math.max(0,days-fta);
+        printPrevBal=Math.max(0,printPrevBal-(p.amount||0)+(p.rebate||0));printPrevDate=pDate;
       });
+      if(printPrevBal>0.5){var fd2=Math.max(0,Math.floor((printEndDate-printPrevDate)/86400000));printIntDays+=Math.max(0,fd2-(printFdUsed?0:freeDays));}
+      h+='<tr><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
+        +'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
+        +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
+        +'<td style="font-size:10px;color:#374151">'+payStr+'</td>'
+        +'<td class="num" style="color:#6b7280">'+(printIntDays>0?printIntDays+'d':'—')+'</td>'
+        +'<td class="num" style="color:'+(s.bal>0.5?'#dc2626':'#166534')+';font-weight:700">'+(s.bal>0.5?'\u20b9'+fmt(s.bal):'CLEAR')+'</td>'
+        +'<td class="num">'+(calc.interest>0.5?'<strong style="color:#d97706">\u20b9'+fmt(calc.interest)+'</strong>':'&mdash;')+'</td></tr>';
     });
-    h+='</tbody><tfoot><tr><td colspan="7"><strong>Total ('+pBills.length+' bills)</strong></td>'
-      +'<td class="r">'+(pTotInt>0?'<strong style="color:#d97706">₹'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td>'
-      +'</tr></tfoot></table>';
+    h+='</tbody><tfoot><tr><td colspan="5"><strong>Total ('+pBills.length+' bills)</strong></td>'
+      +'<td class="num" style="color:#dc2626">\u20b9'+fmt(pTotBal)+'</td>'
+      +'<td class="num" style="color:#d97706">'+(pTotInt>0?'<strong>\u20b9'+fmt(pTotInt)+'</strong>':'&mdash;')+'</td></tr></tfoot></table>';
     grandBal+=pTotBal;grandInt+=pTotInt;
   });
   h+='<div style="background:#fffbeb;border:2px solid #d97706;border-radius:6px;padding:10px 14px;margin-top:8px;font-weight:700">'
-    +'Outstanding: <strong style="color:#dc2626">₹'+fmt(grandBal)+'</strong>&nbsp;&nbsp;'
-    +'Interest: <strong style="color:#d97706">₹'+fmt(grandInt)+'</strong></div></body></html>';
-  var win=window.open('','_blank');if(!win){toast('Allow popups!','err');return;}
+    +'Outstanding: <strong style="color:#dc2626">\u20b9'+fmt(grandBal)+'</strong>&nbsp;&nbsp; Interest: <strong style="color:#d97706">\u20b9'+fmt(grandInt)+'</strong></div>'
+    +'<div style="font-size:10px;color:#9ca3af;margin-top:12px">Generated: '+new Date().toLocaleString('en-IN')+'</div>'
+    +'</body></html>';
+  var win=window.open('','_blank');if(!win){toast('Please allow popups!','err');return;}
   win.document.write(h);win.document.close();
 }
 
+// ── INTEREST CALCULATOR: EXCEL ──
 function exportInterestExcel() {
   var st=pageState.int||{};
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
@@ -13925,7 +14123,8 @@ function exportInterestExcel() {
   var asOfEl=document.getElementById('int-asof');
   var asOfStr=asOfEl?asOfEl.value||today():today();
   var asOf=new Date(toISO(asOfStr)||new Date().toISOString().split('T')[0]);
-  var exactParty=st.exactParty||'';var q2=(st.partyFilter||'').toLowerCase();
+  var exactParty=st.exactParty||'';
+  var q2=(st.partyFilter||'').toLowerCase();
   var dfrom=st.dateFrom?toISO(st.dateFrom):'';var dto=st.dateTo?toISO(st.dateTo):'';
   var filteredBills=bills.filter(function(b){
     var s=getBillStatus(b);
@@ -13937,67 +14136,62 @@ function exportInterestExcel() {
     return true;
   });
   if(!filteredBills.length){toast('Koi data nahi!','err');return;}
-  function _cS(b,st2,r,fd,aOf){
+  function calcBI2(b){
     var s=getBillStatus(b);
-    var bP=payments.filter(function(p){return p.billId===b.id;})
-      .map(function(p){var a=(st2.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(a||p.date||today())),label:'Pymt '+fmt(p.amount+(p.rebate||0))+(p.mode?' ('+p.mode+')':'')};})
+    var bPays=payments.filter(function(p){return p.billId===b.id;})
+      .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
       .sort(function(a,b2){return a.date-b2.date;});
-    var ip=s.status==='paid',bd=new Date(toISO(b.date||today()));
-    if(ip&&bP.length===0){
-      var cDs=(st2.payDateAdj||{})['cf_'+b.id]||getCFCreditDate(b)||'';
-      var cD=cDs?new Date(toISO(cDs)):new Date(bd);
-      var cDy=Math.max(0,Math.floor((cD-bd)/86400000)),cId=Math.max(0,cDy-fd);
-      var cI=cId>0?Math.round(b.netAmt*(r/100)*(cId/365)*100)/100:0;
-      return{interest:cI,bal:s.bal,isPaid:true,schedule:[{from:bd,to:cD,bal:b.netAmt,days:cDy,intDays:cId,int:cI,label:'CF Credit'}]};
+    var isPaid=s.status==='paid';
+    if(isPaid&&bPays.length===0){
+      var cfKey='cf_'+b.id;var cfDateStr=(st.payDateAdj||{})[cfKey]||'';
+      var cfDate=cfDateStr?new Date(toISO(cfDateStr)):new Date(toISO(b.date||today()));
+      var cfDays=Math.max(0,Math.floor((cfDate-new Date(toISO(b.date||today())))/86400000));
+      var cfFree=Math.max(0,cfDays-freeDays);
+      return{interest:cfFree>0?Math.round(b.netAmt*(rate/100)*(cfFree/365)*100)/100:0,bal:s.bal};
     }
-    var eD=aOf;
-    if(ip&&bP.length>0){var cd2=(st2.payDateAdj||{})['cf_'+b.id]||'';eD=cd2?new Date(toISO(cd2)):new Date(bP[bP.length-1].date);}
-    var pD=new Date(bd),pB=b.netAmt,tI=0,fdL=fd,sc=[];
-    bP.forEach(function(p){
-      if(p.date<=pD)return;
-      var dy=Math.max(0,Math.floor((p.date-pD)/86400000)),id=Math.max(0,dy-fdL);fdL=Math.max(0,fdL-dy);
-      var si=id>0&&pB>0?Math.round(pB*(r/100)*(id/365)*100)/100:0;tI+=si;
-      sc.push({from:new Date(pD),to:new Date(p.date),bal:pB,days:dy,intDays:id,int:si,label:p.label});
-      pB=Math.max(0,pB-p.amount);pD=new Date(p.date);
+    var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
+    var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
+    bPays.forEach(function(p){
+      if(p.date<=prevDate)return;
+      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
+      var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
+      if(days>0)fdUsed=true;
+      if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
+      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
     });
-    if(pB>0.5&&eD>pD){
-      var fd2=Math.max(0,Math.floor((eD-pD)/86400000)),fid=Math.max(0,fd2-fdL);
-      var fi=fid>0?Math.round(pB*(r/100)*(fid/365)*100)/100:0;tI+=fi;
-      sc.push({from:new Date(pD),to:new Date(eD),bal:pB,days:fd2,intDays:fid,int:fi,label:ip?'(Closed)':'Outstanding'});
+    if(prevBal>0&&endDate>prevDate){
+      var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
+      var fta2=fdUsed?0:freeDays;var fid=Math.max(0,fd2-fta2);
+      if(fid>0)totalInt+=Math.round(prevBal*(rate/100)*(fid/365)*100)/100;
     }
-    return{interest:tI,bal:s.bal,isPaid:ip,schedule:sc};
+    return{interest:Math.round(totalInt),bal:s.bal};
   }
-  function _dF(d){return fmtDate(d.toISOString().split('T')[0].replace(/(\d{4})-(\d{2})-(\d{2})/,'$3-$2-$1'));}
-  var aoa=[['Party','Bill#','Bill Date','Net Amt','Status','Row Type','Seg#','From','To','Days','Int Days','Balance','Interest']];
-  filteredBills.sort(function(a,b2){
-    if(a.party<b2.party)return -1;if(a.party>b2.party)return 1;
-    return toISO(a.date||'').localeCompare(toISO(b2.date||''));
-  }).forEach(function(b){
-    var s=getBillStatus(b);var calc=_cS(b,st,rate,freeDays,asOf);
-    aoa.push([b.party,b.billNo||'',fmtDate(b.date),b.netAmt||0,s.status.toUpperCase(),'BILL','','','','','',Math.round(calc.bal),Math.round(calc.interest)]);
-    calc.schedule.forEach(function(seg,si){
-      aoa.push([b.party,b.billNo||'',fmtDate(b.date),'','','SEGMENT',si+1,_dF(seg.from),_dF(seg.to),seg.days,seg.intDays,Math.round(seg.bal),Math.round(seg.int)]);
+  var rows=[];
+  filteredBills.forEach(function(b){
+    var calc=calcBI2(b);var s=getBillStatus(b);
+    var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
+    var isCF=(s.status==='paid'&&bPays2.length===0);
+    rows.push({
+      'Party':b.party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),
+      'Net Amt':b.netAmt||0,'Balance':Math.round(calc.bal),
+      'Status':s.status.toUpperCase(),
+      'Payment Dates':bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join('; '):(isCF?'Carry Fwd Credit':'No payments'),
+      'Interest (\u20b9)':calc.interest
     });
   });
-  var ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:28},{wch:8},{wch:12},{wch:12},{wch:10},{wch:10},{wch:6},{wch:12},{wch:12},{wch:8},{wch:8},{wch:12},{wch:12}];
-  var hFl={fgColor:{rgb:'166534'}},hFt={bold:true,color:{rgb:'FFFFFF'},sz:10};
-  aoa[0].forEach(function(k,ci){var cr=XLSX.utils.encode_cell({r:0,c:ci});if(!ws[cr])ws[cr]={v:k,t:'s'};ws[cr].s={font:hFt,fill:hFl,alignment:{horizontal:'center'}};});
-  aoa.forEach(function(row,ri){
-    if(ri===0)return;
-    var iB=row[5]==='BILL',hI=parseFloat(row[12])>0.5;
-    row.forEach(function(v,ci){
-      var cr=XLSX.utils.encode_cell({r:ri,c:ci});
-      if(!ws[cr])ws[cr]={v:v===''?'':v,t:typeof v==='number'?'n':'s'};
-      ws[cr].s={font:{bold:iB,sz:iB?10:9},fill:{fgColor:{rgb:iB?'EFF6FF':(hI?'FFFBEB':'FAFAFA')}},alignment:{horizontal:typeof v==='number'?'right':'left'},border:{bottom:{style:'thin',color:{rgb:'E5E7EB'}}}};
-    });
-    if(!iB&&hI){var ic=XLSX.utils.encode_cell({r:ri,c:12});if(ws[ic])ws[ic].s.font={bold:true,color:{rgb:'D97706'},sz:9};}
+  var ws=XLSX.utils.json_to_sheet(rows);
+  var hdrStyle={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'166534'}},alignment:{horizontal:'center'}};
+  Object.keys(rows[0]).forEach(function(k,i){
+    var cr=XLSX.utils.encode_cell({r:0,c:i});
+    if(!ws[cr])ws[cr]={v:k,t:'s'};
+    ws[cr].s=hdrStyle;
   });
-  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
-  XLSX.writeFile(wb,'Interest_'+(exactParty?exactParty.replace(/[^a-z0-9]/gi,'_'):'All')+'_'+today()+'.xlsx');
-  toast('✅ Excel exported — '+filteredBills.length+' bills, segment-wise');
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Interest Statement');
+  var fname='Interest_Statement'+(exactParty?'_'+exactParty.replace(/[^a-z0-9]/gi,'_'):'')+'_'+today()+'.xlsx';
+  XLSX.writeFile(wb,fname);
+  toast('Excel exported! ('+filteredBills.length+' bills)');
 }
-
 function exportStyledReport(data) {
   var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totBal=data.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -20296,7 +20490,7 @@ function pgAIRules() {
 
 
 function pgReceiptLedger() {
-  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=payments.filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=(grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
+  var _activeFY=getActiveFY(); var _fyBillIds=new Set(getFYBills(_activeFY).map(function(b){return b.id;})); var _fyPayments=_fyPayments.filter(function(p){return _fyBillIds.has(p.billId);}); var _fyGross=_fyGross.filter(function(g){return (g.bills||[]).some(function(gb){return _fyBillIds.has(gb.billId||gb.id);});});
   var state = pageState.rcptLedger = pageState.rcptLedger || {
     q:'', sortKey:'date', sortDir:-1, filters:{},
     dateFrom:'', dateTo:'', modeFilter:'ALL'
