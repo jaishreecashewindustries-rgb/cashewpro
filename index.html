@@ -188,21 +188,25 @@ input, select, textarea { font-family: var(--font); }
 .topbar {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0 20px;
+  padding: 0 14px;
   height: var(--topbar-h);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   flex-shrink: 0;
   box-shadow: 0 1px 0 var(--border-light);
+  overflow: hidden;
+  min-width: 0;
 }
 .topbar h3 {
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text-1);
   white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 0;
 }
-.tb-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.tb-actions { display: flex; gap: 5px; flex-shrink: 0; align-items: center; }
 
 /* Menu toggle (mobile) */
 .menu-toggle {
@@ -221,13 +225,14 @@ input, select, textarea { font-family: var(--font); }
 /* Global search */
 #global-search {
   flex: 1;
-  max-width: 380px;
-  padding: 7px 12px 7px 34px;
+  min-width: 160px;
+  max-width: 420px;
+  padding: 6px 10px 6px 30px;
   border: 1.5px solid var(--border);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-family: var(--font);
-  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat 10px center;
+  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat 9px center;
   outline: none;
   color: var(--text-1);
   transition: border-color .15s, box-shadow .15s;
@@ -908,24 +913,25 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
       <!-- Search wrap -->
-      <div id="search-wrap" style="flex:1;max-width:500px;min-width:220px;margin:0 10px;position:relative;display:flex;align-items:center;gap:6px">
+      <div id="search-wrap" style="flex:1 1 200px;max-width:420px;min-width:160px;margin:0 6px;position:relative;display:flex;align-items:center;gap:4px">
         <input type="text" id="global-search" placeholder="🔍 Search bills, parties, amounts..." 
           style="width:100%;padding:6px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:12.5px;background:#f9fafb;outline:none;box-sizing:border-box;font-family:var(--font);transition:border-color .15s" onfocus="this.style.borderColor='#166534';this.style.background='#fff'" onblur="this.style.borderColor='#d1d5db';this.style.background='#f9fafb'">
         <button id="mob-search-close" onclick="toggleMobSearch()">✕</button>
         <div id="gs-results" style="display:none;position:absolute;top:38px;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:500;max-height:360px;overflow-y:auto"></div>
       </div>
       <div class="tb-actions">
-        <button id="hist-undo-topbar" onclick="histUndo();refresh()" title="Undo (Ctrl+Z)" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='var(--brand-light)';this.style.color='var(--brand)'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↩ Undo</button>
-        <button id="hist-redo-topbar" onclick="histRedo();refresh()" title="Redo (Ctrl+Y)" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='#eff6ff';this.style.color='#2563eb'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↪ Redo</button>
+        <button id="hist-undo-topbar" onclick="histUndo();refresh()" title="Undo (Ctrl+Z)" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 7px;font-size:10px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='var(--brand-light)';this.style.color='var(--brand)'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↩</button>
+        <button id="hist-redo-topbar" onclick="histRedo();refresh()" title="Redo (Ctrl+Y)" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 7px;font-size:10px;font-weight:700;cursor:pointer;color:var(--text-2);font-family:var(--font);opacity:.4;transition:all .15s" onmouseover="this.style.background='#eff6ff';this.style.color='#2563eb'" onmouseout="this.style.background='#f3f4f6';this.style.color='var(--text-2)'">↪</button>
         <div id="sync-badge" class="saved"><span class="sdot"></span><span id="sync-lbl">Saved</span></div>
         <span id="ver-badge" style="font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #e5e7eb">v19-Mar-FINAL</span>
         <span id="fy-badge" onclick="go('financial-year')" title="Click to switch FY" style="font-size:10px;color:#166534;background:#dcfce7;padding:2px 8px;border-radius:10px;font-weight:700;border:1px solid #bbf7d0;cursor:pointer">FY</span>
         <!-- Mobile floating sync dot -->
         <div id="mob-sync-dot" class="saved">✓</div>
-        <button id="usr-btn" onclick="doLogout()" title="Logout">👤 <span id="usr-email">...</span></button>
-        <button class="btn btn-green" id="btn-new-bill">+ New Bill</button>
-        <button class="btn btn-outline" id="btn-receive">💰 Receive</button>
-        <button class="btn btn-outline" id="btn-gross-pay" onclick="openGrossPayModal()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700">⊕ Gross</button>
+        <button id="usr-btn" onclick="doLogout()" title="Logout" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;cursor:pointer;font-family:var(--font);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👤 <span id="usr-email" style="font-size:10px;max-width:80px;overflow:hidden;display:inline-block;vertical-align:middle;text-overflow:ellipsis;white-space:nowrap">...</span></button>
+        <button class="btn btn-green" id="btn-new-bill" style="padding:5px 10px;font-size:12px">+ New Bill</button>
+        <button class="btn btn-outline" id="btn-receive" style="padding:5px 10px;font-size:12px">💰 Receive</button>
+        <button class="btn btn-outline" id="btn-gross-pay" onclick="openGrossPayModal()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-weight:700;padding:5px 10px;font-size:12px">⊕ Gross</button>
+        <button title="Emergency Backup — Download all data as JSON" onclick="emergencyBackup()" style="background:#f3f4f6;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;cursor:pointer;font-family:var(--font);color:#6b7280" onmouseover="this.style.background='#fef9c3';this.style.color='#92400e'" onmouseout="this.style.background='#f3f4f6';this.style.color='#6b7280'">💾 Backup</button>
       </div>
     </div>
     <div class="page" id="page"></div>
@@ -1008,7 +1014,38 @@ var DB = {
   _LARGE: ['bills','payments'],
 
   _r: function(k){ try{ return JSON.parse(localStorage.getItem('cp_'+k)); }catch(e){ return null; } },
-  _w: function(k,v){ try{ localStorage.setItem('cp_'+k, JSON.stringify(v)); }catch(e){ try{ localStorage.removeItem('cp_'+k); }catch(e2){} } },
+  _w: function(k,v){
+    try{
+      if(v===null||v===undefined){ localStorage.removeItem('cp_'+k); return; }
+      var str=JSON.stringify(v);
+      localStorage.setItem('cp_'+k, str);
+    }catch(e){
+      // Quota exceeded — show warning but DON'T silently delete data
+      console.error('[DB] localStorage write failed for key:',k,'Error:',e.name);
+      if(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'){
+        // Try to free space by removing old temp keys
+        try{
+          var toRemove=[];
+          for(var i=0;i<localStorage.length;i++){
+            var lk=localStorage.key(i);
+            if(lk&&(lk.startsWith('_ab')||lk.startsWith('cp__hist')))toRemove.push(lk);
+          }
+          toRemove.forEach(function(lk){try{localStorage.removeItem(lk);}catch(e2){}});
+          localStorage.setItem('cp_'+k, JSON.stringify(v));
+          console.log('[DB] Freed space and retried write for:',k);
+        }catch(e3){
+          DB._sync('offline','⚠ Storage Full!');
+          var warn=document.getElementById('_storage_warn');
+          if(!warn){
+            warn=document.createElement('div');warn.id='_storage_warn';
+            warn.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#dc2626;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:90vw;text-align:center';
+            warn.innerHTML='⚠️ Browser storage full! Firebase sync pe data safe hai. <button onclick="this.parentElement.remove()" style="margin-left:8px;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">✕</button>';
+            document.body.appendChild(warn);
+          }
+        }
+      }
+    }
+  },
 
   _chunkArr: function(arr){
     var LIMIT=DB._CHUNK*1024, chunks=[], cur=[], curSize=0;
@@ -1077,9 +1114,11 @@ var DB = {
     _fdb.collection('users').doc(uid).collection('data').get()
       .then(function(snap){
         var chunkMap={};
+        var docCount=0;
         snap.forEach(function(doc){
           var id=doc.id, val=doc.data().v;
           if(val===undefined) return;
+          docCount++;
           var m=id.match(/^(.+)_(\d+)$/);
           if(m){ if(!chunkMap[m[1]]) chunkMap[m[1]]=[]; chunkMap[m[1]][parseInt(m[2])]=val; }
           else if(!id.match(/__n$/)) DB._w(id,val);
@@ -1088,10 +1127,26 @@ var DB = {
           var arr=[]; chunkMap[k].forEach(function(c){ arr=arr.concat(c||[]); });
           DB._w(k,arr);
         });
+        console.log('[DB] Loaded',docCount,'docs from Firebase');
         DB._sync('saved','✓ Ready');
         cb();
       })
-      .catch(function(e){ console.error('Load error',e); DB._sync('offline','Offline'); cb(); });
+      .catch(function(e){
+        console.error('Load error',e);
+        DB._sync('offline','⚠ Offline — localStorage se load');
+        // Still call cb() so app loads from localStorage cache
+        cb();
+        // Show offline warning
+        setTimeout(function(){
+          var warn=document.getElementById('_offline_warn');
+          if(!warn){
+            warn=document.createElement('div');warn.id='_offline_warn';
+            warn.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#d97706;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:90vw;text-align:center';
+            warn.innerHTML='⚠️ Firebase se connect nahi hua — data cached version se load hua. Internet check karo. <button onclick="location.reload()" style="margin-left:8px;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">Retry</button>';
+            document.body.appendChild(warn);
+          }
+        }, 1500);
+      });
   },
 
   // sync status badge
@@ -21609,6 +21664,42 @@ function printReceiptLedger(){
 }
 
 
+
+
+// ═══════════════════════════════════════════════════════════════
+// EMERGENCY BACKUP — Full data JSON download
+// ═══════════════════════════════════════════════════════════════
+function emergencyBackup(){
+  try{
+    var data={
+      exportedAt: new Date().toISOString(),
+      version: 'v19-Mar-FINAL',
+      user: (_user&&_user.email)||'unknown',
+      bills: bills||[],
+      payments: payments||[],
+      grossPayments: grossPayments||[],
+      cheques: cheques||[],
+      advances: advances||[],
+      expenses: expenses||[],
+      returns: returns_||[],
+      purchases: purchases||[],
+      suspense: suspense||[],
+      settings: cfg||{}
+    };
+    var json=JSON.stringify(data,null,2);
+    var blob=new Blob([json],{type:'application/json'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    var d=new Date();
+    var ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    a.href=url;a.download='CashewPro_Backup_'+ds+'.json';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+    toast('✅ Backup downloaded! Bills:'+((bills||[]).length)+' Payments:'+((payments||[]).length)+' GP:'+((grossPayments||[]).length));
+  }catch(e){
+    toast('Backup error: '+e.message,'err');
+  }
+}
 
 </script>
 </body>
