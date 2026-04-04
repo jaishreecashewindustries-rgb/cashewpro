@@ -3862,7 +3862,7 @@ function pgAllBills() {
   toolbar.appendChild(_custExportBtn);
   var htmlExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Styled PDF'});
   htmlExportBtn.title='Colored HTML — print/save as PDF';
-  htmlExportBtn.addEventListener('click',function(){exportStyledReport(getData());});
+  htmlExportBtn.addEventListener('click',function(){openPDFColumnSelector(getData(),'all');});
   var xlsxExportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Styled Excel'});
   xlsxExportBtn.addEventListener('click',function(){exportStyledReportExcel(getData());});
   toolbar.appendChild(htmlExportBtn);toolbar.appendChild(xlsxExportBtn);
@@ -5409,6 +5409,7 @@ function printBill(bill) {
 
     '<div class="no-print" style="position:fixed;bottom:0;left:0;right:0;background:#1a6b3c;padding:10px 16px;display:flex;gap:10px;justify-content:center">'+
     '<button onclick="window.print()" style="background:#fff;color:#1a6b3c;border:none;padding:8px 24px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">&#128438; Print / Save PDF</button>'+
+    '<button onclick="window.close()" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);padding:8px 16px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">✕ Close</button>'+
     '<button onclick="window.close()" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer">Close</button>'+
     '</div>'+
     '</body></html>';
@@ -5536,7 +5537,7 @@ function pgDueList() {
   npBtn.addEventListener('click',function(){pageState.due.showNearlyPaid=!pageState.due.showNearlyPaid;refresh();});
   toolbar.appendChild(npBtn);
   toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'Excel',onclick:exportDueExcel}));
-  toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'PDF',onclick:function(){printDueListReport(getData());}}));
+  toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'PDF',onclick:function(){openPDFColumnSelector(getData(),'due');}}));
   toolbar.appendChild(el('button',{cls:'btn btn-outline btn-sm',text:'WA All',onclick:function(){var d=getData();if(!d.length)return;var msg=cfg.company+'\n\nDue Summary:\n';d.slice(0,10).forEach(function(b,i){msg+=(i+1)+'. '+b.party+' \u20b9'+fmt(getBillStatus(b).bal)+'\n';});window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');}}));
 
   var sumBar=document.createElement('div');sumBar.style.cssText='display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;background:#fff1f2;border-top:2px solid #fecaca;border-bottom:1px solid #fecaca;font-size:13px;font-weight:500;position:sticky;bottom:0;z-index:3;';
@@ -5898,7 +5899,8 @@ function exportDueExcel() {
   toast('✅ Excel exported!');
 }
 
-function printDueListReport(data) {
+function printDueListReport(data,gcFn) {
+  var gc=gcFn||function(){return true;};
   if(!data||!data.length){toast('Koi data nahi!','err');return;}
   var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totRecv=data.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
@@ -5925,7 +5927,7 @@ function printDueListReport(data) {
     +'tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534;padding:6px 8px}'
     +'@media print{.no-print{display:none!important}}'
     +'</style></head><body>'
-    +'<div class="no-print" style="margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:6px 16px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:700">Print / Save PDF</button></div>'
+    +'<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:6px 16px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:700">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600">✕ Close</button></div>'
     +'<div class="hdr"><div><h2>'+cfg.company+'</h2><div class="sub">'+(cfg.address||'')+' | '+(cfg.phone||'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>'
     +'<div style="text-align:right"><div style="font-size:10px;opacity:.8">Due List Report</div><div style="font-size:12px;font-weight:600">'+fmtDate(today())+'</div></div></div>'
     +'<div class="sumbar">'
@@ -5934,33 +5936,53 @@ function printDueListReport(data) {
     +'<div class="sc"><div class="sl">Received</div><div class="sv" style="color:#166534">\u20b9'+fmt(totRecv)+'</div></div>'
     +'<div class="sc"><div class="sl">Outstanding</div><div class="sv" style="color:#dc2626">\u20b9'+fmt(totBal)+'</div></div>'
     +'</div>'
-    +'<table><thead><tr>'
-    +'<th>Bill#</th><th>Date</th><th>Party</th><th>Broker</th><th>Grade</th>'
-    +'<th class="num">Bill Amt</th><th class="num">Received</th><th class="num">Balance</th>'
-    +'<th class="num">Days</th><th>Status</th>'
-    +'</tr></thead><tbody>';
-  data.forEach(function(b){
-    var s=getBillStatus(b);
-    var days=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);
-    var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
-    h+='<tr>'
-      +'<td style="font-weight:600">'+b.billNo+'</td>'
-      +'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>'
-      +'<td><strong>'+b.party+'</strong></td>'
-      +'<td style="color:#6b7280">'+(b.broker||'-')+'</td>'
-      +'<td>'+grade+'</td>'
-      +'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>'
-      +'<td class="num" style="color:#166534">\u20b9'+fmt(s.recv)+'</td>'
-      +'<td class="num" style="color:#dc2626;font-weight:700">\u20b9'+fmt(s.bal)+'</td>'
-      +'<td class="num" style="color:'+(days>60?'#dc2626':days>30?'#d97706':'#374151')+'">'+days+'d</td>'
-      +'<td><span class="'+s.status+'">'+s.status.toUpperCase()+'</span></td>'
-      +'</tr>';
-  });
-  h+='</tbody><tfoot><tr><td colspan="5"><strong>TOTAL ('+data.length+' bills)</strong></td>'
-    +'<td class="num">\u20b9'+fmt(totAmt)+'</td>'
-    +'<td class="num" style="color:#166534">\u20b9'+fmt(totRecv)+'</td>'
-    +'<td class="num" style="color:#dc2626">\u20b9'+fmt(totBal)+'</td>'
-    +'<td colspan="2"></td></tr></tfoot></table>'
+    +(function(){
+      var dueCols=[];
+      if(gc('billNo')) dueCols.push({id:'billNo',label:'Bill#',num:false});
+      if(gc('date')) dueCols.push({id:'date',label:'Date',num:false});
+      if(gc('party')) dueCols.push({id:'party',label:'Party',num:false});
+      if(gc('broker')) dueCols.push({id:'broker',label:'Broker',num:false});
+      if(gc('grade')) dueCols.push({id:'grade',label:'Grade',num:false});
+      if(gc('netAmt')) dueCols.push({id:'netAmt',label:'Bill Amt',num:true});
+      if(gc('recv')) dueCols.push({id:'recv',label:'Received',num:true});
+      if(gc('balance')) dueCols.push({id:'balance',label:'Balance',num:true});
+      if(gc('days')) dueCols.push({id:'days',label:'Days',num:true});
+      if(gc('status')) dueCols.push({id:'status',label:'Status',num:false});
+      var tbl='<table><thead><tr>'+dueCols.map(function(c){return '<th'+(c.num?' class="num"':'')+'>'+c.label+'</th>';}).join('')+'</tr></thead><tbody>';
+      data.forEach(function(b){
+        var s=getBillStatus(b);
+        var days=Math.floor((new Date()-new Date(toISO(b.date||today())))/86400000);
+        var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
+        var dueMap={
+          billNo:'<td style="font-weight:600">'+b.billNo+'</td>',
+          date:'<td style="white-space:nowrap">'+fmtDate(b.date)+'</td>',
+          party:'<td><strong>'+b.party+'</strong></td>',
+          broker:'<td style="color:#6b7280">'+(b.broker||'-')+'</td>',
+          grade:'<td>'+grade+'</td>',
+          netAmt:'<td class="num">\u20b9'+fmt(b.netAmt)+'</td>',
+          recv:'<td class="num" style="color:#166534">\u20b9'+fmt(s.recv)+'</td>',
+          balance:'<td class="num" style="color:#dc2626;font-weight:700">\u20b9'+fmt(s.bal)+'</td>',
+          days:'<td class="num" style="color:'+(days>60?'#dc2626':days>30?'#d97706':'#374151')+'">'+days+'d</td>',
+          status:'<td><span class="'+s.status+'">'+s.status.toUpperCase()+'</span></td>'
+        };
+        tbl+='<tr>'+dueCols.map(function(c){return dueMap[c.id]||'<td>-</td>';}).join('')+'</tr>';
+      });
+      var firstNumIdx=dueCols.findIndex(function(c){return c.id==='netAmt';});
+      var labelCols=firstNumIdx>0?firstNumIdx:Math.min(3,dueCols.length);
+      var tfoot='<tr>';
+      var labeled=false;
+      dueCols.forEach(function(c,i){
+        if(!labeled&&i<labelCols){if(i===0){tfoot+='<td colspan="'+labelCols+'" style="font-weight:700"><strong>TOTAL ('+data.length+' bills)</strong></td>';labeled=true;}return;}
+        if(i<labelCols&&labeled)return;
+        if(c.id==='netAmt') tfoot+='<td class="num">\u20b9'+fmt(totAmt)+'</td>';
+        else if(c.id==='recv') tfoot+='<td class="num" style="color:#166534">\u20b9'+fmt(totRecv)+'</td>';
+        else if(c.id==='balance') tfoot+='<td class="num" style="color:#dc2626">\u20b9'+fmt(totBal)+'</td>';
+        else tfoot+='<td></td>';
+      });
+      tfoot+='</tr>';
+      tbl+='</tbody><tfoot>'+tfoot+'</tfoot></table>';
+      return tbl;
+    }())
     +'<div style="margin-top:10px;font-size:10px;color:#9ca3af;text-align:center">Generated: '+new Date().toLocaleString('en-IN')+' | '+cfg.company+'</div>'
     +'</body></html>';
   var w=window.open('','_blank','width=1100,height=800');
@@ -6546,7 +6568,7 @@ function pgAdvances() {
       'table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}'+
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'+
       '.total{background:#f0fdf4;font-weight:700}</style></head><body>';
-    h+='<div style="margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+' — Advances List</h2>';
     h+='<div style="font-size:10px;color:#6b7280;margin-bottom:8px">Date: '+today()+'</div>';
     h+='<table><thead><tr><th>Date</th><th>Party</th><th>Amount</th><th>Mode</th><th>Status</th><th>Remarks</th></tr></thead><tbody>';
@@ -6730,7 +6752,7 @@ function pgCheques() {
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'+
       '.cleared{color:#166534}.bounced{color:#dc2626}.deposited{color:#d97706}'+
       '.total{background:#f0fdf4;font-weight:700}</style></head><body>';
-    h2+='<div style="margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button></div>';
+    h2+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h2+='<h2>'+cfg.company+' — Cheques Register</h2>';
     h2+='<div style="font-size:10px;color:#6b7280;margin-bottom:8px">Date: '+today()+'</div>';
     // Build sortable headers for cheques
@@ -7437,7 +7459,7 @@ function pgReturns() {
   retPrintBtn.addEventListener('click',function(){
     var d7=getData2();
     var h='<!DOCTYPE html><html><head><title>Returns</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h2{color:#166534;margin:0 0 8px}table{width:100%;border-collapse:collapse}th{background:#dc2626;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}.total{background:#fff1f2;font-weight:700}</style></head><body>';
-    h+='<div style="margin-bottom:10px"><button onclick="window.print()" style="background:#dc2626;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#dc2626;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+' — Returns Register</h2>';
     h+='<table><thead><tr><th>Date</th><th>Party</th><th>Bill No</th><th>Grade</th><th class="num">Wt(kg)</th><th class="num">Amount</th><th>Reason</th></tr></thead><tbody>';
     var totAmt3=0,totWt=0;
@@ -7594,7 +7616,7 @@ function pgExpenses() {
   expPrint.addEventListener('click',function(){
     var d=getExpData();
     var h='<!DOCTYPE html><html><head><title>Expenses</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h2{color:#166534;margin:0 0 8px}table{width:100%;border-collapse:collapse}th{background:#374151;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}.total{background:#f9fafb;font-weight:700}</style></head><body>';
-    h+='<div style="margin-bottom:10px"><button onclick="window.print()" style="background:#374151;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#374151;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+' — Expenses Register</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+today()+'</div>';
     h+='<table><thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th class="num">Amount</th><th>Remarks</th></tr></thead><tbody>';
     var tot=0;
@@ -7746,7 +7768,7 @@ function pgPurchases() {
   purPrint.addEventListener('click',function(){
     var d=getPurData();
     var h='<!DOCTYPE html><html><head><title>Purchases</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h2{color:#166534;margin:0 0 8px}table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}.total{background:#f0fdf4;font-weight:700}</style></head><body>';
-    h+='<div style="margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+' — Purchases Register</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+today()+'</div>';
     h+='<table><thead><tr><th>Date</th><th>Supplier</th><th>Grade</th><th class="num">Wt(kg)</th><th class="num">Rate</th><th class="num">Amount</th><th>Remarks</th></tr></thead><tbody>';
     var totAmt=0,totWt=0;
@@ -8025,7 +8047,7 @@ function pgReports() {
       gpSummary+='</tbody></table>';
       if(hasGP)printWin.document.write(gpSummary);
       printWin.document.write(tblHtml);
-      printWin.document.write('<script>window.onload=function(){window.print();}<\/script></body></html>');
+      printWin.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><script>window.onload=function(){window.print();}<\/script></body></html>');
       printWin.document.close();
     });
     cHead.innerHTML='<h4>Party Outstanding</h4>';cHead.appendChild(prntBtn2);cHead.appendChild(expBtn2);
@@ -8075,7 +8097,7 @@ function pgReports() {
       pw.document.write('<!DOCTYPE html><html><head><title>Broker Wise Outstanding</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
       pw.document.write('<h3 style="color:#166534">'+cfg.company+' — Broker Wise Outstanding — '+today()+'</h3>');
       pw.document.write(cBody.innerHTML);
-      pw.document.write('<script>window.onload=function(){window.print();}<\/script></body></html>');
+      pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><script>window.onload=function(){window.print();}<\/script></body></html>');
       pw.document.close();
     });
     cHead.innerHTML='<h4>Broker Wise Outstanding</h4>';cHead.appendChild(prntBtnX);cHead.appendChild(expBtn2);
@@ -8099,7 +8121,7 @@ function pgReports() {
               +'table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}'
               +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'
               +'tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534}button{display:none}</style></head><body>'
-              +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;margin-bottom:8px">Print</button>'
+              +'<div style="display:flex;gap:8px;margin-bottom:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 10px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
               +'<h3>'+broker+' \u2014 Outstanding Bills \u2014 '+(new Date().toLocaleDateString('en-IN'))+'</h3>'
               +'<table><thead><tr><th>Bill#</th><th>Date</th><th>Party</th><th class="num">Net Amt</th><th class="num">Balance</th><th>Days</th></tr></thead><tbody>';
             var tot=0;
@@ -8206,7 +8228,7 @@ function pgReports() {
       pw.document.write('<!DOCTYPE html><html><head><title>Monthly Sales</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
       pw.document.write('<h3 style="color:#166534">'+cfg.company+' — Monthly Sales — '+today()+'</h3>');
       pw.document.write(cBody.innerHTML);
-      pw.document.write('<script>window.onload=function(){window.print();}<\/script></body></html>');
+      pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><script>window.onload=function(){window.print();}<\/script></body></html>');
       pw.document.close();
     });
     cHead.innerHTML='<h4>Monthly Sales</h4>';cHead.appendChild(prntBtnX);cHead.appendChild(expBtn2);
@@ -8229,7 +8251,7 @@ function pgReports() {
       pw.document.write('<!DOCTYPE html><html><head><title>GST Summary</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
       pw.document.write('<h3 style="color:#166534">'+cfg.company+' — GST Summary — '+today()+'</h3>');
       pw.document.write(cBody.innerHTML);
-      pw.document.write('<script>window.onload=function(){window.print();}<\/script></body></html>');
+      pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><script>window.onload=function(){window.print();}<\/script></body></html>');
       pw.document.close();
     });
     cHead.innerHTML='<h4>GST Summary</h4>';cHead.appendChild(prntBtnX);cHead.appendChild(expBtn2);
@@ -8272,7 +8294,7 @@ function pgReports() {
       pw.document.write('<h3 style="color:#7c3aed">'+cfg.company+' — Interest Received — '+today()+'</h3>');
       pw.document.write('<p style="margin-bottom:8px;font-size:12px">Total: <strong style="color:#7c3aed">\u20b9'+fmt(totalInt)+'</strong></p>');
       pw.document.write(cBody.innerHTML);
-      pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+      pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
       pw.document.close();
     });
     cHead.innerHTML='<h4 style="color:#7c3aed">💜 Interest Received</h4>';
@@ -8376,7 +8398,7 @@ function pgReports() {
         pw.document.write('<h3>'+cfg.company+' — Collection Report (Mode-wise) — '+today()+'</h3>');
         pw.document.write('<p>Total Collected: <strong>\u20b9'+fmt(grandTotal)+'</strong> | Payments: '+payments.length+'</p>');
         pw.document.write(cBody.innerHTML);
-        pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+        pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
         pw.document.close();
       });
 
@@ -8407,7 +8429,7 @@ function pgReports() {
         pw.document.write('<!DOCTYPE html><html><head><title>Daily Collection</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}h3{color:#0369a1}table{width:100%;border-collapse:collapse}th{background:#0369a1;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
         pw.document.write('<h3>'+cfg.company+' — Daily Collection — '+today()+'</h3>');
         pw.document.write(cBody.innerHTML);
-        pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+        pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
         pw.document.close();
       });
 
@@ -8438,7 +8460,7 @@ function pgReports() {
         pw.document.write('<!DOCTYPE html><html><head><title>Monthly Collection</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}h3{color:#0369a1}table{width:100%;border-collapse:collapse}th{background:#0369a1;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}button{display:none}</style></head><body>');
         pw.document.write('<h3>'+cfg.company+' — Monthly Collection — '+today()+'</h3>');
         pw.document.write(cBody.innerHTML);
-        pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+        pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
         pw.document.close();
       });
     }
@@ -8535,7 +8557,7 @@ function pgReports() {
       pw.document.write('<h3>'+cfg.company+' — Rebate & Interest Summary — '+today()+'</h3>');
       pw.document.write('<div class="summary"><span>Total Rebate: <strong style="color:#d97706">\u20b9'+fmt(totalRebate)+'</strong></span><span>Total Interest: <strong style="color:#7c3aed">\u20b9'+fmt(totalInterest)+'</strong></span><span>Entries: '+riData.length+'</span></div>');
       pw.document.write(cBody.innerHTML);
-      pw.document.write('<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
+      pw.document.write('<div class="no-print" style="position:fixed;top:8px;right:8px;z-index:9999"><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">✕ Close</button></div><scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt></body></html>');
       pw.document.close();
     });
   }
@@ -14016,7 +14038,7 @@ function printPartyStatement(party, plState) {
     +'.si{text-align:center}.sl{font-size:9px;text-transform:uppercase;color:#6b7280;font-weight:700}'
     +'.sv{font-size:15px;font-weight:700}'
     +'@media print{button{display:none!important}}</style></head><body>';
-  h+='<div style="margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button></div>';
+  h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
   h+='<h2>'+(cfg.company||'')+'</h2>';
   h+='<div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+(cfg.address||'')+' | '+(cfg.phone||'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div>';
   h+='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-bottom:12px"><strong>Account Statement: '+party+'</strong>'+(df||dt?' &nbsp;|&nbsp; Period: '+(df||'Start')+' to '+(dt||today()):'')+'</div>';
@@ -14159,7 +14181,7 @@ function printInterestStatement() {
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
     +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
     +'@media print{button{display:none}}</style></head><body>'
-    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print</button>'
+    +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
     +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
   Object.keys(partyMap).sort().forEach(function(party){
@@ -14287,7 +14309,61 @@ function exportInterestExcel() {
   XLSX.writeFile(wb,fname);
   toast('Excel exported! ('+filteredBills.length+' bills)');
 }
-function exportStyledReport(data) {
+
+// ── PDF Column Selector Dialog ──
+function openPDFColumnSelector(data, mode) {
+  if(!data||!data.length){toast('Koi data nahi!','err');return;}
+  var body=document.createElement('div');
+  body.style.cssText='font-family:var(--font);min-width:320px';
+
+  var allColDefs=[
+    {id:'billNo',  label:'Bill #',         def:true},
+    {id:'date',    label:'Date',           def:true},
+    {id:'party',   label:'Party',          def:true},
+    {id:'broker',  label:'Broker',         def:true},
+    {id:'grade',   label:'Grade',          def:true},
+    {id:'netAmt',  label:'Bill Amount',    def:true},
+    {id:'recv',    label:'Received',       def:true},
+    {id:'balance', label:'Balance',        def:true},
+    {id:'status',  label:'Status',         def:true},
+    {id:'grossRef',label:'Gross Ref',      def:mode==='all'},
+    {id:'days',    label:'Days Old',       def:mode==='due'},
+    {id:'broker',  label:'Broker',         def:false},
+    {id:'stp',     label:'STP Rate',       def:false},
+  ];
+  // Remove duplicates
+  var seen={};
+  allColDefs=allColDefs.filter(function(c){if(seen[c.id])return false;seen[c.id]=true;return true;});
+
+  body.innerHTML='<div style="font-size:12px;color:#6b7280;margin-bottom:10px">PDF mein dikhane wale columns select karo ('+data.length+' bills)</div>'+
+    '<div id="_pdfColGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:5px"></div>';
+
+  var grid=body.querySelector('#_pdfColGrid');
+  allColDefs.forEach(function(d){
+    var wrap=document.createElement('label');
+    wrap.style.cssText='display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:12px;color:#374151;background:#fff;user-select:none';
+    var chk=document.createElement('input');
+    chk.type='checkbox';chk.setAttribute('data-pcid',d.id);chk.checked=d.def;
+    chk.style.cssText='width:14px;height:14px;accent-color:#166534;cursor:pointer;flex-shrink:0';
+    var lbl=document.createElement('span');lbl.textContent=d.label;
+    wrap.appendChild(chk);wrap.appendChild(lbl);
+    wrap.addEventListener('click',function(e){if(e.target!==chk)chk.checked=!chk.checked;});
+    grid.appendChild(wrap);
+  });
+
+  function gc(id){var chk=body.querySelector('[data-pcid="'+id+'"]');return chk&&chk.checked;}
+
+  openModal('📄 PDF Columns Select Karo', body, [
+    {label:'Generate PDF', cls:'btn-green', fn:function(){
+      closeModal();
+      if(mode==='due') printDueListReport(data,gc);
+      else exportStyledReport(data,gc);
+    }}
+  ]);
+}
+
+function exportStyledReport(data,gcFn) {
+  var gc=gcFn||function(){return true;};
   var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totBal=data.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var totRecv=data.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
@@ -14332,9 +14408,19 @@ function exportStyledReport(data) {
     '<div class="sum-card"><div class="sum-label">Received</div><div class="sum-val" style="color:#1a6b3c">\u20b9'+fmt(totRecv)+'</div></div>'+
     '<div class="sum-card"><div class="sum-label">Outstanding</div><div class="sum-val" style="color:#dc2626">\u20b9'+fmt(totBal)+'</div></div></div>';
   // Table
-  h+='<table><thead><tr>'+
-    '<th>Bill#</th><th>Date</th><th>Party</th><th>Broker</th><th>Grade</th><th class="num">Net Amt</th><th class="num">Received</th><th>Gross Ref</th><th class="num">Balance</th><th>Status</th><th>Remarks</th>'+
-    '</tr></thead><tbody>';
+  var pdfCols=[];
+  if(gc('billNo')) pdfCols.push({id:'billNo',label:'Bill#',num:false});
+  if(gc('date')) pdfCols.push({id:'date',label:'Date',num:false});
+  if(gc('party')) pdfCols.push({id:'party',label:'Party',num:false});
+  if(gc('broker')) pdfCols.push({id:'broker',label:'Broker',num:false});
+  if(gc('grade')) pdfCols.push({id:'grade',label:'Grade',num:false});
+  if(gc('netAmt')) pdfCols.push({id:'netAmt',label:'Net Amt',num:true});
+  if(gc('recv')) pdfCols.push({id:'recv',label:'Received',num:true});
+  if(gc('grossRef')) pdfCols.push({id:'grossRef',label:'Gross Ref',num:false});
+  if(gc('balance')) pdfCols.push({id:'balance',label:'Balance',num:true});
+  if(gc('status')) pdfCols.push({id:'status',label:'Status',num:false});
+  if(gc('stp')) pdfCols.push({id:'stp',label:'STP Rate',num:true});
+  h+='<table><thead><tr>'+pdfCols.map(function(c){return '<th'+(c.num?' class="num"':'')+'>'+c.label+'</th>';}).join('')+'</tr></thead><tbody>';
   data.forEach(function(b){
     var s=getBillStatus(b);
     var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
@@ -14355,17 +14441,25 @@ function exportStyledReport(data) {
       '<td>'+grossCell+'</td>'+
       '<td class="num" style="color:'+(s.bal>0?'#dc2626':'#1a6b3c')+';font-weight:'+(s.bal>0?'700':'400')+'">\u20b9'+fmt(s.bal)+'</td>'+
       '<td><span class="b-'+s.status+'">'+s.status.toUpperCase()+'</span></td>'+
-      '<td style="color:#6b7280">'+(b.remarks||'-')+'</td>'+
+      
       '</tr>';
   });
-  h+='</tbody><tfoot><tr>'+
-    '<td colspan="5">TOTAL ('+data.length+' bills)</td>'+
-    '<td class="num">\u20b9'+fmt(totAmt)+'</td>'+
-    '<td class="num" style="color:#1a6b3c">\u20b9'+fmt(totRecv)+'</td>'+
-    '<td></td>'+
-    '<td class="num" style="color:#dc2626">\u20b9'+fmt(totBal)+'</td>'+
-    '<td colspan="2"></td></tr></tfoot></table>'+
-    '<div style="margin-top:12px;font-size:10px;color:#9ca3af;text-align:center">Generated by '+cfg.company+' CashewPro | '+today()+'</div>'+
+  var fti=pdfCols.findIndex(function(c){return c.id==='netAmt';});
+  var fri=pdfCols.findIndex(function(c){return c.id==='recv';});
+  var fbi=pdfCols.findIndex(function(c){return c.id==='balance';});
+  var ftcols=pdfCols.length;
+  var ftrow='<tr>';
+  pdfCols.forEach(function(c,i){
+    if(i===0) ftrow+='<td colspan="'+Math.max(1,Math.min(3,ftcols))+'" style="font-weight:700">TOTAL ('+data.length+' bills)</td>';
+    else if(i<3) return;
+    else if(c.id==='netAmt') ftrow+='<td class="num"><strong>\u20b9'+fmt(totAmt)+'</strong></td>';
+    else if(c.id==='recv') ftrow+='<td class="num" style="color:#1a6b3c"><strong>\u20b9'+fmt(totRecv)+'</strong></td>';
+    else if(c.id==='balance') ftrow+='<td class="num" style="color:#dc2626"><strong>\u20b9'+fmt(totBal)+'</strong></td>';
+    else ftrow+='<td></td>';
+  });
+  ftrow+='</tr>';
+  h+='</tbody><tfoot>'+ftrow+'</tfoot></table>'+
+    '<div style="margin-top:12px;font-size:10px;color:#9ca3af;text-align:center">Generated: '+today()+'</div>'+
     '</body></html>';
   var w=window.open('','_blank','width=1000,height=750');
   if(!w){toast('Popup blocked — allow karo','err');return;}
@@ -15205,7 +15299,7 @@ function exportYearWisePDF(fyStart) {
     '.sum-val{font-size:16px;font-weight:700;color:#1a6b3c;margin-top:2px}'+
     '.paid{color:#166534}.due{color:#dc2626}.partial{color:#d97706}'+
     '.tfoot{background:#f0fdf4;font-weight:700}@media print{.no-print{display:none}}</style></head><body>';
-  h+='<div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Print / Save PDF</button></div>';
+  h+='<div class="no-print" style="margin-bottom:12px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px">✕ Close</button></div>';
   h+='<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">';
   h+='<div><h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280">'+cfg.address+' | '+cfg.phone+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>';
   h+='<div style="text-align:right;font-size:11px"><strong>'+fyLabel+' Annual Report</strong><br><span style="color:#6b7280">01-04-'+fyStart+' to 31-03-'+(fyStart+1)+'</span></div></div>';
@@ -15506,7 +15600,7 @@ function pgBrokerage() {
       '.total{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'+
       '.grand{background:#fff7ed;padding:12px;border:2px solid #d97706;border-radius:6px;margin-top:10px;display:flex;gap:20px}'+
       '@media print{.no-print{display:none}}</style></head><body>';
-    h+='<div class="no-print" style="margin-bottom:10px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">Print</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+cfg.address+'</div>';
     h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px">'+
       '<strong>Brokerage Statement</strong>'+(state.broker?' — '+state.broker:' — All Brokers')+
@@ -15807,7 +15901,7 @@ function restoreFromCloudBackup() {
           // FIX: Sync active FY badge after cloud restore
           if(cfg.financialYear) {
             var fyBadge = document.getElementById('fy-badge');
-            if(fyBadge) fyBadge.textContent = 'FY ' + cfg.financialYear;
+            if(fyBadge) fyBadge.textContent = getFYLabel(cfg.financialYear);
           }
           refresh();
         } catch(e){ toast('Restore error: '+e.message,'err'); }
@@ -16033,7 +16127,7 @@ function restoreFromJSON(file) {
       // FIX: Explicitly sync active FY from restored settings so Jan 2026+ payments are visible
       if(cfg.financialYear) {
         var fyBadge = document.getElementById('fy-badge');
-        if(fyBadge) fyBadge.textContent = 'FY ' + cfg.financialYear;
+        if(fyBadge) fyBadge.textContent = getFYLabel(cfg.financialYear);
       }
 
       refresh();
@@ -21631,8 +21725,8 @@ function printReceiptLedger(){
     +'.gross{background:#dbeafe!important;font-weight:700}'
     +'.sumbar{display:flex;gap:20px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin-bottom:10px;font-weight:600}'
     +'@media print{button{display:none}}</style></head><body>'
-    +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;margin-bottom:10px">Print</button>'
-    +'<h2>'+(cfg.company||'CashewPro')+' \u2014 Receipt Ledger</h2>'
+    +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
+    +'<h2>'+(cfg.company||'JAI SHREE CASHEW INDUSTRIES')+' \u2014 Receipt Ledger</h2>'
     +'<div style="font-size:11px;color:#1d4ed8;font-weight:600;margin-bottom:4px">Filter: '+filterDesc+'</div>'
     +'<div style="font-size:10px;color:#6b7280;margin-bottom:8px">Generated: '+new Date().toLocaleString('en-IN')+'</div>'
     +'<div class="sumbar">'
@@ -21643,7 +21737,7 @@ function printReceiptLedger(){
     +'<span>Interest: <strong style="color:#7c3aed">\u20b9'+fmt(it)+'</strong></span>'
     +'</div>'
     +'<table><thead><tr>'
-    +['#','Date','Party','Type','Amount','Rebate','Interest','Mode','Cheque/Rcpt','Bills Covered'].map(function(h){return '<th>'+h+'</th>';}).join('')
+    +['#','Date','Party','Type','Amount','Rebate','Interest','Mode','Cheque/Rcpt','Bills Covered'].map(function(h,i){return (i>=4&&i<=6)?'<th style="text-align:right">'+h+'</th>':'<th>'+h+'</th>';}).join('')
     +'</tr></thead><tbody>';
   var rowNum=0;
   merged.forEach(function(item){
