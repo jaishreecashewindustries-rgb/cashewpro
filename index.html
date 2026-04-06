@@ -1492,11 +1492,12 @@ function getGrossFYAmount(gp,fy) {
 function initFYOnStartup() {
   var cur=curFYStr();
   if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
+  // FIX: Never auto-switch FY — user must switch manually from Settings > Financial Year
+  // Only show a toast notification if the current calendar FY is newer than active FY
   if(cfg.financialYear!==cur&&cfg.financialYear<cur){
-    // Show non-blocking toast — user can switch from Settings > Financial Year
     setTimeout(function(){
       if(typeof toast==='function'){
-        toast('\u2603 FY '+cur+' shuru ho gaya! Settings > Financial Year se switch karein.','info');
+        toast('\u26a0\ufe0f Active FY: '+getFYLabel(cfg.financialYear)+'. New FY '+cur+' available — Settings > Financial Year se switch karein.','info');
       }
     },2000);
   }
@@ -6881,45 +6882,161 @@ function pgCheques() {
 // ── LEDGER ──
 function pgLedger() {
   if (pageState.ledgerParty) return pgPartyLedger(pageState.ledgerParty);
-  var q = (pageState.ledgerQ || '').toLowerCase();
-  var search = el('input', { cls: 'inp-sm', type: 'text', placeholder: '🔍 Search party...', value: q, style: 'width:180px' });
-  search.addEventListener('input', function() {
-    // Instant: no debounce, store lowercase so caps lock doesn't matter
-    pageState.ledgerQ = this.value;
-    var pos = this.selectionStart;
-    refresh();
-    // Restore focus after re-render
-    requestAnimationFrame(function() {
-      var el2 = document.querySelector('.inp-sm[placeholder="\uD83D\uDD0D Search party..."]');
-      if (el2) { el2.focus(); try { el2.setSelectionRange(pos,pos); } catch(e) {} }
-    });
-  });
 
   var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
-  var parties = Array.from(new Set(_fyBills.map(function(b){return b.party;}))).sort();
-  var filtered = parties.filter(function(p) { return !q || p.toLowerCase().includes(q); });
+  var ldState=pageState.ldList=pageState.ldList||{q:'',sortKey:'party',sortDir:1,showDueOnly:false};
 
-  var data = filtered.map(function(party) {
-    var pb = _fyBills.filter(function(b){return b.party===party;});
-    return {
-      party: party,
-      bills: pb.length,
-      total: pb.reduce(function(s,b){return s+b.netAmt;},0),
-      due: pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)
-    };
+  var wrap=document.createElement('div');
+
+  // ── Header & Toolbar ──
+  var topBar=document.createElement('div');
+  topBar.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px';
+  topBar.innerHTML='<span style="font-size:17px;font-weight:700;color:#166534">📒 Party Ledger</span><span style="font-size:11px;color:#9ca3af;margin-left:4px">'+getFYLabel(_activeFY)+'</span>';
+  wrap.appendChild(topBar);
+
+  var toolbar=document.createElement('div');
+  toolbar.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px';
+
+  var search=el('input',{cls:'inp-sm',type:'text',placeholder:'🔍 Search party...',value:ldState.q||'',style:'width:200px'});
+  search.addEventListener('input',function(){
+    ldState.q=this.value;
+    var pos=this.selectionStart;
+    buildLdTable();
+    requestAnimationFrame(function(){
+      var e2=wrap.querySelector('.ld-search-inp');
+      if(e2){e2.focus();try{e2.setSelectionRange(pos,pos);}catch(e){}}
+    });
   });
+  search.classList.add('ld-search-inp');
 
-  var _ld2=filtered.map(function(p){var pb=bills.filter(function(b){return b.party===p;});return{party:p,bills:pb.length,total:pb.reduce(function(s,b){return s+b.netAmt;},0),received:pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0),rebate:pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0),interest:pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0),due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};});
-  return genericListPage('📒 Party Ledger',_ld2,[
-    {label:'Party',key:'party',render:function(v,r){return displayPartyName(v,(r&&r.station)||'');}},
-    {label:'Bills',key:'bills',num:true},
-    {label:'Total Sales',key:'total',num:true,render:function(v){return'\u20b9'+fmt(v);}},
-    {label:'Received',key:'received',num:true,render:function(v){return'<span style="color:#166534;font-weight:700">\u20b9'+fmt(v)+'</span>';}},
-    {label:'Rebate',key:'rebate',num:true,render:function(v){return v>0?'<span style="color:#d97706;font-weight:600">\u20b9'+fmt(v)+'</span>':'-';}},
-    {label:'Interest',key:'interest',num:true,render:function(v){return v>0?'<span style="color:#7c3aed;font-weight:600">\u20b9'+fmt(v)+'</span>':'-';}},
-    {label:'Outstanding',key:'due',num:true,render:function(v){return el('span',{text:'\u20b9'+fmt(v),style:'color:'+(v>0?'#dc2626':'#166534')+';font-weight:700'});}},
-    {label:'Action',key:'party',render:function(v){return actionBtns([{label:'View Ledger',cls:'btn-xs btn-green',fn:function(){pageState.ledgerParty=v;refresh();}}]);}}
-  ],search);
+  var dueChk=document.createElement('label');
+  dueChk.style.cssText='display:flex;align-items:center;gap:5px;font-size:12px;color:#374151;cursor:pointer;white-space:nowrap';
+  var dueInp=document.createElement('input');dueInp.type='checkbox';dueInp.checked=!!ldState.showDueOnly;
+  dueInp.addEventListener('change',function(){ldState.showDueOnly=this.checked;buildLdTable();});
+  dueChk.appendChild(dueInp);dueChk.appendChild(document.createTextNode('Only Outstanding'));
+
+  toolbar.appendChild(search);toolbar.appendChild(dueChk);
+  wrap.appendChild(toolbar);
+
+  // ── Data ──
+  function getLdData(){
+    var q=(ldState.q||'').toLowerCase();
+    var rows=Array.from(new Set(_fyBills.map(function(b){return b.party;}))).sort().map(function(p){
+      var pb=_fyBills.filter(function(b){return b.party===p;});
+      var stn=(pb.find(function(b){return b.station;})||{}).station||'';
+      return{
+        party:p,station:stn,bills:pb.length,
+        total:pb.reduce(function(s,b){return s+b.netAmt;},0),
+        received:pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0),
+        rebate:pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0),
+        interest:pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0),
+        due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)
+      };
+    }).filter(function(r){
+      if(q&&!r.party.toLowerCase().includes(q)&&!(r.station||'').toLowerCase().includes(q))return false;
+      if(ldState.showDueOnly&&r.due<=0)return false;
+      return true;
+    }).sort(function(a,b){
+      var sk=ldState.sortKey||'party',sd=ldState.sortDir||1;
+      var av=a[sk],bv=b[sk];
+      if(typeof av==='number')return(av-bv)*sd;
+      return String(av||'').localeCompare(String(bv||''))*sd;
+    });
+    return rows;
+  }
+
+  // ── Table ──
+  var card=document.createElement('div');card.className='card';
+  var tOuter=document.createElement('div');tOuter.style.overflow='auto';
+  var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:13px';
+
+  var ldCols=[
+    {l:'Party',k:'party'},{l:'Bills',k:'bills',num:true},
+    {l:'Total Sales',k:'total',num:true},{l:'Received',k:'received',num:true},
+    {l:'Rebate',k:'rebate',num:true},{l:'Interest',k:'interest',num:true},
+    {l:'Outstanding',k:'due',num:true},{l:'Action',k:null}
+  ];
+
+  function buildLdTable(){
+    tbl.innerHTML='';
+    var thead=document.createElement('thead');
+    var htr=document.createElement('tr');htr.style.background='#f0fdf4';
+    ldCols.forEach(function(c){
+      var th=document.createElement('th');
+      var sk=c.k;
+      th.style.cssText='padding:9px 12px;font-size:11px;font-weight:700;color:#166534;border-bottom:2px solid #bbf7d0;white-space:nowrap;text-align:'+(c.num?'right':'left')+(sk?';cursor:pointer':'');
+      if(sk){
+        var arr=ldState.sortKey===sk?(ldState.sortDir>0?'↑':'↓'):'⇅';
+        th.innerHTML=c.l+' <span style="font-size:9px;opacity:'+(ldState.sortKey===sk?'1':'0.35')+'">'+arr+'</span>';
+        (function(key){th.addEventListener('click',function(){ldState.sortDir=ldState.sortKey===key?-ldState.sortDir:1;ldState.sortKey=key;buildLdTable();});})(sk);
+      } else {th.textContent=c.l;}
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);tbl.appendChild(thead);
+
+    var rows=getLdData();
+    var tbody=document.createElement('tbody');
+    if(!rows.length){
+      var etr=document.createElement('tr');var etd=document.createElement('td');
+      etd.setAttribute('colspan',ldCols.length);etd.style.cssText='text-align:center;padding:40px;color:#9ca3af;font-size:13px';
+      etd.innerHTML='<div style="font-size:28px;opacity:.4;margin-bottom:8px">📭</div>No parties found';
+      etr.appendChild(etd);tbody.appendChild(etr);
+    }
+    rows.forEach(function(r){
+      var tr=document.createElement('tr');
+      tr.style.cssText='border-bottom:1px solid #f0fdf4;cursor:pointer';
+      tr.addEventListener('mouseenter',function(){this.style.background='#f0fdf4';});
+      tr.addEventListener('mouseleave',function(){this.style.background='';});
+      function td(val,opts){
+        var d=document.createElement('td');
+        d.style.cssText='padding:9px 12px;vertical-align:middle'+(opts&&opts.right?';text-align:right;font-family:var(--font-mono);font-size:12.5px':'');
+        if(val instanceof HTMLElement)d.appendChild(val);
+        else if(opts&&opts.html)d.innerHTML=val;
+        else d.textContent=val;
+        tr.appendChild(d);
+      }
+      // Party + station badge
+      var ptyDiv=document.createElement('div');ptyDiv.style.cssText='display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+      var ptySpan=document.createElement('span');ptySpan.style.fontWeight='600';ptySpan.textContent=r.party;
+      ptyDiv.appendChild(ptySpan);
+      if(r.station){var stBadge=document.createElement('span');stBadge.style.cssText='font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:10px;font-weight:700';stBadge.textContent=r.station;ptyDiv.appendChild(stBadge);}
+      var ptyTd=document.createElement('td');ptyTd.style.cssText='padding:9px 12px;vertical-align:middle';ptyTd.appendChild(ptyDiv);tr.appendChild(ptyTd);
+
+      td(r.bills,{right:true});
+      td('₹'+fmt(r.total),{right:true});
+      var recvTd=document.createElement('td');recvTd.style.cssText='padding:9px 12px;text-align:right;font-family:var(--font-mono);font-size:12.5px;color:#166534;font-weight:700';recvTd.textContent='₹'+fmt(r.received);tr.appendChild(recvTd);
+      var rebTd=document.createElement('td');rebTd.style.cssText='padding:9px 12px;text-align:right;font-family:var(--font-mono);font-size:12.5px'+(r.rebate>0?';color:#d97706;font-weight:600':'');rebTd.textContent=r.rebate>0?'₹'+fmt(r.rebate):'-';tr.appendChild(rebTd);
+      var intTd=document.createElement('td');intTd.style.cssText='padding:9px 12px;text-align:right;font-family:var(--font-mono);font-size:12.5px'+(r.interest>0?';color:#7c3aed;font-weight:600':'');intTd.textContent=r.interest>0?'₹'+fmt(r.interest):'-';tr.appendChild(intTd);
+      var dueTd=document.createElement('td');dueTd.style.cssText='padding:9px 12px;text-align:right;font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:'+(r.due>0?'#dc2626':'#166534');dueTd.textContent='₹'+fmt(r.due);tr.appendChild(dueTd);
+      var actTd=document.createElement('td');actTd.style.cssText='padding:9px 12px';
+      var viewBtn=el('button',{cls:'btn btn-xs btn-green',text:'View'});
+      viewBtn.addEventListener('click',(function(party){return function(){pageState.ledgerParty=party;refresh();};})(r.party));
+      actTd.appendChild(viewBtn);tr.appendChild(actTd);
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+
+    // Summary footer
+    if(rows.length>0){
+      var totTotal=rows.reduce(function(s,r){return s+r.total;},0);
+      var totRecv=rows.reduce(function(s,r){return s+r.received;},0);
+      var totDue=rows.reduce(function(s,r){return s+r.due;},0);
+      var tfoot=document.createElement('tfoot');
+      var ftr=document.createElement('tr');ftr.style.cssText='background:#f0fdf4;font-weight:700;border-top:2px solid #bbf7d0';
+      ['Total ('+rows.length+')','','₹'+fmt(totTotal),'₹'+fmt(totRecv),'','','₹'+fmt(totDue),''].forEach(function(v,i){
+        var ftd=document.createElement('td');
+        ftd.style.cssText='padding:9px 12px;font-size:12.5px;text-align:'+(i>=2&&i!==7?'right':'left');
+        if(i===3)ftd.style.color='#166534';
+        if(i===6)ftd.style.color=totDue>0?'#dc2626':'#166534';
+        ftd.textContent=v;ftr.appendChild(ftd);
+      });
+      tfoot.appendChild(ftr);tbl.appendChild(tfoot);
+    }
+  }
+
+  buildLdTable();
+  tOuter.appendChild(tbl);card.appendChild(tOuter);wrap.appendChild(card);
+  return wrap;
 }
 
 function pgPartyLedger(party) {
@@ -12290,20 +12407,25 @@ function pgCashSplit() {
 }
 
 function pgDuplicates() {
+  var _activeFY=getActiveFY();
+  var _fyBills=getFYBills(_activeFY);
+  var _fyBillIds=new Set(_fyBills.map(function(b){return b.id;}));
+  var _fyPayments=payments.filter(function(p){return _fyBillIds.has(p.billId);});
+
   var wrap = document.createElement('div');
 
   // ── Header ──
   var hdr = document.createElement('div');
   hdr.style.cssText = 'margin-bottom:16px';
   hdr.innerHTML = '<h3 style="font-size:16px;font-weight:700;color:#dc2626;margin:0">⚠️ Issues & Duplicates</h3>'+
-    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Detect and fix duplicate bills, payments, cheques and receipt numbers</p>';
+    '<p style="font-size:12px;color:#6b7280;margin:3px 0 0">Detect and fix duplicate bills, payments, cheques and receipt numbers &nbsp;|&nbsp; <span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-weight:700">'+getFYLabel(_activeFY)+'</span></p>';
   wrap.appendChild(hdr);
 
-  // ── DETECT ALL ISSUES ──
+  // ── DETECT ALL ISSUES (FY-scoped) ──
   var issues = {
     dupBills: [],        // Same bill# or same party+date+amount
     dupPayments: [],     // Same billId + same amount + same date
-    dupChequeNo: [],     // Same cheque number in payments or cheques table
+    dupChequeNo: [],     // Same cheque number in payments (cross-party, excluding DETAIL rows of same gross)
     dupReceiptNo: [],    // Same receipt number in payments
     dupChequeRec: [],    // Same cheque# in cheques table
     orphanPayments: [],  // Payments with no matching bill
@@ -12311,9 +12433,9 @@ function pgDuplicates() {
     suspectParties: []   // Same party name, different broker
   };
 
-  // 1. Duplicate Bills (same billNo)
+  // 1. Duplicate Bills (same billNo) — FY only
   var billNos = {};
-  bills.forEach(function(b){
+  _fyBills.forEach(function(b){
     var key = String(b.billNo||'').trim();
     if(!key) return;
     if(!billNos[key]) billNos[key] = [];
@@ -12323,23 +12445,22 @@ function pgDuplicates() {
     if(billNos[k].length > 1) issues.dupBills = issues.dupBills.concat(billNos[k]);
   });
 
-  // 2. Duplicate Bills (same party + date + close amount)
+  // 2. Duplicate Bills (same party + date + close amount) — FY only
   var dupPartyDate = [];
-  for(var i=0;i<bills.length;i++){
-    for(var j=i+1;j<bills.length;j++){
-      var a=bills[i],b2=bills[j];
+  for(var i=0;i<_fyBills.length;i++){
+    for(var j=i+1;j<_fyBills.length;j++){
+      var a=_fyBills[i],b2=_fyBills[j];
       if(a.party===b2.party && a.date===b2.date && Math.abs(a.netAmt-b2.netAmt)<1){
         if(dupPartyDate.indexOf(a)===-1)dupPartyDate.push(a);
         if(dupPartyDate.indexOf(b2)===-1)dupPartyDate.push(b2);
       }
     }
   }
-  // Merge into dupBills only if not already there
   dupPartyDate.forEach(function(b3){if(issues.dupBills.indexOf(b3)===-1)issues.dupBills.push(b3);});
 
-  // 3. Duplicate Payments (same billId + same amount + same date)
+  // 3. Duplicate Payments — FY only (same billId + same amount + same date)
   var payKeys = {};
-  payments.forEach(function(p){
+  _fyPayments.forEach(function(p){
     var key = (p.billId||'')+':'+Math.round(p.amount||0)+':'+p.date;
     if(!payKeys[key]) payKeys[key]=[];
     payKeys[key].push(p);
@@ -12348,21 +12469,28 @@ function pgDuplicates() {
     if(payKeys[k].length>1) issues.dupPayments = issues.dupPayments.concat(payKeys[k]);
   });
 
-  // 4. Duplicate Cheque No in payments
+  // 4. Duplicate Cheque No in payments — FY only
+  // FIX: DETAIL rows of the same gross payment share the same chequeNo by design — skip those
+  // FIX: Group by chequeNo; flag only if from DIFFERENT gross payments or different standalone payments
   var chqNos = {};
-  payments.forEach(function(p){
+  _fyPayments.forEach(function(p){
     var c=(p.chequeNo||'').trim();
     if(!c||c==='-')return;
     if(!chqNos[c])chqNos[c]=[];
     chqNos[c].push(p);
   });
   Object.keys(chqNos).forEach(function(k){
-    if(chqNos[k].length>1) issues.dupChequeNo = issues.dupChequeNo.concat(chqNos[k]);
+    var group=chqNos[k];
+    if(group.length<=1)return;
+    // Check if all are DETAIL rows sharing the same gpId (gross payment) — that is NOT a duplicate
+    var allSameGross=group.every(function(p){return p.rowType==='DETAIL'&&p.gpId&&p.gpId===group[0].gpId;});
+    if(allSameGross)return;
+    issues.dupChequeNo = issues.dupChequeNo.concat(group);
   });
 
-  // 5. Duplicate Receipt No in payments
+  // 5. Duplicate Receipt No in payments — FY only
   var rcptNos = {};
-  payments.forEach(function(p){
+  _fyPayments.forEach(function(p){
     var r=(p.receiptNo||'').trim();
     if(!r||r==='-'||r.length<4)return;
     if(!rcptNos[r])rcptNos[r]=[];
@@ -12372,7 +12500,7 @@ function pgDuplicates() {
     if(rcptNos[k].length>1) issues.dupReceiptNo = issues.dupReceiptNo.concat(rcptNos[k]);
   });
 
-  // 6. Duplicate cheque# in cheques table
+  // 6. Duplicate cheque# in cheques table (all time — cheques span FY)
   var chqTabNos = {};
   cheques.forEach(function(c){
     var cn=(c.chequeNo||'').trim();
@@ -12384,20 +12512,20 @@ function pgDuplicates() {
     if(chqTabNos[k].length>1) issues.dupChequeRec = issues.dupChequeRec.concat(chqTabNos[k]);
   });
 
-  // 7. Orphan payments (billId not in bills)
-  var billIds = new Set(bills.map(function(b){return b.id;}));
-  payments.forEach(function(p){
-    if(p.billId && !billIds.has(p.billId)) issues.orphanPayments.push(p);
+  // 7. Orphan payments — FY only (billId not in ANY bill, not just FY bills)
+  var allBillIds = new Set(bills.map(function(b){return b.id;}));
+  _fyPayments.forEach(function(p){
+    if(p.billId && !allBillIds.has(p.billId)) issues.orphanPayments.push(p);
   });
 
-  // 8. Bills with zero/missing amount
-  bills.forEach(function(b){
+  // 8. Bills with zero/missing amount — FY only
+  _fyBills.forEach(function(b){
     if(!b.netAmt || b.netAmt<=0) issues.billsNoAmt.push(b);
   });
 
-  // ── Suspect Parties: same name, different broker OR different station ──
+  // ── Suspect Parties: same name, different broker OR different station (FY only) ──
   var partyMap = {};
-  bills.forEach(function(b){
+  _fyBills.forEach(function(b){
     var p=(b.party||'').trim().toUpperCase(); if(!p)return;
     if(!partyMap[p]) partyMap[p]=[];
     partyMap[p].push(b);
@@ -13325,7 +13453,7 @@ function pgAgeing() {
   var _ageDetailDiv=document.createElement('div');
   var sumGrid=document.createElement('div');sumGrid.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px';
   buckets.forEach(function(bk){
-    var tot=bk._fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+    var tot=bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     var d=document.createElement('div');
     d.style.cssText='background:'+bk.bg+';border:2px solid '+bk.color+';border-radius:10px;padding:14px;cursor:pointer;transition:box-shadow .15s';
     d.innerHTML='<div style="font-size:11px;font-weight:700;color:'+bk.color+';text-transform:uppercase;margin-bottom:6px">'+bk.label+'</div>'+
@@ -13363,7 +13491,7 @@ function pgAgeing() {
       var cards=sumGrid.querySelectorAll('div');
       buckets.forEach(function(bkt,i){
         if(cards[i]){
-          var tot2=bkt._fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+          var tot2=bkt.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
           cards[i].querySelector('div:nth-child(2)').textContent='₹'+fmt(tot2);
           cards[i].querySelector('div:nth-child(3)').innerHTML=bkt.bills.length+' bills — <strong>click to view</strong>';
         }
@@ -13385,7 +13513,7 @@ function pgAgeing() {
       var sec=document.createElement('div');sec.className='card';
       var sh=document.createElement('div');sh.className='card-head';
       sh.innerHTML='<h4 style="color:'+bk.color+'">'+bk.label+' <span style="background:'+bk.bg+';color:'+bk.color+';padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px">'+bk.bills.length+' bills</span></h4>'+
-        '<span style="color:'+bk.color+';font-size:13px;font-weight:700">₹'+fmt(bk._fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</span>';
+        '<span style="color:'+bk.color+';font-size:13px;font-weight:700">₹'+fmt(bk.bills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</span>';
       sec.appendChild(sh);
       var tOuter=document.createElement('div');tOuter.style.overflow='auto';
       var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
@@ -13443,7 +13571,7 @@ function pgAgeing() {
           if(c.fk){
             (function(col){
               var getAV=function(){
-                var vals=bk._fyBills.map(function(b){
+                var vals=bk.bills.map(function(b){
                   if(col.fk==='grade')return (b.rows||[]).map(function(r){return r.grade;});
                   return [b[col.fk]||''];
                 }).reduce(function(a,v){return a.concat(v);},[]);
@@ -15374,7 +15502,6 @@ function pgBrokerage() {
       '<span>Total Brokerage: <strong style="color:#d97706">&#8377;'+fmt(grandBrok)+'</strong></span>';
   }
   wrap.appendChild(bkSum);
-
   // ── SETTINGS CARD ──
   var setCard = document.createElement('div');setCard.className='card';setCard.style.marginBottom='12px';
   var setH = document.createElement('div');setH.className='card-head';
@@ -15403,7 +15530,7 @@ function pgBrokerage() {
       brokerRates[bk]=v;
     });
     DB.setObj('brokerRates',brokerRates);
-    toast('Rates saved!');refresh();
+    toast('Rates saved!');renderBrokerCards();
   });
   setB.appendChild(saveRatesBtn);setCard.appendChild(setB);wrap.appendChild(setCard);
 
@@ -15413,15 +15540,15 @@ function pgBrokerage() {
   var brokSel=document.createElement('select');brokSel.className='inp-sm';brokSel.style.width='180px';
   var bdef=document.createElement('option');bdef.value='';bdef.textContent='All Brokers';brokSel.appendChild(bdef);
   allBrokers.forEach(function(bk){var o=document.createElement('option');o.value=bk;o.textContent=bk+(brokerRates[bk]?' ('+brokerRates[bk]+'%)':'');if(bk===state.broker)o.selected=true;brokSel.appendChild(o);});
-  brokSel.addEventListener('change',function(){state.broker=this.value;refresh();});
+  brokSel.addEventListener('change',function(){state.broker=this.value;renderBrokerCards();});
 
   var dfInp=el('input',{cls:'inp-sm',type:'text',placeholder:'From DD-MM-YYYY',value:state.dateFrom||'',style:'width:130px'});
   var dtInp=el('input',{cls:'inp-sm',type:'text',placeholder:'To DD-MM-YYYY',value:state.dateTo||'',style:'width:130px'});
-  dfInp.addEventListener('change',function(){state.dateFrom=this.value;refresh();});
-  dtInp.addEventListener('change',function(){state.dateTo=this.value;refresh();});
+  dfInp.addEventListener('change',function(){state.dateFrom=this.value;renderBrokerCards();});
+  dtInp.addEventListener('change',function(){state.dateTo=this.value;renderBrokerCards();});
 
   var clrFBar=el('button',{cls:'btn btn-outline btn-sm',text:'Clear'});
-  clrFBar.addEventListener('click',function(){state.broker='';state.dateFrom='';state.dateTo='';brokSel.value='';dfInp.value='';dtInp.value='';refresh();});
+  clrFBar.addEventListener('click',function(){state.broker='';state.dateFrom='';state.dateTo='';brokSel.value='';dfInp.value='';dtInp.value='';renderBrokerCards();});
 
   var printBrokBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Print'});
   printBrokBtn.addEventListener('click',function(){printBrokerageStatement();});
@@ -15439,51 +15566,59 @@ function pgBrokerage() {
   fBar.appendChild(excelBrokBtn);
   wrap.appendChild(fBar);
 
-  // ── COMPUTE DATA ──
-  var dfISO=state.dateFrom?toISO(state.dateFrom):'';
-  var dtISO=state.dateTo?toISO(state.dateTo):'';
+  // ── BROKER CARDS CONTAINER ──
+  var brokerCardsDiv=document.createElement('div');brokerCardsDiv.id='brok-cards-div';
+  wrap.appendChild(brokerCardsDiv);
 
-  if(!state.filters) state.filters={};
-  var filtBills=bills.filter(function(b){
-    if(state.filters.party&&state.filters.party.size>0&&!state.filters.party.has(b.party||'')) return false;
-    if(state.filters.grade&&state.filters.grade.size>0){var bg=(b.rows||[]).map(function(r){return r.grade;});if(!bg.some(function(g){return state.filters.grade.has(g);}))return false;}
-    if(state.filters.status&&state.filters.status.size>0&&!state.filters.status.has(getBillStatus(b).status))return false;
-    if(!b.broker||!b.broker.trim()) return false;
-    if(state.broker&&b.broker.trim().toUpperCase()!==state.broker) return false;
-    if(dfISO&&toISO(b.date||'')<dfISO) return false;
-    if(dtISO&&toISO(b.date||'')>dtISO) return false;
-    return true;
-  }).sort(function(a,b2){
-    var sk=state.sortKey||'date',sd=state.sortDir||-1;
-    var av,bv;
-    if(sk==='date'){av=toISO(a.date||'');bv=toISO(b2.date||'');}
-    else if(sk==='netAmt'){av=a.netAmt||0;bv=b2.netAmt||0;}
-    else if(sk==='bal'){av=getBillStatus(a).bal;bv=getBillStatus(b2).bal;}
-    else if(sk==='billNo'){av=parseInt(a.billNo)||0;bv=parseInt(b2.billNo)||0;}
-    else if(sk==='status'){av=getBillStatus(a).status;bv=getBillStatus(b2).status;}
-    else{av=String(a[sk]||'');bv=String(b2[sk]||'');}
-    if(typeof av==='number')return(av-bv)*sd;
-    return String(av).localeCompare(String(bv))*sd;
-  });
+  var _lastBrokMap={};
 
-  // Group by broker
-  var brokMap={};
-  filtBills.forEach(function(b){
-    var bk=b.broker.trim().toUpperCase();
-    if(!brokMap[bk])brokMap[bk]={broker:bk,rate:brokerRates[bk]||0,bills:[],totSales:0,totRecv:0,totBal:0,totBrok:0};
-    var s=getBillStatus(b);
-    var rate=brokerRates[bk]||0;
-    var brokAmt=Math.round(b.netAmt*(rate/100)*100)/100;
-    brokMap[bk].bills.push({b:b,s:s,brokAmt:brokAmt,rate:rate});
-    brokMap[bk].totSales+=b.netAmt;
-    brokMap[bk].totRecv+=s.recv;
-    brokMap[bk].totBal+=s.bal;
-    brokMap[bk].totBrok+=brokAmt;
-  });
+  // ── RENDER BROKER CARDS (called on filter change, no full page reload) ──
+  function renderBrokerCards(){
+    brokerCardsDiv.innerHTML='';
+    var dfISO=state.dateFrom?toISO(state.dateFrom):'';
+    var dtISO=state.dateTo?toISO(state.dateTo):'';
+    if(!state.filters) state.filters={};
+    var filtBills=_fyBills.filter(function(b){
+      if(state.filters.party&&state.filters.party.size>0&&!state.filters.party.has(b.party||'')) return false;
+      if(state.filters.grade&&state.filters.grade.size>0){var bg=(b.rows||[]).map(function(r){return r.grade;});if(!bg.some(function(g){return state.filters.grade.has(g);}))return false;}
+      if(state.filters.status&&state.filters.status.size>0&&!state.filters.status.has(getBillStatus(b).status))return false;
+      if(!b.broker||!b.broker.trim()) return false;
+      if(state.broker&&b.broker.trim().toUpperCase()!==state.broker) return false;
+      if(dfISO&&toISO(b.date||'')<dfISO) return false;
+      if(dtISO&&toISO(b.date||'')>dtISO) return false;
+      return true;
+    }).sort(function(a,b2){
+      var sk=state.sortKey||'date',sd=state.sortDir||-1;
+      var av,bv;
+      if(sk==='date'){av=toISO(a.date||'');bv=toISO(b2.date||'');}
+      else if(sk==='netAmt'){av=a.netAmt||0;bv=b2.netAmt||0;}
+      else if(sk==='bal'){av=getBillStatus(a).bal;bv=getBillStatus(b2).bal;}
+      else if(sk==='billNo'){av=parseInt(a.billNo)||0;bv=parseInt(b2.billNo)||0;}
+      else if(sk==='status'){av=getBillStatus(a).status;bv=getBillStatus(b2).status;}
+      else{av=String(a[sk]||'');bv=String(b2[sk]||'');}
+      if(typeof av==='number')return(av-bv)*sd;
+      return String(av).localeCompare(String(bv))*sd;
+    });
 
-  var grandSales=0,grandBrok=0;
+    // Group by broker
+    var brokMap={};
+    filtBills.forEach(function(b){
+      var bk=b.broker.trim().toUpperCase();
+      if(!brokMap[bk])brokMap[bk]={broker:bk,rate:brokerRates[bk]||0,bills:[],totSales:0,totRecv:0,totBal:0,totBrok:0};
+      var s=getBillStatus(b);
+      var rate=brokerRates[bk]||0;
+      var brokAmt=Math.round(b.netAmt*(rate/100)*100)/100;
+      brokMap[bk].bills.push({b:b,s:s,brokAmt:brokAmt,rate:rate});
+      brokMap[bk].totSales+=b.netAmt;
+      brokMap[bk].totRecv+=s.recv;
+      brokMap[bk].totBal+=s.bal;
+      brokMap[bk].totBrok+=brokAmt;
+    });
+    _lastBrokMap=brokMap;
 
-  Object.keys(brokMap).sort().forEach(function(bk){
+    var grandSales=0,grandBrok=0;
+
+    Object.keys(brokMap).sort().forEach(function(bk){
     var bd=brokMap[bk];
     grandSales+=bd.totSales;grandBrok+=bd.totBrok;
 
@@ -15569,7 +15704,7 @@ function pgBrokerage() {
     });
     tfoot.appendChild(tftr);tbl.appendChild(tbody);tbl.appendChild(tfoot);
     tOuter.appendChild(tbl);bCard.appendChild(tOuter);
-    wrap.appendChild(bCard);
+    brokerCardsDiv.appendChild(bCard);
   });
 
   // Grand total
@@ -15580,17 +15715,21 @@ function pgBrokerage() {
       '<div><div style="font-size:10px;color:#92400e;text-transform:uppercase;font-weight:700;margin-bottom:3px">Total Sales</div><div style="font-size:20px;font-weight:700">\u20b9'+fmt(grandSales)+'</div></div>'+
       '<div><div style="font-size:10px;color:#92400e;text-transform:uppercase;font-weight:700;margin-bottom:3px">Total Brokerage Due</div><div style="font-size:20px;font-weight:700;color:var(--amber)">\u20b9'+fmt(grandBrok)+'</div></div>'+
       '<div><div style="font-size:10px;color:#92400e;text-transform:uppercase;font-weight:700;margin-bottom:3px">Bills Count</div><div style="font-size:20px;font-weight:700">'+filtBills.length+'</div></div>';
-    wrap.appendChild(gtCard);
+    brokerCardsDiv.appendChild(gtCard);
   } else {
     var emDiv=document.createElement('div');emDiv.style.cssText='text-align:center;padding:48px;color:#9ca3af';
     emDiv.innerHTML='<div style="font-size:32px;margin-bottom:10px;opacity:.4">%</div>'+
       '<div style="font-size:15px;font-weight:600;color:#374151">Koi broker bills nahi mili</div>'+
       '<div style="font-size:12px;margin-top:4px">Bills mein broker name fill karo, aur upar rates set karo</div>';
-    wrap.appendChild(emDiv);
+    brokerCardsDiv.appendChild(emDiv);
   }
+  // Update summary bar
+  updateBkSum(filtBills,grandSales,grandBrok);
+  } // end renderBrokerCards
 
   // ── PRINT STATEMENT ──
   function printBrokerageStatement(){
+    var brokMap=_lastBrokMap;
     var h='<!DOCTYPE html><html><head><title>Brokerage Statement</title>'+
       '<style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px;color:#111}'+
       'h2{color:#1a6b3c;margin:0 0 2px}h3{color:#374151;border-bottom:1px solid #e5e7eb;padding-bottom:3px;margin:10px 0 4px}'+
@@ -15628,6 +15767,7 @@ function pgBrokerage() {
 
   // ── EXCEL EXPORT ──
   function exportBrokerageExcel(){
+    var brokMap=_lastBrokMap;
     var wb=XLSX.utils.book_new();
     // Sheet 1: Detail
     var rows=[];
@@ -15650,6 +15790,7 @@ function pgBrokerage() {
     toast('Brokerage Excel exported!');
   }
 
+  renderBrokerCards(); // Initial render
   return wrap;
 }
 
@@ -20757,10 +20898,14 @@ function pgReceiptLedger() {
   tblWrap.style.overflow = 'auto';
   wrap.appendChild(tblWrap);
 
+  // FIX: Build billMap once for O(1) lookup — avoids O(n²) hang on large datasets
+  var _billMap={};
+  bills.forEach(function(b){_billMap[b.id]=b;});
+
   function getData() {
     var q=(state.q||'').toLowerCase();
     return _fyPayments.filter(function(p){
-      var b=bills.find(function(x){return x.id===p.billId;})||{};
+      var b=_billMap[p.billId]||{};
       if(state.modeFilter&&state.modeFilter!=='ALL'&&(p.mode||'')!==state.modeFilter)return false;
       if(state.dateFrom&&toISO(p.date||'')<toISO(state.dateFrom))return false;
       if(state.dateTo&&toISO(p.date||'')>toISO(state.dateTo))return false;
@@ -20779,8 +20924,8 @@ function pgReceiptLedger() {
       if(state.sortKey==='date'){av=toISO(a.date||'');bv=toISO(b2.date||'');}
       else if(state.sortKey==='amount'){av=a.amount||0;bv=b2.amount||0;}
       else if(state.sortKey==='billNo'){
-        var ba=bills.find(function(x){return x.id===a.billId;})||{};
-        var bb2=bills.find(function(x){return x.id===b2.billId;})||{};
+        var ba=_billMap[a.billId]||{};
+        var bb2=_billMap[b2.billId]||{};
         av=parseInt(ba.billNo)||0;bv=parseInt(bb2.billNo)||0;
       } else {av=a[state.sortKey]||'';bv=b2[state.sortKey]||'';}
       if(typeof av==='number'&&typeof bv==='number')return(av-bv)*state.sortDir;
@@ -20856,7 +21001,7 @@ function pgReceiptLedger() {
     // Merge GROSS + SINGLE/PARTIAL sorted by date descending
     var mergedRows=[];
     grossVisible.forEach(function(g){mergedRows.push({type:'GROSS',data:g,sortDate:toISO(g.date||'')});});
-    singleFiltered.forEach(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};mergedRows.push({type:'SINGLE',data:p,bill:b,sortDate:toISO(p.date||'')});});
+    singleFiltered.forEach(function(p){var b=_billMap[p.billId]||{};mergedRows.push({type:'SINGLE',data:p,bill:b,sortDate:toISO(p.date||'')});});
     mergedRows.sort(function(a,b2){return b2.sortDate.localeCompare(a.sortDate);});
 
     // ALL rows merged by date — GROSS and SINGLE/PARTIAL together
