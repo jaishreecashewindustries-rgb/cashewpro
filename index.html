@@ -1483,7 +1483,7 @@ function getFYLabel(fy) {
 }
 function getFYReceivedAmt(fy) {
   var ids=new Set(getFYBills(fy).map(function(b){return b.id;}));
-  return payments.filter(function(p){return ids.has(p.billId)&&p.rowType!=='HEADER';}).reduce(function(s,p){return s+(parseFloat(p.amount)||0);},0);
+  return payments.filter(function(p){return ids.has(p.billId)&&p.rowType!=='HEADER';}).reduce(function(s,p){return s+(p.amount||0);},0);
 }
 function getGrossFYAmount(gp,fy) {
   var ids=new Set(getFYBills(fy).map(function(b){return b.id;}));
@@ -1491,18 +1491,8 @@ function getGrossFYAmount(gp,fy) {
 }
 function initFYOnStartup() {
   var cur=curFYStr();
-  if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
-  // FIX: If stored FY is AHEAD of current calendar FY (e.g. 2026-2027 stored but today is still Apr 2026
-  // and bills are all in 2025-2026), auto-reset to current FY to prevent blank dashboard
-  if(cfg.financialYear>cur){
-    cfg.financialYear=cur;DB.set('cfg',cfg);
-    setTimeout(function(){
-      if(typeof toast==='function'){
-        toast('\u26a0\ufe0f FY '+getFYLabel(cfg.financialYear)+' set (pehle galat FY thi — auto-corrected).','info');
-      }
-    },1500);
-    return;
-  }
+  if(!cfg.financialYear){cfg.financialYear=cur;DB.set('settings',cfg);return;}
+  // FIX: Never auto-switch FY — user must switch manually from Settings > Financial Year
   // Only show a toast notification if the current calendar FY is newer than active FY
   if(cfg.financialYear!==cur&&cfg.financialYear<cur){
     setTimeout(function(){
@@ -5819,7 +5809,7 @@ function pgDueList() {
       fyI.textContent=getFYLabel(fy)+' — ₹'+fmt(fyT)+' pending ('+fyB.length+' bills)';
       var swB=document.createElement('button');swB.style.cssText='font-size:10px;padding:3px 10px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700';
       swB.textContent='Switch to '+fy;
-      swB.addEventListener('click',(function(f){return function(){if(confirm('Switch to FY '+f+'?')){cfg.financialYear=f;DB.set('cfg',cfg);toast('✅ FY '+f+' active!');refresh();}};})(fy));
+      swB.addEventListener('click',(function(f){return function(){if(confirm('Switch to FY '+f+'?')){cfg.financialYear=f;DB.set('settings',cfg);toast('✅ FY '+f+' active!');refresh();}};})(fy));
       fyH.appendChild(fyI);fyH.appendChild(swB);fyRow.appendChild(fyH);
       fyB.slice(0,5).forEach(function(b){
         var s2=getBillStatus(b);var bR=document.createElement('div');
@@ -8782,7 +8772,7 @@ function pgFinancialYear() {
       btn.addEventListener('mouseleave',function(){this.style.background='#fff';this.style.borderColor='#d1d5db';});
       btn.addEventListener('click',function(){
         if(confirm('Switch to FY '+fy+'?\n\nDashboard aur reports mein '+fy+' ka data dikhega.\nSaara data preserve rahega — sirf view change hogi.')){
-          cfg.financialYear=fy;DB.set('cfg',cfg);toast('\u2705 FY '+fy+' active!');refresh();
+          cfg.financialYear=fy;DB.set('settings',cfg);toast('\u2705 FY '+fy+' active!');refresh();
         }
       });
     }
@@ -8797,7 +8787,7 @@ function pgFinancialYear() {
   newBtn.style.cssText+='padding:10px 16px;font-size:12px;font-weight:700';
   newBtn.addEventListener('click',function(){
     if(confirm('Start new Financial Year '+nextFY+'?\n\nYe FY '+nextFY+' ko active kar dega.\nPurani saari bills aur payments safe rahengi.')){
-      cfg.financialYear=nextFY;DB.set('cfg',cfg);
+      cfg.financialYear=nextFY;DB.set('settings',cfg);
       toast('\u2705 FY '+nextFY+' shuru!');refresh();
     }
   });
@@ -8854,7 +8844,7 @@ function pgFinancialYear() {
       tr.style.cursor='pointer';
       tr.title='Click to switch to FY '+fy;
       tr.addEventListener('click',function(){
-        if(confirm('Switch to FY '+fy+'?')){cfg.financialYear=fy;DB.set('cfg',cfg);toast('\u2705 FY '+fy+' active!');refresh();}
+        if(confirm('Switch to FY '+fy+'?')){cfg.financialYear=fy;DB.set('settings',cfg);toast('\u2705 FY '+fy+' active!');refresh();}
       });
     }
     tbody2.appendChild(tr);
