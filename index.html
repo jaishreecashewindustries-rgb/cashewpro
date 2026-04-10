@@ -5704,6 +5704,7 @@ function pgDueList() {
       var advAmt=unlinkedAdv.reduce(function(s,a){return s+(a.amount||0);},0);
       // Carry forward excess from paid bills
       var partyBills=bills.filter(function(b){return b.party===party;}).sort(function(a,b2){return parseInt(a.billNo||0)-parseInt(b2.billNo||0);});
+      var excessAmt=0;
       var cfMap={};
       var carryFwd=0;
       partyBills.forEach(function(b){
@@ -5713,12 +5714,13 @@ function pgDueList() {
         var paidNoInt=cash+reb+carryFwd;
         var billAmt=b.netAmt||0;
         if(paidNoInt>billAmt+0.5){
-          carryFwd=paidNoInt-billAmt;
+          var excess2=paidNoInt-billAmt;
+          excessAmt+=excess2;
+          carryFwd=excess2;
         } else {
           carryFwd=0;
         }
       });
-      var excessAmt=carryFwd;
       var totalCredit=advAmt+excessAmt;
       // Only show if: has credit AND no pending due bills
       var hasDueBills=partyBills.some(function(b){return getBillStatus(b).status!=='paid';});
