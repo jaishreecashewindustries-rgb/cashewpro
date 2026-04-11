@@ -1076,8 +1076,13 @@ var DB = {
       this._w(k,null);
       var chunks=this._chunkArr(v), self=this;
       chunks.forEach(function(c,i){ self._w(k+'_'+i,c); });
-      for(var i=chunks.length;i<20;i++){ if(this._r(k+'_'+i)!==null) this._w(k+'_'+i,null); else break; }
-      var self=this;
+      // BUG FIX: Loop all 20 slots without 'break' so stale localStorage chunks are always cleared.
+      // Also mark stale Firestore chunk docs for deletion via _pending sentinel null.
+      for(var i=chunks.length;i<20;i++){
+        var staleVal=this._r(k+'_'+i);
+        if(staleVal!==null){ this._w(k+'_'+i,null); }
+        _pending[k+'_'+i+'__del']=null; // sentinel: flush will delete this Firestore doc
+      }
       chunks.forEach(function(c,i){ _pending[k+'_'+i]=c; });
       clearTimeout(_saveTimer);
       _saveTimer=setTimeout(function(){ DB._flush(); },800);
@@ -1097,7 +1102,14 @@ var DB = {
   _flush: function(){
     if(!_user || !Object.keys(_pending).length) return;
     var uid=_user.uid, entries=Object.keys(_pending), promises=[];
-    for(var i=0;i<entries.length;i+=10){
+    // Separate real writes from deletion sentinels (__del keys)
+    var toWrite=[], toDelete=[];
+    entries.forEach(function(k){
+      if(k.endsWith('__del')){ toDelete.push(k.replace('__del','')); }
+      else { toWrite.push(k); }
+    });
+    // Write new/updated chunks
+    for(var i=0;i<toWrite.length;i+=10){
       (function(keys){
         var batch=_fdb.batch();
         keys.forEach(function(k){
@@ -1105,7 +1117,17 @@ var DB = {
             {v:_pending[k],t:firebase.firestore.FieldValue.serverTimestamp()});
         });
         promises.push(batch.commit());
-      })(entries.slice(i,i+10));
+      })(toWrite.slice(i,i+10));
+    }
+    // Delete stale old chunks from Firestore
+    for(var j=0;j<toDelete.length;j+=10){
+      (function(keys){
+        var batch2=_fdb.batch();
+        keys.forEach(function(k){
+          batch2.delete(_fdb.collection('users').doc(uid).collection('data').doc(k));
+        });
+        promises.push(batch2.commit());
+      })(toDelete.slice(j,j+10));
     }
     _pending={};
     Promise.all(promises)
