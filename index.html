@@ -1616,12 +1616,49 @@ var _advanceIndex = null; // linkedBillId → advances array
 
 function _buildPaymentIndex() {
   _paymentIndex = {};
+
+  // STEP 1: payments[] se index banao (SINGLE, PARTIAL, existing DETAIL rows)
   payments.forEach(function(p) {
-    // DETAIL rows settle individual bills under a GROSS payment — MUST include
-    // They do NOT double-count because GROSS payment itself is not in payments[]
+    if (!p.billId) return;
     if (!_paymentIndex[p.billId]) _paymentIndex[p.billId] = [];
     _paymentIndex[p.billId].push(p);
   });
+
+  // STEP 2: grossPayments[].bills[] se missing DETAIL rows auto-fill karo
+  // Agar kisi GP ka DETAIL row payments[] mein nahi hai toh GP record se directly padhho
+  // PERMANENT FIX: Kabhi bhi Bill DUE nahi dikhega agar GP exist karta hai
+  (grossPayments || []).forEach(function(gp) {
+    (gp.bills || []).forEach(function(gb) {
+      var bid = gb.billId || gb.id;
+      if (!bid) return;
+      // Check: kya is GP ke liye already DETAIL row hai payments[] mein?
+      var alreadyExists = (_paymentIndex[bid] || []).some(function(p) {
+        return p.gpId === gp.id && p.rowType === 'DETAIL';
+      });
+      if (!alreadyExists) {
+        // DETAIL row missing — GP record se synthetic entry banao
+        // Yeh sirf memory mein hota hai, actual data change nahi hota
+        if (!_paymentIndex[bid]) _paymentIndex[bid] = [];
+        _paymentIndex[bid].push({
+          id: '__syn__' + gp.id + '_' + bid,
+          billId: bid,
+          amount: gb.amount || 0,
+          rebate: gb.rebate || 0,
+          interest: gb.interest || 0,
+          date: gp.date,
+          mode: gp.mode,
+          chequeNo: gp.chequeNo || '',
+          receiptNo: gp.receiptNo || '',
+          grossAmt: gp.grossAmt,
+          rowType: 'DETAIL',
+          groupId: gp.id,
+          gpId: gp.id,
+          _synthetic: true
+        });
+      }
+    });
+  });
+
   _advanceIndex = {};
   advances.forEach(function(a) {
     if (!a.linkedBillId) return;
