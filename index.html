@@ -1992,6 +1992,7 @@ var NAV = [
   { id: 'expenses',    icon: 'tag',       label: 'Expenses' },
   { id: 'purchases',   icon: 'cart',      label: 'Purchases' },
   { section: 'Tools' },
+  { id: 'data-health', icon: 'warning',   label: '🩺 Data Health' },
   { id: 'history',     icon: 'clock',     label: 'History & Undo' },
   { id: 'bank-upload', icon: 'bank',      label: 'Bank Upload' },
   { id: 'bill-import', icon: 'import',    label: 'Bill Import' },
@@ -3105,6 +3106,7 @@ function render(page) {
     'cash-split':     pgCashSplit,
     'reports':        pgReports,
     'brokerage':      pgBrokerage,
+    'data-health':    pgDataHealth,
     'history':        pgHistory,
     'erp-engine':     pgERPEngine,
     'reconcile':      pgERPReconcile,
@@ -20112,6 +20114,417 @@ function histCatIcon(cat) {
 }
 function histCatColor(cat) {
   return {bill:'#166534',payment:'#1e40af',erp:'#7c3aed',advance:'#92400e',cheque:'#374151',expense:'#dc2626',return:'#d97706',general:'#374151'}[cat]||'#374151';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DATA HEALTH PAGE — Automatic problem detection + safe fix
+// ═══════════════════════════════════════════════════════════════
+function pgDataHealth() {
+  var wrap = document.createElement('div');
+
+  // ── Header ──
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap';
+  hdr.innerHTML =
+    '<div>' +
+      '<h3 style="font-size:16px;font-weight:800;color:var(--brand);margin:0">🩺 Data Health — Auto Scan & Fix</h3>' +
+      '<p style="font-size:12px;color:var(--text-3);margin:3px 0 0">Gross Payment row mismatches, orphan payments, wrong GP links — sab detect aur safely fix karo</p>' +
+    '</div>' +
+    '<button class="btn btn-green btn-sm" id="dh-scan-btn" onclick="dhRunScan()">🔍 Scan Karo</button>';
+  wrap.appendChild(hdr);
+
+  // ── Auto-scan on load alert ──
+  var autoNote = document.createElement('div');
+  autoNote.style.cssText = 'background:var(--blue-light);border:1.5px solid #bfdbfe;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#1e40af;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start';
+  autoNote.innerHTML = '<span style="font-size:18px">ℹ️</span><div><strong>Yeh page automatically problems dhundta hai.</strong><br>' +
+    'Gross Payment delete karne se pehle hamesha yahan check karo. "Fix Karo" button sirf missing rows add karta hai — kuch bhi delete NAHI hota jab tak aap manually confirm na karo.</div>';
+  wrap.appendChild(autoNote);
+
+  // ── Results container ──
+  var resultsDiv = document.createElement('div');
+  resultsDiv.id = 'dh-results';
+  resultsDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-4);font-size:13px">⏳ Scan button dabao...</div>';
+  wrap.appendChild(resultsDiv);
+
+  // Auto-run scan immediately
+  setTimeout(function(){ dhRunScan(); }, 80);
+
+  return wrap;
+}
+
+function dhRunScan() {
+  var container = document.getElementById('dh-results');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-4);font-size:13px">🔍 Scanning...</div>';
+
+  setTimeout(function() {
+    var result = dhDeepScan();
+    dhRenderResults(result, container);
+  }, 60);
+}
+
+function dhDeepScan() {
+  var billIndex = {};
+  bills.forEach(function(b) { billIndex[b.id] = b; });
+
+  var gpIndex = {};
+  (grossPayments || []).forEach(function(g) { gpIndex[g.id] = g; });
+
+  // ── Issue 1: Missing DETAIL rows ──
+  // GP ke bills[] mein bill hai lekin payments[] mein DETAIL row nahi
+  var missingRows = [];
+  (grossPayments || []).forEach(function(g) {
+    (g.bills || []).forEach(function(gb) {
+      var billId = gb.billId || gb.id;
+      var hasRow = (payments || []).some(function(p) {
+        return p.gpId === g.id && p.billId === billId;
+      });
+      if (!hasRow) {
+        missingRows.push({
+          gpId: g.id, gpParty: g.party, gpDate: g.date, gpAmt: g.grossAmt,
+          gpMode: g.mode || '',
+          billId: billId, billNo: gb.billNo || (billIndex[billId] || {}).billNo || '?',
+          expectedAmt: gb.amount || 0,
+          billExists: !!billIndex[billId]
+        });
+      }
+    });
+  });
+
+  // ── Issue 2: Orphan payments — bill nahi mila ──
+  var orphanPayments = [];
+  (payments || []).forEach(function(p) {
+    if (!p.billId) return;
+    if (!billIndex[p.billId]) {
+      orphanPayments.push({
+        payId: p.id, gpId: p.gpId || '', billId: p.billId,
+        amount: p.amount || 0, date: p.date || '', rowType: p.rowType || 'SINGLE'
+      });
+    }
+  });
+
+  // ── Issue 3: Ghost GP links — payment mein gpId hai lekin GP exist nahi ──
+  var ghostGpLinks = [];
+  (payments || []).forEach(function(p) {
+    if (p.gpId && !gpIndex[p.gpId]) {
+      var b = billIndex[p.billId] || {};
+      ghostGpLinks.push({
+        payId: p.id, gpId: p.gpId,
+        billId: p.billId, billNo: b.billNo || '?', party: b.party || '?',
+        amount: p.amount || 0, rowType: p.rowType || 'SINGLE'
+      });
+    }
+  });
+
+  // ── Issue 4: Wrong GP link — payment ka billId us GP ke bills[] mein nahi ──
+  var wrongGpLinks = [];
+  (payments || []).forEach(function(p) {
+    if (!p.gpId) return;
+    var g = gpIndex[p.gpId];
+    if (!g) return;
+    var gpBillIds = new Set((g.bills || []).map(function(gb) { return gb.billId || gb.id; }));
+    if (!gpBillIds.has(p.billId)) {
+      var b = billIndex[p.billId] || {};
+      wrongGpLinks.push({
+        payId: p.id, gpId: p.gpId, gpParty: g.party,
+        billId: p.billId, billNo: b.billNo || '?', billParty: b.party || '?',
+        amount: p.amount || 0
+      });
+    }
+  });
+
+  // ── Issue 5: Gross amount vs row sum mismatch ──
+  var amtMismatch = [];
+  (grossPayments || []).forEach(function(g) {
+    var gpBillIds = new Set((g.bills || []).map(function(gb) { return gb.billId || gb.id; }));
+    var rowSum = (payments || []).filter(function(p) {
+      return p.gpId === g.id && gpBillIds.has(p.billId);
+    }).reduce(function(s, p) { return s + (parseFloat(p.amount) || 0); }, 0);
+    var diff = Math.abs((g.grossAmt || 0) - rowSum);
+    if (diff > 1) {
+      amtMismatch.push({
+        gpId: g.id, party: g.party, date: g.date,
+        grossAmt: g.grossAmt || 0, rowSum: rowSum, diff: diff
+      });
+    }
+  });
+
+  return { missingRows, orphanPayments, ghostGpLinks, wrongGpLinks, amtMismatch };
+}
+
+function dhRenderResults(result, container) {
+  var total = result.missingRows.length + result.orphanPayments.length +
+    result.ghostGpLinks.length + result.wrongGpLinks.length + result.amtMismatch.length;
+
+  var autoFixable = result.missingRows.filter(function(r){ return r.billExists; }).length +
+    result.ghostGpLinks.length + result.wrongGpLinks.length;
+
+  var html = '';
+
+  // ── Summary bar ──
+  if (total === 0) {
+    html += '<div style="background:var(--brand-light);border:1.5px solid #86efac;border-radius:12px;padding:16px 18px;display:flex;gap:12px;align-items:center;margin-bottom:14px">' +
+      '<span style="font-size:28px">✅</span>' +
+      '<div><strong style="font-size:14px;color:var(--brand)">Sab bilkul theek hai!</strong><br>' +
+      '<span style="font-size:12px;color:var(--text-3)">Koi bhi missing row, orphan payment, ya wrong link nahi mila. Data healthy hai.</span></div>' +
+      '</div>';
+  } else {
+    var sev = total <= 2 ? 'amber' : 'red';
+    html += '<div style="background:var(--' + (sev==='red'?'red-bg':'amber-light') + ');border:1.5px solid '+(sev==='red'?'#fecaca':'#fde68a')+';border-radius:12px;padding:14px 16px;margin-bottom:14px">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+        '<span style="font-size:24px">' + (sev==='red' ? '🚨' : '⚠️') + '</span>' +
+        '<div><strong style="font-size:14px;color:' + (sev==='red'?'var(--red)':'var(--amber)') + '">' +
+          total + ' problems mili — fix karo warna payments galat delete honge!</strong></div>' +
+      '</div>' +
+      // chips
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        dhChip(result.missingRows.length, 'Missing Rows', result.missingRows.length > 0) +
+        dhChip(result.orphanPayments.length, 'Orphan Payments', result.orphanPayments.length > 0) +
+        dhChip(result.ghostGpLinks.length, 'Ghost GP Links', result.ghostGpLinks.length > 0) +
+        dhChip(result.wrongGpLinks.length, 'Wrong GP Links', result.wrongGpLinks.length > 0) +
+        dhChip(result.amtMismatch.length, 'Amt Mismatch', result.amtMismatch.length > 0) +
+      '</div>' +
+      (autoFixable > 0 ?
+        '<div style="margin-top:10px"><button class="btn btn-green btn-sm" onclick="dhApplyFixes()">🔧 Auto Fix Karo (' + autoFixable + ' issues) — Safe, Kuch Delete Nahi Hoga</button></div>'
+        : '') +
+      '</div>';
+  }
+
+  // ── ISSUE 1: Missing Rows ──
+  if (result.missingRows.length) {
+    html += dhSectionHead('🔴 Issue 1 — Missing Payment Rows (' + result.missingRows.length + ')',
+      'Gross Payment ke bills[] mein bill listed hai lekin payments[] mein uski DETAIL row nahi hai. Isi wajah se "⚠ row nahi mili" aata hai aur delete karte waqt outstanding restore nahi hoti.');
+    html += '<div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:var(--surface-2)">' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Party</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Date</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Bill #</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Expected Amt</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Bill OK?</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Fix</th>' +
+      '</tr></thead><tbody>';
+    result.missingRows.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid var(--border-light)">' +
+        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:11px"><span style="background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700">' + r.gpId + '</span></td>' +
+        '<td style="padding:7px 10px">' + r.gpParty + '</td>' +
+        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:11px">' + r.gpDate + '</td>' +
+        '<td style="padding:7px 10px"><strong>#' + r.billNo + '</strong></td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.expectedAmt) + '</td>' +
+        '<td style="padding:7px 10px">' + (r.billExists
+          ? '<span style="background:var(--brand-light);color:var(--brand);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">✓ Hai</span>'
+          : '<span style="background:var(--red-light);color:var(--red);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">✗ Nahi</span>') + '</td>' +
+        '<td style="padding:7px 10px">' + (r.billExists
+          ? '<span style="background:var(--brand-light);color:var(--brand);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">Auto Create Row</span>'
+          : '<span style="background:var(--amber-light);color:var(--amber);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">Bill Restore Zaruri</span>') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div><br>';
+  }
+
+  // ── ISSUE 2: Orphan Payments ──
+  if (result.orphanPayments.length) {
+    html += dhSectionHead('🔴 Issue 2 — Orphan Payments — Bill Exist Nahi (' + result.orphanPayments.length + ')',
+      'In payments ka billId kisi bill se match nahi karta. Bill delete ho gaya hoga ya ID badal gayi. Yeh payments bekar hain aur outstanding calculate nahi hoti inse.');
+    html += '<div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:var(--surface-2)">' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Pay ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Missing Bill ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP ID</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Amount</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Type</th>' +
+      '</tr></thead><tbody>';
+    result.orphanPayments.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid var(--border-light)">' +
+        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:10px;color:var(--text-3)">' + r.payId + '</td>' +
+        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:10px"><span style="background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:4px">' + r.billId + '</span></td>' +
+        '<td style="padding:7px 10px;font-size:11px">' + (r.gpId ? '<span style="background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:4px;font-size:10px">' + r.gpId + '</span>' : '—') + '</td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.amount) + '</td>' +
+        '<td style="padding:7px 10px"><span style="background:var(--surface-3);color:var(--text-2);padding:2px 6px;border-radius:4px;font-size:10px">' + r.rowType + '</span></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>' +
+      '<div style="margin-top:8px;padding:8px 12px;background:var(--amber-light);border:1px solid #fde68a;border-radius:8px;font-size:12px;color:var(--amber)">' +
+        '⚠️ Inhe manually History & Undo se restore karo — ya agar bills delete ho gaye the toh unhe wapas add karo.' +
+      '</div><br>';
+  }
+
+  // ── ISSUE 3: Ghost GP Links ──
+  if (result.ghostGpLinks.length) {
+    html += dhSectionHead('🟡 Issue 3 — Ghost GP Links (' + result.ghostGpLinks.length + ')',
+      'Payment row mein gpId hai lekin woh Gross Payment record delete ho gaya. Auto-fix: gpId clear karo, payment SINGLE ban jaayegi — safe rahegi.');
+    html += '<div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:var(--surface-2)">' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Bill #</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Party</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Orphan GP ID</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Amount</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Fix</th>' +
+      '</tr></thead><tbody>';
+    result.ghostGpLinks.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid var(--border-light)">' +
+        '<td style="padding:7px 10px"><strong>#' + r.billNo + '</strong></td>' +
+        '<td style="padding:7px 10px">' + r.party + '</td>' +
+        '<td style="padding:7px 10px"><span style="background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:4px;font-size:10px;font-family:var(--font-mono)">' + r.gpId + '</span></td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.amount) + '</td>' +
+        '<td style="padding:7px 10px"><span style="background:var(--amber-light);color:var(--amber);padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">gpId Clear → SINGLE</span></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div><br>';
+  }
+
+  // ── ISSUE 4: Wrong GP Links ──
+  if (result.wrongGpLinks.length) {
+    html += dhSectionHead('🔴 Issue 4 — Wrong GP Links (' + result.wrongGpLinks.length + ')',
+      'Payment ka gpId ek aisi GP se linked hai jisme yeh bill listed hi nahi — purana bug. Delete karte waqt yeh payment bhi delete ho jaati thi galti se. Fix: gpId clear karo → SINGLE payment ban jaayegi.');
+    html += '<div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:var(--surface-2)">' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Bill #</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Bill Party</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Wrong GP</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP Party</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Amount</th>' +
+      '</tr></thead><tbody>';
+    result.wrongGpLinks.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid var(--border-light)">' +
+        '<td style="padding:7px 10px"><strong>#' + r.billNo + '</strong></td>' +
+        '<td style="padding:7px 10px">' + r.billParty + '</td>' +
+        '<td style="padding:7px 10px"><span style="background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:4px;font-size:10px;font-family:var(--font-mono)">' + r.gpId + '</span></td>' +
+        '<td style="padding:7px 10px">' + r.gpParty + '</td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.amount) + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div><br>';
+  }
+
+  // ── ISSUE 5: Amount Mismatch ──
+  if (result.amtMismatch.length) {
+    html += dhSectionHead('🟡 Issue 5 — Gross Amount Mismatch (' + result.amtMismatch.length + ')',
+      'GP ka total amount aur uske linked payment rows ka sum alag hai. Yeh manually verify karna hoga — accounts se confirm karke GP edit karo.');
+    html += '<div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="background:var(--surface-2)">' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Party</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Date</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP Amount</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Row Sum</th>' +
+        '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Diff</th>' +
+      '</tr></thead><tbody>';
+    result.amtMismatch.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid var(--border-light)">' +
+        '<td style="padding:7px 10px"><span style="background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:4px;font-size:10px;font-family:var(--font-mono)">' + r.gpId + '</span></td>' +
+        '<td style="padding:7px 10px">' + r.party + '</td>' +
+        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:11px">' + r.date + '</td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.grossAmt) + '</td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.rowSum) + '</td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono);color:var(--red);font-weight:700">₹' + fmt(r.diff) + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>' +
+      '<div style="margin-top:8px;padding:8px 12px;background:var(--amber-light);border:1px solid #fde68a;border-radius:8px;font-size:12px;color:var(--amber)">' +
+        '⚠️ Yeh manually fix karo: Party Payment View mein jaao → GP edit karo → amounts sahi karo.' +
+      '</div><br>';
+  }
+
+  container.innerHTML = html;
+}
+
+function dhChip(count, label, isIssue) {
+  var bg = isIssue ? (count > 2 ? 'var(--red-light)' : 'var(--amber-light)') : 'var(--brand-light)';
+  var col = isIssue ? (count > 2 ? 'var(--red)' : 'var(--amber)') : 'var(--brand)';
+  return '<span style="background:' + bg + ';color:' + col + ';padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">' +
+    count + ' ' + label + '</span>';
+}
+
+function dhSectionHead(title, desc) {
+  return '<div style="margin:14px 0 8px">' +
+    '<div style="font-size:13px;font-weight:700;color:var(--text-1);margin-bottom:3px">' + title + '</div>' +
+    '<div style="font-size:11.5px;color:var(--text-3)">' + desc + '</div>' +
+    '</div>';
+}
+
+function dhApplyFixes() {
+  var result = dhDeepScan();
+  var fixed = 0;
+  var log = [];
+
+  saveUndo('Data Health Auto-Fix');
+
+  var billIndex = {};
+  bills.forEach(function(b) { billIndex[b.id] = b; });
+  var gpIndex = {};
+  (grossPayments || []).forEach(function(g) { gpIndex[g.id] = g; });
+
+  // Fix 1: Create missing DETAIL rows
+  result.missingRows.forEach(function(r) {
+    if (!r.billExists) return;
+    var g = gpIndex[r.gpId];
+    if (!g) return;
+    var newRow = {
+      id: uid(),
+      billId: r.billId,
+      amount: r.expectedAmt,
+      rebate: 0, interest: 0,
+      date: g.date,
+      mode: g.mode || '',
+      chequeNo: g.chequeNo || '',
+      receiptNo: g.receiptNo || '',
+      grossAmt: g.grossAmt,
+      rowType: 'DETAIL',
+      groupId: r.gpId,
+      gpId: r.gpId,
+      remarks: 'Auto-fixed: missing row (Data Health)'
+    };
+    payments.push(newRow);
+    fixed++;
+    log.push('✅ Bill #' + r.billNo + ' ke liye DETAIL row create ki → GP ' + r.gpId);
+  });
+
+  // Fix 2: Clear ghost GP links
+  var ghostSet = new Set(result.ghostGpLinks.map(function(r) { return r.payId; }));
+  (payments || []).forEach(function(p) {
+    if (ghostSet.has(p.id)) {
+      delete p.gpId;
+      if (p.rowType === 'DETAIL') p.rowType = 'SINGLE';
+      fixed++;
+      log.push('✅ Ghost gpId cleared: Bill #' + ((billIndex[p.billId] || {}).billNo || '?'));
+    }
+  });
+
+  // Fix 3: Clear wrong GP links
+  var wrongSet = new Set(result.wrongGpLinks.map(function(r) { return r.payId; }));
+  (payments || []).forEach(function(p) {
+    if (wrongSet.has(p.id)) {
+      delete p.gpId;
+      if (p.rowType === 'DETAIL') p.rowType = 'SINGLE';
+      fixed++;
+      log.push('✅ Wrong GP link cleared: Bill #' + ((billIndex[p.billId] || {}).billNo || '?') + ' → SINGLE');
+    }
+  });
+
+  invalidateBillStatusCache();
+  DB.set('payments', payments);
+  DB.set('grossPayments', grossPayments);
+
+  // Re-scan aur results show karo
+  var container = document.getElementById('dh-results');
+  if (container) {
+    var newResult = dhDeepScan();
+    dhRenderResults(newResult, container);
+    // Show fix summary at top
+    var summary = document.createElement('div');
+    summary.style.cssText = 'background:var(--brand-light);border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12.5px;color:var(--brand)';
+    summary.innerHTML = '<strong>🔧 ' + fixed + ' fixes apply ho gayi!</strong><br>' +
+      log.map(function(l) { return '<span style="display:block;margin-top:3px">' + l + '</span>'; }).join('');
+    container.insertBefore(summary, container.firstChild);
+  }
+
+  toast('✅ Data Health: ' + fixed + ' fixes applied!');
 }
 
 function pgHistory() {
