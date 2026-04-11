@@ -1491,7 +1491,7 @@ function getGrossFYAmount(gp,fy) {
 }
 function initFYOnStartup() {
   var cur=curFYStr();
-  if(!cfg.financialYear){cfg.financialYear=cur;DB.set('settings',cfg);return;}
+  if(!cfg.financialYear){cfg.financialYear=cur;DB.set('cfg',cfg);return;}
   // FIX: Never auto-switch FY — user must switch manually from Settings > Financial Year
   // Only show a toast notification if the current calendar FY is newer than active FY
   if(cfg.financialYear!==cur&&cfg.financialYear<cur){
@@ -3393,9 +3393,9 @@ function pgDashboard() {
   // Received: sum individual payment records linked to this FY's bills
   // This correctly handles cross-FY gross payments (each DETAIL counted in its own FY)
   var fyPmts   = payments.filter(function(p){return fyPayIds.has(p.billId);});
-  var recvAmt  = fyPmts.reduce(function(s,p){var a=p.rowType==='HEADER'?0:(parseFloat(p.amount)||0);return s+a;},0);
+  var recvAmt  = fyPmts.reduce(function(s,p){return p.rowType==='HEADER'?s:s+(p.amount||0);},0);
   var dueBills = fyBills.filter(function(b){return getBillStatus(b).status!=='paid';});
-  var totalAmt = fyBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var totalAmt = fyBills.reduce(function(s,b){return s+b.netAmt;},0);
   var dueAmt   = dueBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
 
   var stats = el('div', { cls: 'stats' }, [
@@ -3871,7 +3871,7 @@ function pgAllBills() {
   // Sum bar
   var sumBar=document.createElement('div');sumBar.style.cssText='display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;background:var(--brand-pale);border-top:2px solid var(--brand-light);border-bottom:1px solid var(--brand-light);font-size:13px;font-weight:500;position:sticky;bottom:0;z-index:3;';
   function updateSum(d){
-    var tA=d.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var tA=d.reduce(function(s,b){return s+b.netAmt;},0);
     var tB=d.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     var tR=d.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var anyF=Object.keys(state.filters).some(function(k){return state.filters[k]!=null;})||!!state.q;
@@ -5101,7 +5101,7 @@ function exportBillsExcel() {
     var pb=bills.filter(function(b){return b.party===p;});
     var recv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var due=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-    var total=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var total=pb.reduce(function(s,b){return s+b.netAmt;},0);
     var dueBills2=pb.filter(function(b){return getBillStatus(b).status!=='paid';});
     var last=pb.slice().sort(function(a,b2){return toISO(b2.date||'')>toISO(a.date||'')?1:-1;})[0];
     return{'Party':p,'Total Bills':pb.length,'Due Bills':dueBills2.length,'Total Sales':total,'Total Received':recv,'Outstanding':due,'Last Bill Date':last?fmtDate(last.date):'','Status':due<=0.5?'CLEAR':'OUTSTANDING'};
@@ -5544,7 +5544,7 @@ function pgDueList() {
   var sumBar=document.createElement('div');sumBar.style.cssText='display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;background:#fff1f2;border-top:2px solid #fecaca;border-bottom:1px solid #fecaca;font-size:13px;font-weight:500;position:sticky;bottom:0;z-index:3;';
   function updateSum(d){
     var tB=d.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-    var tA=d.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var tA=d.reduce(function(s,b){return s+b.netAmt;},0);
     var tR=d.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var anyF=Object.keys(state.filters).some(function(k){return state.filters[k]!=null;})||!!state.q;
     clearBtn.style.display=anyF?'':'none';
@@ -5613,7 +5613,7 @@ function pgDueList() {
     if(!d.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',cols.length+(state.printMode?1:0));etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';etd.innerHTML='<div style="font-size:36px;margin-bottom:8px">No pending bills!</div>';etr.appendChild(etd);tbody.appendChild(etr);return;}
     // Add totals row at end
     var _addTotalRow=function(){
-      var totAmt=d.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+      var totAmt=d.reduce(function(s,b){return s+b.netAmt;},0);
       var totRecv=d.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
       var totBal=d.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
       var tfoot=document.createElement('tfoot');
@@ -5809,7 +5809,7 @@ function pgDueList() {
       fyI.textContent=getFYLabel(fy)+' — ₹'+fmt(fyT)+' pending ('+fyB.length+' bills)';
       var swB=document.createElement('button');swB.style.cssText='font-size:10px;padding:3px 10px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700';
       swB.textContent='Switch to '+fy;
-      swB.addEventListener('click',(function(f){return function(){if(confirm('Switch to FY '+f+'?')){cfg.financialYear=f;DB.set('settings',cfg);toast('✅ FY '+f+' active!');refresh();}};})(fy));
+      swB.addEventListener('click',(function(f){return function(){if(confirm('Switch to FY '+f+'?')){cfg.financialYear=f;DB.set('cfg',cfg);toast('✅ FY '+f+' active!');refresh();}};})(fy));
       fyH.appendChild(fyI);fyH.appendChild(swB);fyRow.appendChild(fyH);
       fyB.slice(0,5).forEach(function(b){
         var s2=getBillStatus(b);var bR=document.createElement('div');
@@ -5903,7 +5903,7 @@ function exportDueExcel() {
 function printDueListReport(data,gcFn) {
   var gc=gcFn||function(){return true;};
   if(!data||!data.length){toast('Koi data nahi!','err');return;}
-  var totAmt=data.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totRecv=data.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var totBal=data.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Due List Report</title>'
@@ -6926,7 +6926,7 @@ function pgLedger() {
       var stn=(pb.find(function(b){return b.station;})||{}).station||'';
       return{
         party:p,station:stn,bills:pb.length,
-        total:pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0),
+        total:pb.reduce(function(s,b){return s+b.netAmt;},0),
         received:pb.reduce(function(s,b){return s+(getBillStatus(b).recv||0);},0),
         rebate:pb.reduce(function(s,b){return s+(getBillStatus(b).rebate||0);},0),
         interest:pb.reduce(function(s,b){return s+(getBillStatus(b).interest||0);},0),
@@ -7048,7 +7048,7 @@ function pgPartyLedger(party) {
     if(plState2.dateTo&&toISO(b.date||'')>toISO(plState2.dateTo))return false;
     return true;
   }).sort(function(a,b){return toISO(a.date||'')<toISO(b.date||'')?1:-1;});
-  var totalAmt=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var totalAmt=pb.reduce(function(s,b){return s+b.netAmt;},0);
   var totalRecv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var totalDue=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var dueCnt=pb.filter(function(b){return getBillStatus(b).status!=='paid';}).length;
@@ -8013,7 +8013,7 @@ function pgReports() {
   rptSum.style.cssText='padding:9px 16px;background:#f0fdf4;border-top:2px solid var(--brand-light);font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3';
   rptSum.innerHTML=
     '<span>Bills: <strong>'+bills.length+'</strong></span>'+
-    '<span>Sales: <strong style="color:#1d4ed8">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0))+'</strong></span>'+
+    '<span>Sales: <strong style="color:#1d4ed8">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+b.netAmt;},0))+'</strong></span>'+
     '<span>Received: <strong style="color:#166534">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0))+'</strong></span>'+
     '<span>Outstanding: <strong style="color:#dc2626">&#8377;'+fmt(_fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0))+'</strong></span>';
   wrap.appendChild(rptSum);
@@ -8141,7 +8141,7 @@ function pgReports() {
     var parties2=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
     var data2=parties2.map(function(p){
       var pb=_fyBills.filter(function(b){return b.party===p;});
-      return{party:p,bills:pb.length,total:pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0),recv:pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0),due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};
+      return{party:p,bills:pb.length,total:pb.reduce(function(s,b){return s+b.netAmt;},0),recv:pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0),due:pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0)};
     }).sort(function(a,b){return b.due-a.due;});
     var totalDue2=data2.reduce(function(s,d){return s+d.due;},0);
     var sumB=document.createElement('div');sumB.style.cssText='background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;margin-bottom:10px';
@@ -8712,7 +8712,7 @@ function pgFinancialYear() {
     var d=toISO(b.date||'');var p=activeFY.split('-');
     return d>=(p[0]+'-04-01')&&d<=(p[1]+'-03-31');
   });
-  var activeAmt=activeBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var activeAmt=activeBills.reduce(function(s,b){return s+b.netAmt;},0);
   var activeRecv=activeBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var activeBal=activeBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var activeDue=activeBills.filter(function(b){return getBillStatus(b).status!=='paid';}).length;
@@ -8772,7 +8772,7 @@ function pgFinancialYear() {
       btn.addEventListener('mouseleave',function(){this.style.background='#fff';this.style.borderColor='#d1d5db';});
       btn.addEventListener('click',function(){
         if(confirm('Switch to FY '+fy+'?\n\nDashboard aur reports mein '+fy+' ka data dikhega.\nSaara data preserve rahega — sirf view change hogi.')){
-          cfg.financialYear=fy;DB.set('settings',cfg);toast('\u2705 FY '+fy+' active!');refresh();
+          cfg.financialYear=fy;DB.set('cfg',cfg);toast('\u2705 FY '+fy+' active!');refresh();
         }
       });
     }
@@ -8787,7 +8787,7 @@ function pgFinancialYear() {
   newBtn.style.cssText+='padding:10px 16px;font-size:12px;font-weight:700';
   newBtn.addEventListener('click',function(){
     if(confirm('Start new Financial Year '+nextFY+'?\n\nYe FY '+nextFY+' ko active kar dega.\nPurani saari bills aur payments safe rahengi.')){
-      cfg.financialYear=nextFY;DB.set('settings',cfg);
+      cfg.financialYear=nextFY;DB.set('cfg',cfg);
       toast('\u2705 FY '+nextFY+' shuru!');refresh();
     }
   });
@@ -8819,7 +8819,7 @@ function pgFinancialYear() {
       var d=toISO(b.date||'');
       return d>=(p[0]+'-04-01')&&d<=(p[1]+'-03-31');
     });
-    var amt=fyBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var amt=fyBills.reduce(function(s,b){return s+b.netAmt;},0);
     var recv=fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var bal=fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     var isActive=fy===activeFY;
@@ -8844,7 +8844,7 @@ function pgFinancialYear() {
       tr.style.cursor='pointer';
       tr.title='Click to switch to FY '+fy;
       tr.addEventListener('click',function(){
-        if(confirm('Switch to FY '+fy+'?')){cfg.financialYear=fy;DB.set('settings',cfg);toast('\u2705 FY '+fy+' active!');refresh();}
+        if(confirm('Switch to FY '+fy+'?')){cfg.financialYear=fy;DB.set('cfg',cfg);toast('\u2705 FY '+fy+' active!');refresh();}
       });
     }
     tbody2.appendChild(tr);
@@ -9686,7 +9686,7 @@ function exportPartyReportExcel() {
     return{
       'Party':p,
       'Bills':pb.length,
-      'Total Sales':pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0),
+      'Total Sales':pb.reduce(function(s,b){return s+b.netAmt;},0),
       'Received':pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0),
       'Outstanding':pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0),
       'Gross Pmts':grossPmts.length,
@@ -13880,7 +13880,7 @@ function pgPartialTracking() {
     {l:'Partial Bills',v:partialBills.length,c:'#d97706',bg:'#fffbeb'},
     {l:'Partial Amount',v:'\u20b9'+fmt(partialBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0)),c:'#d97706',bg:'#fffbeb'},
     {l:'Fully Due',v:dueBills3.length,c:'#dc2626',bg:'#fff1f2'},
-    {l:'Total Recv %',v:Math.round(bills.reduce(function(s,b){return s+getBillStatus(b).recv;},0)/Math.max(1,bills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0))*100)+'%',c:'#166534',bg:'#f0fdf4'}
+    {l:'Total Recv %',v:Math.round(bills.reduce(function(s,b){return s+getBillStatus(b).recv;},0)/Math.max(1,bills.reduce(function(s,b){return s+b.netAmt;},0))*100)+'%',c:'#166534',bg:'#f0fdf4'}
   ].forEach(function(sd){
     var d=document.createElement('div');d.style.cssText='background:'+sd.bg+';border:1px solid '+sd.c+';border-radius:10px;padding:14px';
     d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+sd.c+';text-transform:uppercase;margin-bottom:6px">'+sd.l+'</div><div style="font-size:20px;font-weight:700;color:'+sd.c+'">'+sd.v+'</div>';
@@ -14145,7 +14145,7 @@ function printPartyStatement(party, plState) {
     if(dt&&toISO(b.date||'')>toISO(dt))return false;
     return true;
   }).sort(function(a,b){return toISO(a.date||'').localeCompare(toISO(b.date||''));});
-  var tAmt=pb2.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var tAmt=pb2.reduce(function(s,b){return s+b.netAmt;},0);
   var tRecv=pb2.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var tBal=pb2.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var pGross=(grossPayments||[]).filter(function(g){
@@ -14492,7 +14492,7 @@ function openPDFColumnSelector(data, mode) {
 
 function exportStyledReport(data,gcFn) {
   var gc=gcFn||function(){return true;};
-  var totAmt=data.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var totAmt=data.reduce(function(s,b){return s+b.netAmt;},0);
   var totBal=data.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var totRecv=data.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bills Report</title>'+
@@ -14631,7 +14631,7 @@ function exportStyledReportExcel(data) {
     var pb=data.filter(function(b){return b.party===p;});
     var recv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var bal=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-    var total=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var total=pb.reduce(function(s,b){return s+b.netAmt;},0);
     return{Party:p,'Bills':pb.length,'Total Sales':total,'Received':recv,'Outstanding':bal,'Status':bal<=0.5?'CLEAR':'OUTSTANDING'};
   }).sort(function(a,b){return b['Outstanding']-a['Outstanding'];});
   var ws2=XLSX.utils.json_to_sheet(partyRows);
@@ -15308,7 +15308,7 @@ function exportYearWise(fyStart) {
     var pb=fyBills.filter(function(b){return b.party===p;});
     var recv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var bal=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
-    var total=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var total=pb.reduce(function(s,b){return s+b.netAmt;},0);
     return {Party:p,'Bills':pb.length,'Total Sales':total,'Received':recv,'Outstanding':bal};
   }).sort(function(a,b){return b['Total Sales']-a['Total Sales'];});
   var ws3=XLSX.utils.json_to_sheet(partyRows);
@@ -15327,7 +15327,7 @@ function exportYearWise(fyStart) {
   }
 
   // Sheet 6: Summary stats
-  var totSales=fyBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var totSales=fyBills.reduce(function(s,b){return s+b.netAmt;},0);
   var totRecv=fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var totBal=fyBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
   var totGST=fyBills.reduce(function(s,b){return s+(b.cgst||0)+(b.sgst||0)+(b.igst||0);},0);
@@ -15456,7 +15456,7 @@ function exportYearWisePDF(fyStart) {
   h+='<h3>Party Summary</h3><table><thead><tr><th>Party</th><th class="num">Bills</th><th class="num">Total</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>';
   parties.forEach(function(p){
     var pb=fyBills.filter(function(b){return b.party===p;});
-    var ptot=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+    var ptot=pb.reduce(function(s,b){return s+b.netAmt;},0);
     var precv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var pbal=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     h+='<tr><td><strong>'+p+'</strong></td><td class="num">'+pb.length+'</td>'+
@@ -18355,14 +18355,14 @@ function erpReconcile() {
             bnOver.push(hit);return;
           }
           if(!_isInst&&!_isSingle){
-            var _run=erp2(bnFound.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0));
+            var _run=erp2(bnFound.reduce(function(s,b){return s+b.netAmt;},0));
             if(erp2(_run+hit.netAmt)>erp2(credit+1)){bnMissing.push(rs+'(exceeds)');return;}
           }
           bnFound.push(hit);
         });
 
         if(!bnFound.length&&bnOver.length){
-          var _ovT=erp2(bnOver.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0));
+          var _ovT=erp2(bnOver.reduce(function(s,b){return s+b.netAmt;},0));
           var _scO={total:_ovT,diff:erp2(credit),pct:1,matchType:'EXCESS',score:50,basis:'Bill No (Overpayment)'};
           var _rO=buildResult(p,'BILL',matchedKey,bnOver,_scO);
           _rO.manualBillMapping=true;_rO.billNoList=p.billNoArr;_rO.isOverpayment=true;
@@ -18377,7 +18377,7 @@ function erpReconcile() {
           return;
         }
 
-        var bnTotal=erp2(bnFound.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0));
+        var bnTotal=erp2(bnFound.reduce(function(s,b){return s+b.netAmt;},0));
         var _diff,_pct,_mt;
         if(_isInst){
           var _cumC=credit;
@@ -19613,7 +19613,7 @@ function erp2RenderConfusion(wrap) {
         if (!billObjs.length) { toast('❌ Bills not found in loaded data', 'error'); return; }
 
         // Final over-allocation check on billObjs (paranoia guard)
-        var finalTotal = erp2(billObjs.reduce(function(s,b){ return s+(parseFloat(b.netAmt)||0); },0));
+        var finalTotal = erp2(billObjs.reduce(function(s,b){ return s+b.netAmt; },0));
         if (finalTotal > erp2(c.credit + 1)) {
           toast('❌ Cannot confirm: Bills \u20b9' + finalTotal + ' exceed Credit \u20b9' + c.credit, 'error');
           return;
@@ -19905,7 +19905,7 @@ function pgERPEngine() {
     ERP.rawBills = erpParseBills(sheets);
     ERP.partyMap = erpBuildPartyMap(erpDeepClone(ERP.rawBills));
     // Show total for manual validation against Excel SUM
-    var billTotal = ERP.rawBills.reduce(function(s,b){ return s+(parseFloat(b.netAmt)||0); }, 0);
+    var billTotal = ERP.rawBills.reduce(function(s,b){ return s+b.netAmt; }, 0);
     toast('🧾 Bills loaded: ' + ERP.rawBills.length + ' bills | Total: \u20b9' + billTotal.toLocaleString('en-IN',{maximumFractionDigits:2}) + ' — verify vs Excel SUM', 'success');
   }));
   upGrid2.appendChild(makeUploadCard('payments', 'Payments File', '💳', 'Party-wise payment sheets / flat table', function(sheets) {
