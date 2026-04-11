@@ -21270,9 +21270,9 @@ function doBankSessionUndo(sessionId) {
   var advDel = advBefore - advances.length;
 
   invalidateBillStatusCache();
-  DB.set('payments', payments);
-  DB.set('grossPayments', grossPayments);
-  DB.set('advances', advances);
+  DB.set('payments', payments, true);
+  DB.set('grossPayments', grossPayments, true);
+  DB.set('advances', advances, true);
   invalidateBillStatusCache();
 
   toast('✅ Undo complete! '+pDel+' payments, '+gpDel+' gross, '+advDel+' advances delete hue');
@@ -21540,8 +21540,8 @@ function deleteGrossPayment(gpId) {
       grossPayments=grossPayments.filter(function(x){return x.id!==gpId;});
       payments=payments.filter(function(p){return p.gpId!==gpId;});
       invalidateBillStatusCache();
-      DB.set('grossPayments',grossPayments);
-      DB.set('payments',payments);
+      DB.set('grossPayments',grossPayments,true);
+      DB.set('payments',payments,true);
       closeModal();toast('🗑 Gross payment deleted');refresh();
     }
   }]);
@@ -21617,7 +21617,7 @@ function pgPartyPaymentView() {
           payments=payments.filter(function(x){return x.id!==pid;});
         });
         invalidateBillStatusCache();
-        DB.set('grossPayments',grossPayments);DB.set('payments',payments);
+        DB.set('grossPayments',grossPayments,true);DB.set('payments',payments,true);
         state.sel=new Set();
         closeModal();toast('🗑 '+selArr.length+' items deleted');refresh();
       }
