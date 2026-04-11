@@ -3432,7 +3432,10 @@ function pgDashboard() {
   // Received: sum individual payment records linked to this FY's bills
   // This correctly handles cross-FY gross payments (each DETAIL counted in its own FY)
   var fyPmts   = payments.filter(function(p){return fyPayIds.has(p.billId);});
-  var recvAmt  = fyPmts.reduce(function(s,p){var a=p.rowType==='HEADER'?0:(parseFloat(p.amount)||0);return s+a;},0);
+  // FIXED: Use getBillStatus().recv as single source of truth
+  // This prevents mismatch between Dashboard and Receipt Ledger
+  // when grossPayments[] and payments[] are out of sync
+  var recvAmt  = fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   var dueBills = fyBills.filter(function(b){return getBillStatus(b).status!=='paid';});
   var totalAmt = fyBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
   var dueAmt   = dueBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -20993,7 +20996,9 @@ function pgReceiptLedger() {
     var partTotal=singleData.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
     var intTotal=singleData.reduce(function(s,p){return s+(p.interest||0);},0);
     var rebTotal=singleData.reduce(function(s,p){return s+(p.rebate||0);},0);
-    var totalRecv=grossTotal+singleTotal+partTotal;
+    // FIXED: Use getBillStatus().recv as single source of truth (same as Dashboard)
+    var _fyBillsArr = getFYBills(_activeFY);
+    var totalRecv = _fyBillsArr.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
 
     sumGrid.innerHTML='';
     [{l:'Gross Payments',v:grossVisible.length,c:'#1d4ed8'},
@@ -21894,7 +21899,9 @@ function printReceiptLedger(){
   var sTotal=singleData.reduce(function(s,p){return s+(p.amount||0);},0);
   var rt=singleData.reduce(function(s,p){return s+(p.rebate||0);},0);
   var it=singleData.reduce(function(s,p){return s+(p.interest||0);},0);
-  var totalRecv=grossTotal+sTotal;
+  // FIXED: Use getBillStatus().recv as single source of truth
+  var _printFYBills = getFYBills(getActiveFY());
+  var totalRecv=_printFYBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
   // Merge GROSS+SINGLE sorted by date desc
   var merged=[];
   grossData.forEach(function(g){merged.push({type:'GROSS',data:g,sortDate:toISO(g.date||'')});});
