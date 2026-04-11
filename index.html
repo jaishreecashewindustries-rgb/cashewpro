@@ -3432,10 +3432,19 @@ function pgDashboard() {
   // Received: sum individual payment records linked to this FY's bills
   // This correctly handles cross-FY gross payments (each DETAIL counted in its own FY)
   var fyPmts   = payments.filter(function(p){return fyPayIds.has(p.billId);});
-  // FIXED: Use getBillStatus().recv as single source of truth
-  // This prevents mismatch between Dashboard and Receipt Ledger
-  // when grossPayments[] and payments[] are out of sync
-  var recvAmt  = fyBills.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+  // FIXED: Direct payments sum + gross payments for FY bills — sahi number
+  // getBillStatus pe depend nahi karte kyunki DETAIL rows missing ho sakti hain
+  var _fyGrossRecv = (grossPayments||[]).filter(function(g){
+    return (g.bills||[]).some(function(gb){return fyPayIds.has(gb.billId||gb.id);});
+  }).reduce(function(s,g){
+    // Sirf is FY ke bills ka portion count karo
+    var portion=(g.bills||[]).filter(function(gb){return fyPayIds.has(gb.billId||gb.id);})
+      .reduce(function(ss,gb){return ss+(gb.amount||0);},0);
+    return s+portion;
+  },0);
+  var _fySingleRecv = fyPmts.filter(function(p){return p.rowType!=='DETAIL';})
+    .reduce(function(s,p){return s+(p.amount||0);},0);
+  var recvAmt = _fyGrossRecv + _fySingleRecv;
   var dueBills = fyBills.filter(function(b){return getBillStatus(b).status!=='paid';});
   var totalAmt = fyBills.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
   var dueAmt   = dueBills.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
@@ -20996,9 +21005,24 @@ function pgReceiptLedger() {
     var partTotal=singleData.filter(function(p){return p.rowType==='PARTIAL';}).reduce(function(s,p){return s+(p.amount||0);},0);
     var intTotal=singleData.reduce(function(s,p){return s+(p.interest||0);},0);
     var rebTotal=singleData.reduce(function(s,p){return s+(p.rebate||0);},0);
-    // FIXED: Use getBillStatus().recv as single source of truth (same as Dashboard)
-    var _fyBillsArr = getFYBills(_activeFY);
-    var totalRecv = _fyBillsArr.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+    // FIXED: Jab koi filter nahi to direct GP+Single sum (Dashboard se match) — filter laga ho to sirf visible data
+    var _hasFilter = (state.q||'') || (state.dateFrom||'') || (state.dateTo||'') || (state.modeFilter&&state.modeFilter!=='ALL');
+    var totalRecv;
+    if(_hasFilter){
+      // Filter active — sirf jo dikh raha hai uska sum
+      totalRecv = grossTotal + singleTotal + partTotal;
+    } else {
+      // No filter — GP bills[] array se direct sum (DETAIL rows missing hone par bhi sahi, Dashboard se match)
+      var _fyBillIdsSet = new Set(getFYBills(_activeFY).map(function(b){return b.id;}));
+      var _gpRecv = _fyGross.reduce(function(s,g){
+        var portion=(g.bills||[]).filter(function(gb){return _fyBillIdsSet.has(gb.billId||gb.id);})
+          .reduce(function(ss,gb){return ss+(gb.amount||0);},0);
+        return s+portion;
+      },0);
+      var _singleRecv = _fyPayments.filter(function(p){return p.rowType!=='DETAIL';})
+        .reduce(function(s,p){return s+(p.amount||0);},0);
+      totalRecv = _gpRecv + _singleRecv;
+    }
 
     sumGrid.innerHTML='';
     [{l:'Gross Payments',v:grossVisible.length,c:'#1d4ed8'},
