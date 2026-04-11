@@ -1071,7 +1071,7 @@ var DB = {
   },
   getObj: function(k,def){ var v=this._r(k); return (v&&typeof v==='object'&&!Array.isArray(v))?v:(def||{}); },
 
-  set: function(k,v){
+  set: function(k,v,immediate){
     if(this._LARGE.indexOf(k)>=0 && Array.isArray(v)){
       this._w(k,null);
       var chunks=this._chunkArr(v), self=this;
@@ -1080,37 +1080,66 @@ var DB = {
       var self=this;
       chunks.forEach(function(c,i){ _pending[k+'_'+i]=c; });
       clearTimeout(_saveTimer);
-      _saveTimer=setTimeout(function(){ DB._flush(); },800);
-      DB._sync('saving','Saving...');
-    } else { this._w(k,v); this._q(k,v); }
+      if(immediate){
+        DB._flush();
+      } else {
+        _saveTimer=setTimeout(function(){ DB._flush(); },800);
+        DB._sync('saving','Saving...');
+      }
+    } else { this._w(k,v); this._q(k,v,immediate); }
   },
-  setObj: function(k,v){ this._w(k,v); this._q(k,v); },
+  setObj: function(k,v,immediate){ this._w(k,v); this._q(k,v,immediate); },
 
-  _q: function(k,v){
+  _q: function(k,v,immediate){
     if(!_user) return;
     _pending[k]=v;
     clearTimeout(_saveTimer);
-    _saveTimer=setTimeout(function(){ DB._flush(); },800);
-    DB._sync('saving','Saving...');
+    if(immediate){
+      DB._flush();
+    } else {
+      _saveTimer=setTimeout(function(){ DB._flush(); },800);
+      DB._sync('saving','Saving...');
+    }
   },
 
-  _flush: function(){
-    if(!_user || !Object.keys(_pending).length) return;
-    var uid=_user.uid, entries=Object.keys(_pending), promises=[];
+  _flush: function(onDone){
+    if(!_user || !Object.keys(_pending).length){
+      if(onDone) onDone(true);
+      return;
+    }
+    // WAL PATTERN: snapshot what we need to write FIRST, then clear _pending
+    // This way if save fails, we know what failed and can retry
+    var uid=_user.uid;
+    var snapshot=JSON.parse(JSON.stringify(_pending)); // deep copy of pending writes
+    var entries=Object.keys(snapshot), promises=[];
+    DB._sync('saving','Saving...');
     for(var i=0;i<entries.length;i+=10){
       (function(keys){
         var batch=_fdb.batch();
         keys.forEach(function(k){
           batch.set(_fdb.collection('users').doc(uid).collection('data').doc(k),
-            {v:_pending[k],t:firebase.firestore.FieldValue.serverTimestamp()});
+            {v:snapshot[k],t:firebase.firestore.FieldValue.serverTimestamp()});
         });
         promises.push(batch.commit());
       })(entries.slice(i,i+10));
     }
-    _pending={};
+    // Only clear _pending AFTER Firebase confirms ALL batches succeeded
     Promise.all(promises)
-      .then(function(){ DB._sync('saved','✓ Saved'); })
-      .catch(function(e){ console.error('Save error',e); DB._sync('offline','⚠ Save failed'); });
+      .then(function(){
+        // Remove from _pending only the keys we just wrote (new writes may have arrived)
+        entries.forEach(function(k){ delete _pending[k]; });
+        DB._sync('saved','✓ Saved');
+        // Also persist a WAL-cleared marker to localStorage so we know it's clean
+        try{ localStorage.setItem('cp__wal_clean', Date.now().toString()); }catch(e){}
+        if(onDone) onDone(true);
+      })
+      .catch(function(e){
+        console.error('[DB] Save error — data still in _pending, will retry',e);
+        DB._sync('offline','⚠ Save failed — Retry ho raha hai...');
+        // On failure: _pending still has the data (we didn't clear it), so retry after 3s
+        clearTimeout(_saveTimer);
+        _saveTimer=setTimeout(function(){ DB._flush(onDone); }, 3000);
+      });
   },
 
   loadAll: function(uid, cb){
@@ -2402,9 +2431,19 @@ function go(page) {
   render(page);
 }
 
-// beforeunload warning
+// beforeunload warning + CRITICAL: force-flush any pending writes before page closes
 window.addEventListener('beforeunload', function(e){
   if(_dirtyForm){e.preventDefault();e.returnValue='';return '';}
+  // If there are pending Firebase writes, flush them NOW before page closes
+  // This prevents data loss when user closes tab/browser before 800ms debounce fires
+  if(_user && Object.keys(_pending).length > 0){
+    clearTimeout(_saveTimer);
+    // Use sendBeacon or synchronous XHR as last resort — but Firestore SDK
+    // handles offline persistence, so just call _flush() immediately
+    DB._flush();
+    // Small delay hint to browser to let the flush start
+    // (browser gives ~300ms grace for beforeunload operations)
+  }
 });
 
 function refresh() { invalidateGsIndex(); go(currentPage); }
@@ -5513,7 +5552,7 @@ function pgDueList() {
     if(!selBills.length){toast('Koi bill select nahi!','err');return;}
     var bd=document.createElement('div');
     bd.innerHTML='<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:6px">'+selBills.length+' bills delete honge!</div><div style="font-size:12px;color:#374151;max-height:140px;overflow-y:auto">'+selBills.slice(0,20).map(function(b){var s=getBillStatus(b);return'<div>Bill #'+b.billNo+' - '+b.party+' - Bal:Rs'+Math.round(s.bal)+'</div>';}).join('')+(selBills.length>20?'<div style="color:#dc2626">...aur '+(selBills.length-20)+' bills</div>':'')+'</div></div><div style="font-size:11px;color:#6b7280">Payments bhi delete honge. Undo possible hai.</div>';
-    openModal('Bulk Delete',bd,[{label:'Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){saveUndo('Bulk Delete: '+selBills.length+' bills');var ids=new Set(selBills.map(function(b){return b.id;}));bills=bills.filter(function(b){return !ids.has(b.id);});payments=payments.filter(function(p){return !ids.has(p.billId);});invalidateBillStatusCache();DB.set('bills',bills);DB.set('payments',payments);state.sel.clear();state.deleteMode=false;dlDelBtn.textContent='Delete Bills';dlDelBtn.style.background='#fff1f2';dlDelNowBtn.style.display='none';closeModal();toast(selBills.length+' bills deleted!');refresh();}}]);
+    openModal('Bulk Delete',bd,[{label:'Delete '+selBills.length+' Bills',cls:'btn-red',fn:function(){saveUndo('Bulk Delete: '+selBills.length+' bills');var ids=new Set(selBills.map(function(b){return b.id;}));bills=bills.filter(function(b){return !ids.has(b.id);});payments=payments.filter(function(p){return !ids.has(p.billId);});invalidateBillStatusCache();DB.set('bills',bills,true);DB.set('payments',payments,true);state.sel.clear();state.deleteMode=false;dlDelBtn.textContent='Delete Bills';dlDelBtn.style.background='#fff1f2';dlDelNowBtn.style.display='none';closeModal();toast(selBills.length+' bills deleted!');refresh();}}]);
   });
   var bulkPayBtn2=el('button',{cls:'btn btn-green btn-sm',text:'Pay Selected'});
   bulkPayBtn2.style.display='none';
@@ -5661,7 +5700,7 @@ function pgDueList() {
            saveUndo('Bill Delete: '+r2.party+' #'+r2.billNo);
            bills=bills.filter(function(b){return b.id!==r2.id;});
            payments=payments.filter(function(p){return p.billId!==r2.id;});
-           invalidateBillStatusCache();DB.set('bills',bills);invalidateBillStatusCache();DB.set('payments',payments);toast('Bill deleted');refresh();
+           invalidateBillStatusCache();DB.set('bills',bills,true);invalidateBillStatusCache();DB.set('payments',payments,true);toast('Bill deleted');refresh();
          }}
         ].forEach(function(item){
           var mi2=document.createElement('div');
@@ -6677,7 +6716,7 @@ function pgAdvances() {
         }}]);
       }},
       {label:'🗑',cls:'btn-xs btn-red',fn:function(){
-        if(confirm('Delete?')){saveUndo('Advance Delete');advances=advances.filter(function(x){return x.id!==a.id;});invalidateBillStatusCache();DB.set('advances',advances);toast('Deleted');refresh();}
+        if(confirm('Delete?')){saveUndo('Advance Delete');advances=advances.filter(function(x){return x.id!==a.id;});invalidateBillStatusCache();DB.set('advances',advances,true);toast('Deleted');refresh();}
       }}]));
     tr2.appendChild(actTd);tbody2.appendChild(tr2);
   });
@@ -6866,7 +6905,7 @@ function pgCheques() {
     actTd.appendChild(actionBtns([
       {label:'✏️ Edit',cls:'btn-xs btn-blue',fn:function(){openEditCheque(c);}},
       {label:'🗑',cls:'btn-xs btn-red',fn:function(){
-        if(!confirm('Delete?'))return;saveUndo('Cheque Delete');cheques=cheques.filter(function(x){return x.id!==c.id;});DB.set('cheques',cheques);toast('Deleted');refresh();
+        if(!confirm('Delete?'))return;saveUndo('Cheque Delete');cheques=cheques.filter(function(x){return x.id!==c.id;});DB.set('cheques',cheques,true);toast('Deleted');refresh();
       }}
     ]));
     tr2.appendChild(actTd);tbody2.appendChild(tr2);
@@ -7664,7 +7703,7 @@ function pgReturns() {
             }}]);
           }},
           {label:'🗑',cls:'btn-xs btn-red',fn:function(){
-            if(!confirm('Delete?'))return;saveUndo('Return Delete');returns_=returns_.filter(function(x){return x.id!==r.id;});DB.set('returns',returns_);toast('Deleted');refresh();
+            if(!confirm('Delete?'))return;saveUndo('Return Delete');returns_=returns_.filter(function(x){return x.id!==r.id;});DB.set('returns',returns_,true);toast('Deleted');refresh();
           }}
         ]));
       } else if(typeof cv==='object'&&cv.num){td.style.textAlign='right';td.textContent=cv.v;}
@@ -7814,7 +7853,7 @@ function pgExpenses() {
             }}]);
           }},
           {label:'🗑',cls:'btn-xs btn-red',fn:function(){
-            if(!confirm('Delete?'))return;saveUndo('Expense Delete');expenses=expenses.filter(function(x){return x.id!==e.id;});DB.set('expenses',expenses);toast('Deleted');refresh();
+            if(!confirm('Delete?'))return;saveUndo('Expense Delete');expenses=expenses.filter(function(x){return x.id!==e.id;});DB.set('expenses',expenses,true);toast('Deleted');refresh();
           }}
         ]));
       } else if(typeof cv==='object'&&cv.num){td.style.textAlign='right';td.textContent=cv.v;}
@@ -7972,7 +8011,7 @@ function pgPurchases() {
             }}]);
           }},
           {label:'🗑',cls:'btn-xs btn-red',fn:function(){
-            if(!confirm('Delete?'))return;saveUndo('Purchase Delete');purchases=purchases.filter(function(x){return x.id!==p.id;});DB.set('purchases',purchases);toast('Deleted');refresh();
+            if(!confirm('Delete?'))return;saveUndo('Purchase Delete');purchases=purchases.filter(function(x){return x.id!==p.id;});DB.set('purchases',purchases,true);toast('Deleted');refresh();
           }}
         ]));
       } else if(typeof cv==='object'&&cv.num){td.style.textAlign='right';td.innerHTML='<strong>'+cv.v+'</strong>';}
@@ -12767,7 +12806,7 @@ function pgDuplicates() {
     ],
     function(p){ // delete
       payments = payments.filter(function(x){return x.id!==p.id;});
-      invalidateBillStatusCache();DB.set('payments',payments); toast('Payment deleted');
+      invalidateBillStatusCache();DB.set('payments',payments,true); toast('Payment deleted');
     },
     function(p){ // edit
       openEditPayment(p);
@@ -12785,7 +12824,7 @@ function pgDuplicates() {
       {l:'Date', val:function(p){return fmtDate(p.date);}},
       {l:'Amount', val:function(p){return '\u20b9'+fmt(p.amount||0);}, num:true},
     ],
-    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Payment deleted');},
+    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments,true);toast('Payment deleted');},
     function(p){openEditPayment(p);}
   );
   if(dupChqPaySec) wrap.appendChild(dupChqPaySec);
@@ -12801,7 +12840,7 @@ function pgDuplicates() {
       {l:'Amount', val:function(p){return '\u20b9'+fmt(p.amount||0);}, num:true},
       {l:'Mode', val:function(p){return p.mode||'-';}},
     ],
-    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Payment deleted');},
+    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments,true);toast('Payment deleted');},
     function(p){openEditPayment(p);}
   );
   if(dupRcptSec) wrap.appendChild(dupRcptSec);
@@ -12818,7 +12857,7 @@ function pgDuplicates() {
       {l:'Bank', val:function(c){return c.bank||'-';}},
       {l:'Status', html:function(c){return '<span class="badge b-'+(c.status==='Cleared'?'paid':c.status==='Bounced'?'bounced':c.status==='Deposited'?'partial':'pending')+'">'+c.status+'</span>';}},
     ],
-    function(c){cheques=cheques.filter(function(x){return x.id!==c.id;});DB.set('cheques',cheques);toast('Cheque deleted');},
+    function(c){cheques=cheques.filter(function(x){return x.id!==c.id;});DB.set('cheques',cheques,true);toast('Cheque deleted');},
     function(c){openEditCheque(c);}
   );
   if(dupChqTabSec) wrap.appendChild(dupChqTabSec);
@@ -12834,7 +12873,7 @@ function pgDuplicates() {
       {l:'Mode', val:function(p){return p.mode||'-';}},
       {l:'Receipt', val:function(p){return p.receiptNo||'-';}},
     ],
-    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments);toast('Orphan payment deleted');},
+    function(p){payments=payments.filter(function(x){return x.id!==p.id;});invalidateBillStatusCache();DB.set('payments',payments,true);toast('Orphan payment deleted');},
     null
   );
   if(orphanSec) wrap.appendChild(orphanSec);
@@ -12849,7 +12888,7 @@ function pgDuplicates() {
       {l:'Party', html:function(b){return '<strong>'+b.party+'</strong>';}},
       {l:'Net Amount', val:function(b){return '\u20b9'+fmt(b.netAmt||0);}, num:true},
     ],
-    function(b){bills=bills.filter(function(x){return x.id!==b.id;});invalidateBillStatusCache();DB.set('bills',bills);toast('Bill deleted');},
+    function(b){bills=bills.filter(function(x){return x.id!==b.id;});invalidateBillStatusCache();DB.set('bills',bills,true);toast('Bill deleted');},
     function(b){openEditBill(b);}
   );
   if(zeroAmtSec) wrap.appendChild(zeroAmtSec);
@@ -14845,7 +14884,7 @@ function pgSuspense() {
     menuItems.push({label:'Delete',color:'#dc2626',fn:function(){
       if(!confirm('Delete this suspense entry?'))return;
       suspense=suspense.filter(function(x){return x.id!==entry.id;});
-      DB.set('suspense',suspense); toast('Deleted'); refresh();
+      DB.set('suspense',suspense,true); toast('Deleted'); refresh();
     }});
 
     menuItems.forEach(function(item){
