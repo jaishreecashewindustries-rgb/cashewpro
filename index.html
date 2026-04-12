@@ -21731,7 +21731,7 @@ function openGrossEditModal(gpId) {
     billsDiv.innerHTML='';
     (g.bills||[]).forEach(function(bi,idx){
       var row=document.createElement('div');
-      row.style.cssText='display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:6px;padding:8px;background:#f8faff;border-radius:6px;border:1px solid #dbeafe';
+      row.style.cssText='display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:6px;padding:8px;background:#f8faff;border-radius:6px;border:1px solid #dbeafe';
       // Bill No select
       var bnD=document.createElement('div');bnD.className='fg';
       var bnL=document.createElement('label');bnL.textContent='Bill No';
@@ -21764,12 +21764,18 @@ function openGrossEditModal(gpId) {
       rebI.addEventListener('input',function(){g.bills[idx].rebate=parseFloat(this.value)||0;});
       rebD.appendChild(rebL);rebD.appendChild(rebI);
 
+      var intD=document.createElement('div');intD.className='fg';
+      var intL=document.createElement('label');intL.textContent='Interest ₹';
+      var intI=document.createElement('input');intI.className='inp';intI.type='number';intI.value=bi.interest||0;intI.style.fontSize='12px';
+      intI.addEventListener('input',function(){g.bills[idx].interest=parseFloat(this.value)||0;});
+      intD.appendChild(intL);intD.appendChild(intI);
+
       var delD=document.createElement('div');delD.style.paddingTop='18px';
       var delB=document.createElement('button');delB.className='btn btn-red btn-sm';delB.textContent='✕';
       delB.addEventListener('click',function(){g.bills.splice(idx,1);renderBillRows();});
       delD.appendChild(delB);
 
-      row.appendChild(bnD);row.appendChild(amtD);row.appendChild(rebD);row.appendChild(delD);
+      row.appendChild(bnD);row.appendChild(amtD);row.appendChild(rebD);row.appendChild(intD);row.appendChild(delD);
       billsDiv.appendChild(row);
     });
 
@@ -21794,10 +21800,13 @@ function openGrossEditModal(gpId) {
       g.receiptNo=(document.getElementById('ge-rcpt')||{}).value||'';
       g.remarks=(document.getElementById('ge-rem')||{}).value||'';
       g.editedAt=new Date().toISOString();
-      // Sync linked payments' mode/date/cheque
+      // Sync linked payments' mode/date/cheque/interest
       payments.forEach(function(p){
         if(p.gpId===g.id){
           p.date=g.date;p.mode=g.mode;p.chequeNo=g.chequeNo;p.receiptNo=g.receiptNo;
+          // Sync interest from matching bill in g.bills
+          var matchBill=(g.bills||[]).find(function(bi){return bi.billId===p.billId||bi.billNo===p.billNo;});
+          if(matchBill) p.interest=matchBill.interest||0;
         }
       });
       DB.set('grossPayments',grossPayments);
