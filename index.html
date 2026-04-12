@@ -20207,7 +20207,8 @@ function dhDeepScan() {
     if (!billIndex[p.billId]) {
       orphanPayments.push({
         payId: p.id, gpId: p.gpId || '', billId: p.billId,
-        amount: p.amount || 0, date: p.date || '', rowType: p.rowType || 'SINGLE'
+        amount: p.amount || 0, date: p.date || '', rowType: p.rowType || 'SINGLE',
+        party: p.party || '', mode: p.mode || '', chequeNo: p.chequeNo || '', receiptNo: p.receiptNo || ''
       });
     }
   });
@@ -20334,33 +20335,48 @@ function dhRenderResults(result, container) {
 
   // ── ISSUE 2: Orphan Payments ──
   if (result.orphanPayments.length) {
-    html += dhSectionHead('🔴 Issue 2 — Orphan Payments — Bill Exist Nahi (' + result.orphanPayments.length + ')',
-      'In payments ka billId kisi bill se match nahi karta. Bill delete ho gaya hoga ya ID badal gayi. Yeh payments bekar hain aur outstanding calculate nahi hoti inse.');
+    html += dhSectionHead('\U0001f534 Issue 2 \u2014 Orphan Payments \u2014 Bill Exist Nahi (' + result.orphanPayments.length + ')',
+      'In payments ka billId kisi bill se match nahi karta. Bill delete/ID badal gayi. Relink (sahi bill chuno) ya Delete karo.');
     html += '<div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">' +
       '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
       '<thead><tr style="background:var(--surface-2)">' +
-        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Pay ID</th>' +
-        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Missing Bill ID</th>' +
-        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Date</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Party</th>' +
         '<th style="padding:7px 10px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Amount</th>' +
-        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Type</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Mode</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">GP ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Missing Bill ID</th>' +
+        '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3);border-bottom:1.5px solid var(--border)">Actions</th>' +
       '</tr></thead><tbody>';
     result.orphanPayments.forEach(function(r) {
-      html += '<tr style="border-bottom:1px solid var(--border-light)">' +
-        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:10px;color:var(--text-3)">' + r.payId + '</td>' +
-        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:10px"><span style="background:var(--red-light);color:var(--red);padding:2px 6px;border-radius:4px">' + r.billId + '</span></td>' +
-        '<td style="padding:7px 10px;font-size:11px">' + (r.gpId ? '<span style="background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:4px;font-size:10px">' + r.gpId + '</span>' : '—') + '</td>' +
-        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono)">₹' + fmt(r.amount) + '</td>' +
-        '<td style="padding:7px 10px"><span style="background:var(--surface-3);color:var(--text-2);padding:2px 6px;border-radius:4px;font-size:10px">' + r.rowType + '</span></td>' +
+      var billOpts = bills.filter(function(b){ return !r.party || b.party === r.party; });
+      if (!billOpts.length) billOpts = bills;
+      var optHtml = '<option value="">-- Sahi Bill Chuno --</option>' +
+        billOpts.slice(0,300).map(function(b){
+          var st = getBillStatus(b);
+          return '<option value="' + b.id + '">#' + b.billNo + ' ' + b.party + ' Bal:\u20b9' + fmt(st.bal) + '</option>';
+        }).join('');
+      html += '<tr id="dh-orp-' + r.payId + '" style="border-bottom:1px solid var(--border-light)">' +
+        '<td style="padding:7px 10px;font-size:11px">' + (r.date || '\u2014') + '</td>' +
+        '<td style="padding:7px 10px;font-weight:600">' + (r.party || '<em style=\'color:#9ca3af\'>Unknown</em>') + '</td>' +
+        '<td style="padding:7px 10px;text-align:right;font-family:var(--font-mono);font-weight:700">\u20b9' + fmt(r.amount) + '</td>' +
+        '<td style="padding:7px 10px;font-size:11px">' + (r.mode || '\u2014') + (r.chequeNo ? ' / ' + r.chequeNo : '') + '</td>' +
+        '<td style="padding:7px 10px;font-size:11px">' + (r.gpId ? '<span style="background:var(--blue-light);color:var(--blue);padding:2px 6px;border-radius:4px;font-size:10px">' + r.gpId + '</span>' : '\u2014') + '</td>' +
+        '<td style="padding:7px 10px;font-family:var(--font-mono);font-size:10px"><span style="background:var(--red-light);color:var(--red);padding:2px 5px;border-radius:4px">' + r.billId.slice(0,14) + '...</span></td>' +
+        '<td style="padding:6px 10px;white-space:nowrap">' +
+          '<select id="dh-relink-' + r.payId + '" style="font-size:11px;padding:3px 5px;border:1px solid #d1d5db;border-radius:4px;max-width:180px;margin-right:4px">' + optHtml + '</select>' +
+          '<button onclick="dhRelinkOrphan(\'' + r.payId + '\')" style="font-size:11px;padding:3px 8px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;cursor:pointer;margin-right:3px">\U0001f517 Relink</button>' +
+          '<button onclick="dhDeleteOrphan(\'' + r.payId + '\')" style="font-size:11px;padding:3px 8px;background:#fff1f2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;cursor:pointer">\U0001f5d1 Delete</button>' +
+        '</td>' +
         '</tr>';
     });
     html += '</tbody></table></div>' +
       '<div style="margin-top:8px;padding:8px 12px;background:var(--amber-light);border:1px solid #fde68a;border-radius:8px;font-size:12px;color:var(--amber)">' +
-        '⚠️ Inhe manually History & Undo se restore karo — ya agar bills delete ho gaye the toh unhe wapas add karo.' +
+        '\u26a0\ufe0f Relink: Dropdown se sahi bill chuno phir Relink dabao. Delete: Payment hata do (Undo available).' +
       '</div><br>';
   }
 
-  // ── ISSUE 3: Ghost GP Links ──
+// ── ISSUE 3: Ghost GP Links ──
   if (result.ghostGpLinks.length) {
     html += dhSectionHead('🟡 Issue 3 — Ghost GP Links (' + result.ghostGpLinks.length + ')',
       'Payment row mein gpId hai lekin woh Gross Payment record delete ho gaya. Auto-fix: gpId clear karo, payment SINGLE ban jaayegi — safe rahegi.');
@@ -20534,6 +20550,38 @@ function dhApplyFixes() {
   }
 
   toast('✅ Data Health: ' + fixed + ' fixes applied!');
+}
+
+// Orphan Payment: Relink to correct bill
+function dhRelinkOrphan(payId) {
+  var sel = document.getElementById('dh-relink-' + payId);
+  var newBillId = sel ? sel.value : '';
+  if (!newBillId) { toast('Pehle dropdown se sahi bill chuno', 'err'); return; }
+  var newBill = bills.find(function(b){ return b.id === newBillId; });
+  if (!newBill) { toast('Bill nahi mila', 'err'); return; }
+  if (!confirm('Payment ko Bill #' + newBill.billNo + ' (' + newBill.party + ') se relink karein?')) return;
+  saveUndo('Orphan Relink payId=' + payId);
+  var p = payments.find(function(x){ return x.id === payId; });
+  if (!p) { toast('Payment nahi mili', 'err'); return; }
+  p.billId = newBillId;
+  p.party = newBill.party;
+  if (p.rowType === 'DETAIL') p.rowType = 'SINGLE';
+  delete p.gpId;
+  invalidateBillStatusCache();
+  DB.set('payments', payments);
+  toast('Payment Bill #' + newBill.billNo + ' se relink ho gayi!');
+  dhRunScan();
+}
+
+// Orphan Payment: Delete permanently
+function dhDeleteOrphan(payId) {
+  if (!confirm('Yeh orphan payment permanently delete karein? Undo se wapas la sakte hain.')) return;
+  saveUndo('Orphan Delete payId=' + payId);
+  payments = payments.filter(function(p){ return p.id !== payId; });
+  invalidateBillStatusCache();
+  DB.set('payments', payments);
+  toast('Orphan payment delete ho gayi');
+  dhRunScan();
 }
 
 function pgHistory() {
