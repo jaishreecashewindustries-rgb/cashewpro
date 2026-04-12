@@ -2432,6 +2432,9 @@ function go(page) {
     b.classList.toggle('active', b.getAttribute('data-page')===page);
   });
   render(page);
+  // FY badge immediately update karo (financial year change pe bhi)
+  var fyBadgeEl = document.getElementById('fy-badge');
+  if(fyBadgeEl) fyBadgeEl.textContent = getFYLabel(getActiveFY());
 }
 
 // beforeunload warning
@@ -2646,7 +2649,7 @@ function getGradeRows() {
 // ═══════════════════════════════════════
 // BILL FORM (shared for new + edit)
 // ═══════════════════════════════════════
-function buildBillForm(bill) {
+function buildBillForm(bill, suggestedBillNo) {
   var b = bill || {};
   var gradeContainer = el('div', { id: 'grade-container' });
 
@@ -2689,7 +2692,7 @@ function buildBillForm(bill) {
 
   var form = el('div', {}, [
     el('div', { cls: 'grid g3', style: 'margin-bottom:10px' }, [
-      fgInp('Bill No', 'bf-no', 'text', '4118', b.billNo || ''),
+      fgInp('Bill No', 'bf-no', 'text', '4118', b.billNo || suggestedBillNo || ''),
       fgInp('Date *', 'bf-date', 'date', '', b.date || today()),
       fgInp('Party Name *', 'bf-party', 'text', 'PARTY NAME', b.party || '', { style: 'text-transform:uppercase' }),
       fgInp('Station', 'bf-station', 'text', 'JAIPUR', b.station || '', { style: 'text-transform:uppercase' }),
@@ -2697,6 +2700,7 @@ function buildBillForm(bill) {
       fgInp('Transport', 'bf-transport', 'text', 'TRANSPORTER', b.transport || '', { style: 'text-transform:uppercase' }),
       fgInp('Party GSTIN', 'bf-partyGstin', 'text', '08XXXXX1ZV', b.partyGstin || ''),
       fgInp('Transport GSTIN', 'bf-transGstin', 'text', 'Optional', b.transGstin || ''),
+      fgInp('Vehicle No', 'bf-vehicleNo', 'text', 'Optional', b.vehicleNo || '', { style: 'text-transform:uppercase' }),
       fgSel('Bill Type', 'bf-type', typeOpts, b.billType || 'credit'),
     ]),
     el('hr', { cls: 'divider' }),
@@ -2791,10 +2795,11 @@ function collectBillData(existingBill) {
   if (!date)         { toast('Date required!', 'err'); return null; }
   if (!party)        { toast('Party name required!', 'err'); return null; }
   if (!rows.length)  { toast('Kam se kam ek grade add karo!', 'err'); return null; }
-  // Duplicate check: same billNo + party (skip if editing existing)
+  // Duplicate check: same billNo + party (skip if editing existing) — sirf active FY mein
   var billNoVal = gv('bf-no');
   if (billNoVal && !existingBill) {
-    var dupCheck = bills.find(function(b){ return b.billNo === String(billNoVal) && b.party === party; });
+    var _fyBillsChk = getFYBills(getActiveFY());
+    var dupCheck = _fyBillsChk.find(function(b){ return b.billNo === String(billNoVal) && b.party === party; });
     if (dupCheck) {
       if (!confirm('Bill #' + billNoVal + ' for ' + party + ' already exists! Phir bhi save karein?')) return null;
     }
@@ -2835,6 +2840,7 @@ function collectBillData(existingBill) {
     transport: gv('bf-transport').toUpperCase(),
     partyGstin: gv('bf-partyGstin').trim().toUpperCase(),
     transGstin: gv('bf-transGstin').trim().toUpperCase(),
+    vehicleNo: gv('bf-vehicleNo').trim().toUpperCase(),
     pymt:      gv('bf-pymt'),
     billType:  gv('bf-type') || 'credit',
     gstRate:   parseFloat((document.getElementById('bf-gst-pct')||{value:'5'}).value)||5,
@@ -3619,14 +3625,19 @@ function pgDashboard() {
 // ── NEW BILL ──
 function pgNewBill() {
   gradeCounter = 0;
-  var form = buildBillForm();
+  // Active FY ka max bill no find karo aur +1 suggest karo
+  var _fyBillsNew = getFYBills(getActiveFY());
+  var maxBNo = _fyBillsNew.reduce(function(m,b){ var n=parseInt(b.billNo)||0; return n>m?n:m; }, 0);
+  var suggestedBillNo = maxBNo ? String(maxBNo+1) : '';
+  var form = buildBillForm(null, suggestedBillNo);
 
   var saveBtn = btn('💾 Save Bill', 'btn-green', function() {
     var data = collectBillData({ id: uid(), payments: [], createdAt: new Date().toISOString() });
     if (!data) return;
-    // Duplicate check
-    var dupBillNo = data.billNo && bills.some(function(b){return b.billNo && String(b.billNo)===String(data.billNo);});
-    var dupPartyDate = bills.some(function(b){return b.party===data.party && b.date===data.date && Math.abs(b.netAmt-data.netAmt)<1;});
+    // Duplicate check — sirf active FY ke bills mein check karo
+    var _fyBillsForDup = getFYBills(getActiveFY());
+    var dupBillNo = data.billNo && _fyBillsForDup.some(function(b){return b.billNo && String(b.billNo)===String(data.billNo);});
+    var dupPartyDate = _fyBillsForDup.some(function(b){return b.party===data.party && b.date===data.date && Math.abs(b.netAmt-data.netAmt)<1;});
     if(dupBillNo){
       if(!confirm('Bill No. '+data.billNo+' already exists! Save anyway?'))return;
     } else if(dupPartyDate){
@@ -5246,10 +5257,11 @@ function printBill(bill) {
   var amtWords='Rupees '+numToWords(netInt)+' Only.';
 
   var gRows=(bill.rows||[]).map(function(r,i){
-    var stp=parseFloat(r.stp||r.rate||0);
-    var rate=bill.gstRate?Math.round(stp/(1+bill.gstRate/100)*100)/100:parseFloat(r.rate||0);
-    var bags=r.bags?('<br><small style="color:#555">'+r.bags+' BALTI</small>'):'';
-    return '<tr>'+
+    var taxableRate=parseFloat(r.rate||0);  // Rate entered by user = taxable rate
+    var gstPctRow=parseFloat(r.gstPct||gstPct||5);
+    var stp=parseFloat(r.stp||(taxableRate*(1+gstPctRow/100))).toFixed(2);  // STP = taxable rate + GST%
+    var rate=taxableRate;  // Print Rate column = taxable rate
+    var bags=r.bags?('<br><small style="color:#555">'+r.bags+' BALTI</small>'):'';    return '<tr>'+
       '<td style="text-align:center;border:1px solid #888;padding:3px 5px">'+(i+1)+'</td>'+
       '<td style="border:1px solid #888;padding:3px 5px">'+r.grade+' CASHEW'+bags+'</td>'+
       '<td style="text-align:center;border:1px solid #888;padding:3px 5px">080132</td>'+
