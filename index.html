@@ -1039,14 +1039,8 @@ var DB = {
           localStorage.setItem('cp_'+k, JSON.stringify(v));
           console.log('[DB] Freed space and retried write for:',k);
         }catch(e3){
-          DB._sync('offline','⚠ Storage Full!');
-          var warn=document.getElementById('_storage_warn');
-          if(!warn){
-            warn=document.createElement('div');warn.id='_storage_warn';
-            warn.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#dc2626;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:90vw;text-align:center';
-            warn.innerHTML='⚠️ Browser storage full! Firebase sync pe data safe hai. <button onclick="this.parentElement.remove()" style="margin-left:8px;background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer">✕</button>';
-            document.body.appendChild(warn);
-          }
+          // localStorage full — data is safe in _memCache + Firebase, so just log silently
+          console.warn('[DB] localStorage full for key:',k,'— data safe in _memCache + Firebase');
         }
       }
     }
