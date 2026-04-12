@@ -1016,6 +1016,7 @@ var _pending     = {};
 var DB = {
   _CHUNK: 800,
   _LARGE: ['bills','payments'],
+  _memCache: {}, // Safari fix: in-memory fallback when localStorage is full/cleared
 
   _r: function(k){ try{ return JSON.parse(localStorage.getItem('cp_'+k)); }catch(e){ return null; } },
   _w: function(k,v){
@@ -1063,15 +1064,22 @@ var DB = {
   },
 
   get: function(k){
+    // Safari fix: check in-memory cache first (populated directly from Firestore in loadAll)
+    if(this._memCache.hasOwnProperty(k)) return this._memCache[k];
     var v=this._r(k);
     if(Array.isArray(v)) return v;
     var all=[], i=0;
     while(true){ var c=this._r(k+'_'+i); if(!Array.isArray(c)) break; all=all.concat(c); i++; }
     return all;
   },
-  getObj: function(k,def){ var v=this._r(k); return (v&&typeof v==='object'&&!Array.isArray(v))?v:(def||{}); },
+  getObj: function(k,def){
+    // Safari fix: check in-memory cache first
+    if(this._memCache.hasOwnProperty(k)) return this._memCache[k];
+    var v=this._r(k); return (v&&typeof v==='object'&&!Array.isArray(v))?v:(def||{});
+  },
 
   set: function(k,v){
+    this._memCache[k]=v; // Safari fix: always keep in-memory cache current
     if(this._LARGE.indexOf(k)>=0 && Array.isArray(v)){
       this._w(k,null);
       var chunks=this._chunkArr(v), self=this;
@@ -1089,7 +1097,7 @@ var DB = {
       DB._sync('saving','Saving...');
     } else { this._w(k,v); this._q(k,v); }
   },
-  setObj: function(k,v){ this._w(k,v); this._q(k,v); },
+  setObj: function(k,v){ this._memCache[k]=v; this._w(k,v); this._q(k,v); },
 
   _q: function(k,v){
     if(!_user) return;
@@ -1140,6 +1148,7 @@ var DB = {
     _fdb.collection('users').doc(uid).collection('data').get()
       .then(function(snap){
         var chunkMap={};
+        var directMap={};
         var docCount=0;
         snap.forEach(function(doc){
           var id=doc.id, val=doc.data().v;
@@ -1147,13 +1156,19 @@ var DB = {
           docCount++;
           var m=id.match(/^(.+)_(\d+)$/);
           if(m){ if(!chunkMap[m[1]]) chunkMap[m[1]]=[]; chunkMap[m[1]][parseInt(m[2])]=val; }
-          else if(!id.match(/__n$/)) DB._w(id,val);
+          else if(!id.match(/__n$/)) { directMap[id]=val; DB._w(id,val); }
         });
+        // Merge chunked arrays
         Object.keys(chunkMap).forEach(function(k){
           var arr=[]; chunkMap[k].forEach(function(c){ arr=arr.concat(c||[]); });
-          DB._w(k,arr);
+          DB._memCache[k]=arr; // Safari fix: always populate in-memory cache
+          DB._w(k,arr);        // also try localStorage (may fail on Safari — that's OK)
         });
-        console.log('[DB] Loaded',docCount,'docs from Firebase');
+        // Also cache direct (non-chunked) keys in memory
+        Object.keys(directMap).forEach(function(k){
+          DB._memCache[k]=directMap[k];
+        });
+        console.log('[DB] Loaded',docCount,'docs from Firebase. _memCache keys:',Object.keys(DB._memCache).length);
         DB._sync('saved','✓ Ready');
         cb();
       })
