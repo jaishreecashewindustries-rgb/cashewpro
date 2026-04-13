@@ -4520,9 +4520,6 @@ function openCustomExportDialog(filteredBills) {
     {id:'recv',      label:'Total Received',  def:true},
     {id:'balance',   label:'Outstanding',     def:true},
     {id:'status',    label:'Status',          def:true},
-    {id:'lastPayDate',label:'Last Pay Date',   def:true},
-    {id:'grossId',   label:'Gross Pay ID',    def:true},
-    {id:'grossAmt',  label:'Gross Total Amt', def:true},
   ];
 
   var payColDefs = [
@@ -4633,7 +4630,7 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
        h.includes('Balance')||h.includes('Outstanding')||h==='Cash'||
        h==='Cheque'||h.includes('NEFT')||h==='Rebate'||
        h==='Taxable Value'||h==='CGST'||h==='SGST'||h==='Bardhana'||
-       h==='STP Rate'||h==='Weight (kg)'||h==='Gross Total Amt'){
+       h==='STP Rate'||h==='Weight (kg)'){
       amtCols.add(h);
     }
   });
@@ -4665,19 +4662,6 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
       case 'recv':      return s.recv;
       case 'balance':   return s.bal;
       case 'status':    return s.status.toUpperCase();
-      case 'lastPayDate':
-        var _bpays=payments.filter(function(p){return p.billId===b.id&&p.rowType!=='DETAIL';});
-        var _gps=(grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(x){return x.billId===b.id||String(x.billNo)===String(b.billNo);});});
-        var _dates=[];
-        _bpays.forEach(function(p){if(p.date)_dates.push(toISO(p.date));});
-        _gps.forEach(function(g){if(g.date)_dates.push(toISO(g.date));});
-        return _dates.length?fmtDate(_dates.sort().reverse()[0]):'';
-      case 'grossId':
-        var _gpMatch=(grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(x){return x.billId===b.id||String(x.billNo)===String(b.billNo);});});
-        return _gpMatch.map(function(g){return g.id||'';}).join(', ')||'';
-      case 'grossAmt':
-        var _gpAmt=(grossPayments||[]).filter(function(g){return (g.bills||[]).some(function(x){return x.billId===b.id||String(x.billNo)===String(b.billNo);});});
-        return _gpAmt.reduce(function(sum,g){return sum+(g.grossAmt||0);},0)||'';
       default: return '';
     }
   }
@@ -5031,7 +5015,6 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
       payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
         var mode=(p.mode||'').toLowerCase();
         payRows2.push({
-          'Type':p.rowType||'SINGLE',
           'Bill No':b.billNo||'',
           'Date':fmtDate(b.date),
           'Party':b.party||'',
@@ -5048,104 +5031,25 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
         });
       });
     });
-    // Build combined payments: GROSS rows (blue) + SINGLE/PARTIAL rows
-    var gpParties=Array.from(new Set(sourceBills.map(function(b){return b.party;})));
-    var gpForExport=(grossPayments||[]).filter(function(g){return gpParties.indexOf(g.party)!==-1;});
-
-    // Merged rows: gross first as header, then detail per bill, then singles
-    var payMerged=[];
-    // Add GROSS rows with their bill breakdowns
-    gpForExport.forEach(function(g){
-      payMerged.push({_type:'GROSS',_bg:'#1d4ed8',_color:'#ffffff',_bold:true,
-        'Type':'GROSS','Pay Date':fmtDate(g.date),'Party':g.party||'',
-        'Gross Total':g.grossAmt||0,'Bill No':'','Bill Amt':'',
-        'Cash':'','Cheque':'','NEFT/UPI':'','Cheque No.':g.chequeNo||'',
-        'R.No.':g.receiptNo||'','Rebate':'','Mode':g.mode||'','Remarks':g.remarks||''});
-      (g.bills||[]).forEach(function(bRef){
-        var bObj=sourceBills.find(function(x){return x.id===bRef.billId||String(x.billNo)===String(bRef.billNo);})||{};
-        payMerged.push({_type:'DETAIL',_bg:'#dbeafe',_color:'#1d4ed8',_bold:false,
-          'Type':'  ↳ BILL','Pay Date':fmtDate(g.date),'Party':'  '+g.party,
-          'Gross Total':'','Bill No':bRef.billNo||'','Bill Amt':bRef.amount||0,
-          'Cash':'','Cheque':'','NEFT/UPI':'','Cheque No.':g.chequeNo||'',
-          'R.No.':g.receiptNo||'','Rebate':bRef.rebate||0,'Mode':g.mode||'','Remarks':''});
-      });
-    });
-    // Add SINGLE/PARTIAL rows
-    payRows2.forEach(function(r,ri){
-      var bg=ri%2===0?'#ffffff':'#f3f4f6';
-      payMerged.push({_type:'SINGLE',_bg:bg,_color:'#111827',_bold:false,
-        'Type':r['Type']||'SINGLE','Pay Date':r['Pay Date']||'','Party':r['Party']||'',
-        'Gross Total':'','Bill No':r['Bill No']||'','Bill Amt':r['Bill Amt']||0,
-        'Cash':r['Cash']||0,'Cheque':r['Cheque']||0,'NEFT/UPI':r['NEFT/UPI']||0,
-        'Cheque No.':r['Cheque No.']||'','R.No.':r['R.No.']||'',
-        'Rebate':r['Rebate']||0,'Mode':r['Mode']||'','Remarks':r['Remarks']||''});
-    });
-
-    var pHdrs2=['Type','Pay Date','Party','Gross Total','Bill No','Bill Amt','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks'];
-    var pAmtIdx=new Set([3,5,6,7,8,11]); // Gross Total,Bill Amt,Cash,Cheque,NEFT,Rebate
-
-    if(payMerged.length){
-      var pHtml='<table>';
-      pHtml+='<tr><td colspan="'+pHdrs2.length+'" style="background:#1a6b3c;color:#fff;font-size:14px;font-weight:bold;text-align:center;padding:8px;border:none">'+encodeHtml(coName)+'</td></tr>';
-      pHtml+='<tr><td colspan="'+pHdrs2.length+'" style="background:#2d7d50;color:#fff;font-size:11px;text-align:center;padding:4px;border:none">Payments — Gross + Single/Partial — Exported: '+fmtDate(today())+'</td></tr>';
-      pHtml+='<tr><td colspan="'+pHdrs2.length+'" style="background:#f3f4f6;padding:3px;border:none">&nbsp;</td></tr>';
-      pHtml+='<tr>';
-      pHdrs2.forEach(function(h){
-        pHtml+='<th style="background:#1d4ed8;color:#fff;font-weight:bold;padding:6px 9px;font-size:11px;border:1px solid rgba(255,255,255,.25);white-space:nowrap;text-align:center">'+encodeHtml(h)+'</th>';
-      });
-      pHtml+='</tr>';
-      payMerged.forEach(function(row){
-        pHtml+='<tr>';
-        pHdrs2.forEach(function(h,ci){
-          var v=row[h]!=null?row[h]:'';
-          var isNum=typeof v==='number';
-          var fw=row._bold?'bold':(ci===0?'600':'normal');
-          var cellColor=row._color;
-          if(!row._bold){
-            if(h==='Rebate'&&isNum&&v>0) cellColor='#d97706';
-            if(h==='Gross Total'&&isNum&&v>0){cellColor='#166534';fw='bold';}
-            if(h==='Bill Amt'&&isNum&&v>0) fw='bold';
-          }
-          pHtml+='<td style="background:'+row._bg+';color:'+cellColor+';font-weight:'+fw+';text-align:'+(isNum?'right':'left')+';padding:5px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+(isNum?String(v):encodeHtml(String(v)))+'</td>';
-        });
-        pHtml+='</tr>';
-      });
-      // Totals row
-      pHtml+='<tr>';
-      pHdrs2.forEach(function(h,ci){
-        var tot='';
-        if(ci===0){tot='TOTAL';}
-        else if(pAmtIdx.has(ci)){
-          // Only sum non-DETAIL rows for Gross Total, only non-GROSS rows for Bill/Cash/Cheque/NEFT/Rebate
-          if(h==='Gross Total'){
-            tot=gpForExport.reduce(function(s,g){return s+(g.grossAmt||0);},0);
-          } else {
-            tot=payMerged.filter(function(r){return r._type==='SINGLE';}).reduce(function(s,r){var v=r[h];return s+(typeof v==='number'?v:0);},0);
-          }
-        }
-        pHtml+='<td style="background:#1a6b3c;color:#fff;font-weight:bold;padding:6px 9px;font-size:11px;border:1px solid rgba(255,255,255,.2);text-align:'+(ci>0&&pAmtIdx.has(ci)?'right':'left')+'">'+encodeHtml(String(tot||''))+'</td>';
-      });
-      pHtml+='</tr></table>';
-
-      var pDiv=document.createElement('div');pDiv.innerHTML=pHtml;
-      var wsPay=XLSX.utils.table_to_sheet(pDiv.querySelector('table'));
-      // Fix numeric cells + force date cols as text (prevent Excel mm-dd-yy reformat)
-      var pDataStart=4; // rows 0,1,2=banner, 3=header
-      var pDateCols=new Set(['Pay Date','Date']);
-      payMerged.forEach(function(row,ri){
-        pHdrs2.forEach(function(h,ci){
-          var v=row[h];
-          var addr=C(pDataStart+ri,ci);
-          if(!wsPay[addr]) return;
-          if(typeof v==='number'){
-            wsPay[addr].t='n'; wsPay[addr].v=v; wsPay[addr].z='#,##0';
-          } else if(pDateCols.has(h)){
-            wsPay[addr].t='s'; wsPay[addr].v=String(v||''); delete wsPay[addr].z;
-          }
+    if(payRows2.length){
+      var payAoa=[['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks']];
+      payRows2.forEach(function(r){payAoa.push(Object.values(r));});
+      var wsPay=XLSX.utils.aoa_to_sheet(payAoa);
+      // Style payment header row
+      var payHdrHtml='<table><tr>'+['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks'].map(function(h){return '<th style="background:#1d4ed8;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3)">'+h+'</th>';}).join('')+'</tr>'+
+        payRows2.map(function(r,i){return '<tr>'+Object.values(r).map(function(v){var isNum=typeof v==='number';return '<td style="background:'+(i%2?'#dbeafe':'#fff')+';padding:5px 9px;font-size:11px;text-align:'+(isNum?'right':'left')+'">'+encodeHtml(String(v))+'</td>';}).join('')+'</tr>';}).join('')+'</table>';
+      var tmpDiv2=document.createElement('div');tmpDiv2.innerHTML=payHdrHtml;
+      wsPay=XLSX.utils.table_to_sheet(tmpDiv2.querySelector('table'));
+      // Fix numeric cols in payments
+      var payNumCols=[3,5,6,7,10]; // Bill Amt,Cash,Cheque,NEFT,Rebate
+      payRows2.forEach(function(r,ri){
+        payNumCols.forEach(function(ci){
+          var addr=C(ri+1,ci);
+          var v=Object.values(r)[ci];
+          if(typeof v==='number'&&wsPay[addr]){wsPay[addr].t='n';wsPay[addr].v=v;wsPay[addr].z='#,##0';}
         });
       });
-      wsPay['!cols']=[{wch:10},{wch:12},{wch:28},{wch:13},{wch:8},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14},{wch:8},{wch:9},{wch:8},{wch:22}];
-      wsPay['!freeze']={xSplit:0,ySplit:4};
+      wsPay['!cols']=[{wch:8},{wch:12},{wch:26},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14},{wch:10},{wch:8},{wch:8},{wch:20}];
       XLSX.utils.book_append_sheet(wb,wsPay,'Payments');
     }
   }
