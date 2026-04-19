@@ -5023,9 +5023,9 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
     var brReg=[];          // final receipt register rows
     var brGpMap={};        // Remarks-based GROSS group accumulator
 
-    // ── Pass 1: Process all payments in sourceBills ──
+    // ── Pass 1: Process all payments in sourceBills (sirf current FY ke payments) ──
     sourceBills.forEach(function(b){
-      payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
+      _fyPaymentsExp.filter(function(p){return p.billId===b.id;}).forEach(function(p){
         // SKIP DETAIL rows completely — these are bill-allocation lines, NOT bank transactions
         if(p.rowType==='DETAIL') return;
 
@@ -5079,10 +5079,14 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
     });
 
     // ── Pass 2: Add GROSS groups from grossPayments[] (authoritative — GP-ID based) ──
+    // sourceBills ke IDs+party set — FY-safe gross payment matching
+    var _srcBillIds=new Set(sourceBills.map(function(b){return b.id;}));
+    var _srcBillNosParty=new Set(sourceBills.map(function(b){return String(b.billNo||'')+'|'+b.party;}));
     (grossPayments||[]).forEach(function(g){
-      // Only include if any bill is in sourceBills
+      // Only include if any bill is in sourceBills — billId (FY-safe) ya billNo+party match
       var hasMatchingBill=(g.bills||[]).some(function(gb){
-        return sourceBills.some(function(sb){return String(sb.billNo)===String(gb.billNo||gb.billId||'');});
+        if(gb.billId&&_srcBillIds.has(gb.billId)) return true;
+        return _srcBillNosParty.has(String(gb.billNo||'')+'|'+(g.party||''));
       });
       if(!hasMatchingBill)return;
       // Skip if this GP-ID was already handled via Remarks
@@ -5148,6 +5152,9 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
 
       // Fix numeric cells & reapply GROSS styling
       brReg.forEach(function(r,ri){
+        // Force Date column (col 0) as explicit text — Excel ko auto-date convert nahi karne denge
+        var dateAddr=encCell(ri+1,0);
+        if(wsBr[dateAddr]){wsBr[dateAddr].t='s';wsBr[dateAddr].v=String(r['Date']||'');delete wsBr[dateAddr].z;}
         BR_NUM.forEach(function(ci){
           var addr=encCell(ri+1,ci);
           var v=r[BR_HDRS[ci]];
