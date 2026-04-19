@@ -5008,52 +5008,163 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws1,'Bills Report');
 
-  // ── Separate Payments sheet ──
+  // ── Receipt Register sheet (Tally-style: ONE row per receipt voucher) ──
+  // TALLY RULE: Receipt Voucher = actual bank transaction received from party
+  //   GROSS (from grossPayments[]) = one cheque/NEFT covers N bills → ONE ROW
+  //   GROSS (from Remarks "N Bills linked with GROSS") → aggregate into ONE ROW per group
+  //   SINGLE / SINGLE+Rebate / PARTIAL → ONE ROW per bill payment
+  //   INSTALMENT → ONE ROW per instalment
+  //   DETAIL rows → COMPLETELY SKIP (internal bill-allocation, not a separate bank transaction)
   if(sepSheet){
-    var payRows2=[];
+    var brReg=[];          // final receipt register rows
+    var brGpMap={};        // Remarks-based GROSS group accumulator
+
+    // ── Pass 1: Process all payments in sourceBills ──
     sourceBills.forEach(function(b){
       payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
-        var mode=(p.mode||'').toLowerCase();
-        payRows2.push({
-          'Bill No':b.billNo||'',
-          'Date':fmtDate(b.date),
-          'Party':b.party||'',
-          'Bill Amt':b.netAmt||0,
-          'Pay Date':fmtDate(p.date),
-          'Cash':mode==='cash'?p.amount||0:0,
-          'Cheque':mode.includes('cheque')?p.amount||0:0,
-          'NEFT/UPI':(!mode.includes('cash')&&!mode.includes('cheque'))?p.amount||0:0,
-          'Cheque No.':p.chequeNo||'',
-          'R.No.':p.receiptNo||'',
-          'Rebate':p.rebate||0,
-          'Mode':p.mode||'',
-          'Remarks':p.remarks||''
-        });
+        // SKIP DETAIL rows completely — these are bill-allocation lines, NOT bank transactions
+        if(p.rowType==='DETAIL') return;
+
+        var rem=p.remarks||'';
+        var mode=p.mode||'';
+        var mlo=mode.toLowerCase();
+        var cash=mlo==='cash'?p.amount||0:0;
+        var cheq=mlo.includes('cheque')?p.amount||0:0;
+        var neft=(!mlo.includes('cash')&&!mlo.includes('cheque'))?p.amount||0:0;
+        var gpMatch=rem.match(/(GP-\d{8}-\d{3})/);
+        var isLinked=/\d+ [Bb]ills? linked with GROSS/.test(rem)||/Gross Payment GP-/.test(rem);
+        var isInstall=/INSTALLMENT/.test(rem);
+
+        if(isInstall){
+          // INSTALMENT: one row per instalment payment
+          brReg.push({_type:'INSTALL',_bg:'#F3E8FF',_tc:'#6B21A8',
+            'Date':fmtDate(p.date),'Voucher Type':'INSTALMENT',
+            'Rcpt No / GP-ID':p.receiptNo||'','Mode':mode,'Cheque No':p.chequeNo||'',
+            'Party':b.party||'','Bill No':b.billNo||'','Bills Covered':'Bill#'+(b.billNo||''),
+            'Amount Received':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+            'Net Received':p.amount||0,'Bill Sum':b.netAmt||0,'Match':'','Remarks':rem});
+        } else if(isLinked){
+          // GROSS group from Remarks — aggregate: Party+Date+Mode+CheqNo OR GP-ID
+          var gkey=gpMatch?gpMatch[1]:((b.party||'')+'|'+(p.date||'')+'|'+mlo+'|'+(p.chequeNo||''));
+          if(!brGpMap[gkey]){
+            brGpMap[gkey]={party:b.party||'',date:p.date||'',mode:mode,
+              cheqNo:p.chequeNo||'',rcptNo:p.receiptNo||'',
+              cash:0,cheque:0,neft:0,rebate:0,interest:0,bills:[],billSum:0,
+              gpId:gpMatch?gpMatch[1]:''};
+          }
+          var gm=brGpMap[gkey];
+          gm.cash+=cash; gm.cheque+=cheq; gm.neft+=neft;
+          gm.rebate+=(p.rebate||0); gm.interest+=(p.interest||0);
+          gm.bills.push('Bill#'+(b.billNo||'')); gm.billSum+=(b.netAmt||0);
+          if(!gm.cheqNo&&p.chequeNo)gm.cheqNo=p.chequeNo;
+          if(!gm.rcptNo&&p.receiptNo)gm.rcptNo=p.receiptNo;
+        } else {
+          // SINGLE or PARTIAL — one row per payment
+          var rType=p.rowType||'SINGLE';
+          if(rType==='SINGLE'&&(p.rebate||0)>0) rType='SINGLE+Rebate';
+          var bg2=rType==='PARTIAL'?'#FEF9C3':(rType.includes('Rebate')?'#BBF7D0':'#DCFCE7');
+          var tc2=rType==='PARTIAL'?'#854D0E':(rType.includes('Rebate')?'#14532D':'#166534');
+          brReg.push({_type:rType,_bg:bg2,_tc:tc2,
+            'Date':fmtDate(p.date),'Voucher Type':rType,
+            'Rcpt No / GP-ID':p.receiptNo||'','Mode':mode,'Cheque No':p.chequeNo||'',
+            'Party':b.party||'','Bill No':b.billNo||'','Bills Covered':'Bill#'+(b.billNo||''),
+            'Amount Received':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+            'Net Received':p.amount||0,'Bill Sum':b.netAmt||0,'Match':'','Remarks':rem});
+        }
       });
     });
-    if(payRows2.length){
-      var payAoa=[['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks']];
-      payRows2.forEach(function(r){payAoa.push(Object.values(r));});
-      var wsPay=XLSX.utils.aoa_to_sheet(payAoa);
-      // Style payment header row
-      var payHdrHtml='<table><tr>'+['Bill No','Date','Party','Bill Amt','Pay Date','Cash','Cheque','NEFT/UPI','Cheque No.','R.No.','Rebate','Mode','Remarks'].map(function(h){return '<th style="background:#1d4ed8;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3)">'+h+'</th>';}).join('')+'</tr>'+
-        payRows2.map(function(r,i){return '<tr>'+Object.values(r).map(function(v){var isNum=typeof v==='number';return '<td style="background:'+(i%2?'#dbeafe':'#fff')+';padding:5px 9px;font-size:11px;text-align:'+(isNum?'right':'left')+'">'+encodeHtml(String(v))+'</td>';}).join('')+'</tr>';}).join('')+'</table>';
-      var tmpDiv2=document.createElement('div');tmpDiv2.innerHTML=payHdrHtml;
-      wsPay=XLSX.utils.table_to_sheet(tmpDiv2.querySelector('table'));
-      // Fix numeric cols in payments
-      var payNumCols=[3,5,6,7,10]; // Bill Amt,Cash,Cheque,NEFT,Rebate
-      payRows2.forEach(function(r,ri){
-        payNumCols.forEach(function(ci){
-          var addr=C(ri+1,ci);
-          var v=Object.values(r)[ci];
-          if(typeof v==='number'&&wsPay[addr]){wsPay[addr].t='n';wsPay[addr].v=v;wsPay[addr].z='#,##0';}
-        });
+
+    // ── Pass 2: Add GROSS groups from grossPayments[] (authoritative — GP-ID based) ──
+    (grossPayments||[]).forEach(function(g){
+      // Only include if any bill is in sourceBills
+      var hasMatchingBill=(g.bills||[]).some(function(gb){
+        return sourceBills.some(function(sb){return String(sb.billNo)===String(gb.billNo||gb.billId||'');});
       });
-      wsPay['!cols']=[{wch:8},{wch:12},{wch:26},{wch:12},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14},{wch:10},{wch:8},{wch:8},{wch:20}];
-      XLSX.utils.book_append_sheet(wb,wsPay,'Payments');
+      if(!hasMatchingBill)return;
+      // Skip if this GP-ID was already handled via Remarks
+      if(brGpMap[g.id])return;
+      var billNos=(g.bills||[]).map(function(b){return 'Bill#'+b.billNo;}).join(', ');
+      var billSum=(g.bills||[]).reduce(function(s,b){return s+(b.amount||0)+(b.rebate||0);},0);
+      var totalRebate=(g.bills||[]).reduce(function(s,b){return s+(b.rebate||0);},0);
+      var grossAmt=g.grossAmt||0;
+      var match=Math.abs(billSum-grossAmt)<1?'OK':'DIFF ('+fmt(billSum-grossAmt)+')';
+      brReg.push({_type:'GROSS',_bg:'#1F3864',_tc:'#FFFFFF',
+        'Date':fmtDate(g.date),'Voucher Type':'GROSS',
+        'Rcpt No / GP-ID':g.id||'','Mode':g.mode||'','Cheque No':g.chequeNo||'',
+        'Party':g.party||'','Bill No':'','Bills Covered':billNos,
+        'Amount Received':grossAmt,'Rebate':totalRebate,'Interest':0,
+        'Net Received':grossAmt,'Bill Sum':billSum,'Match':match,'Remarks':g.remarks||''});
+    });
+
+    // ── Pass 3: Add Remarks-GROSS aggregated rows ──
+    Object.keys(brGpMap).forEach(function(k){
+      var g=brGpMap[k];
+      var totalAmt=g.cash+g.cheque+g.neft;
+      var match=Math.abs(g.billSum-totalAmt)<1?'OK':'DIFF ('+fmt(g.billSum-totalAmt)+')';
+      brReg.push({_type:'GROSS',_bg:'#1F3864',_tc:'#FFFFFF',
+        'Date':fmtDate(g.date),'Voucher Type':'GROSS',
+        'Rcpt No / GP-ID':g.gpId||g.rcptNo||'','Mode':g.mode,'Cheque No':g.cheqNo,
+        'Party':g.party,'Bill No':'','Bills Covered':g.bills.join(', '),
+        'Amount Received':totalAmt,'Rebate':g.rebate,'Interest':g.interest,
+        'Net Received':totalAmt,'Bill Sum':g.billSum,'Match':match,
+        'Remarks':g.gpId?('Gross Payment '+g.gpId):''});
+    });
+
+    // ── Sort by Date desc ──
+    brReg.sort(function(a,b2){
+      var da=a['Date']?a['Date'].split('-').reverse().join(''):'';
+      var db=b2['Date']?b2['Date'].split('-').reverse().join(''):'';
+      return db>da?1:db<da?-1:0;
+    });
+
+    if(brReg.length){
+      var BR_HDRS=['Date','Voucher Type','Rcpt No / GP-ID','Mode','Cheque No','Party','Bill No','Amount Received','Rebate','Interest','Net Received','Bills Count','Bills Covered','Bill Sum','Match','Remarks'];
+      var BR_NUM=[7,8,9,10,11,13];
+
+      var brHtml='<table><tr>'+BR_HDRS.map(function(h){
+        return '<th style="background:#1F3864;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap;text-align:center">'+h+'</th>';
+      }).join('')+'</tr>';
+
+      brReg.forEach(function(r){
+        var isGross=r._type==='GROSS';
+        var bg=isGross?'#1F3864':r._bg;
+        var tc=isGross?'#FFFFFF':r._tc;
+        var fw=isGross?'bold':'normal';
+        brHtml+='<tr>'+BR_HDRS.map(function(h,ci){
+          var v=r[h]!=null?r[h]:(h==='Bills Count'?(r['Bills Covered']?r['Bills Covered'].split(',').length:1):null);
+          if(v==null)v='';
+          var isNum=typeof v==='number';
+          return '<td style="background:'+bg+';color:'+tc+';font-weight:'+fw+';text-align:'+(isNum?'right':'left')+';padding:5px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+(isNum&&v===0?'':encodeHtml(String(isNum?Math.round(v):v)))+'</td>';
+        }).join('')+'</tr>';
+      });
+      brHtml+='</table>';
+
+      var tmpBr=document.createElement('div'); tmpBr.innerHTML=brHtml;
+      var wsBr=XLSX.utils.table_to_sheet(tmpBr.querySelector('table'));
+
+      // Fix numeric cells & reapply GROSS styling
+      brReg.forEach(function(r,ri){
+        BR_NUM.forEach(function(ci){
+          var addr=encCell(ri+1,ci);
+          var v=r[BR_HDRS[ci]];
+          if(typeof v==='number'&&wsBr[addr]){wsBr[addr].t='n';wsBr[addr].v=v;wsBr[addr].z='#,##0';}
+        });
+        if(r._type==='GROSS'){
+          BR_HDRS.forEach(function(_,ci){
+            var addr=encCell(ri+1,ci);
+            if(wsBr[addr]) wsBr[addr].s={fill:{patternType:'solid',fgColor:{rgb:'1F3864'}},font:{bold:true,color:{rgb:'FFFFFF'},sz:10},alignment:{horizontal:BR_NUM.indexOf(ci)>=0?'right':'left',wrapText:false}};
+          });
+        }
+      });
+
+      wsBr['!cols']=[{wch:12},{wch:16},{wch:18},{wch:8},{wch:12},{wch:28},{wch:8},{wch:14},{wch:8},{wch:8},{wch:12},{wch:8},{wch:50},{wch:12},{wch:16},{wch:30}];
+      wsBr['!freeze']={xSplit:0,ySplit:1};
+      var gC=brReg.filter(function(r){return r._type==='GROSS';}).length;
+      var sC=brReg.filter(function(r){return r._type!=='GROSS'&&r._type!=='INSTALL';}).length;
+      var pC=brReg.filter(function(r){return r._type==='PARTIAL';}).length;
+      XLSX.utils.book_append_sheet(wb,wsBr,'Receipts ('+gC+'G+'+sC+'S+'+pC+'P)');
     }
   }
-
   var fname='BillsReport_'+today().replace(/-/g,'')+'_'+sourceBills.length+'bills.xlsx';
   XLSX.writeFile(wb,fname);
   toast('✅ '+sourceBills.length+' bills exported — '+headers.length+' columns!');
@@ -7532,36 +7643,160 @@ function exportPartyLedgerExcel(party) {
   });
   if(bRows.length){var ws1=XLSX.utils.json_to_sheet(bRows);ws1['!cols']=[{wch:8},{wch:12},{wch:14},{wch:14},{wch:22},{wch:10},{wch:12},{wch:10},{wch:12},{wch:12},{wch:10}];XLSX.utils.book_append_sheet(wb,ws1,'Bills');}
 
-  // Gross Payments sheet - bills[] from grossPayments directly
-  var partyGross=(grossPayments||[]).filter(function(g){return g.party===party;});
-  if(partyGross.length){
-    var gpRows=partyGross.map(function(g){
-      var billNos=(g.bills||[]).map(function(b){return 'Bill#'+b.billNo;}).join(', ');
-      var billSum=(g.bills||[]).reduce(function(s,b){return s+(b.amount||0)+(b.rebate||0);},0);
-      return{'Gross ID':g.id,'Date':fmtDate(g.date),'Gross Amount':g.grossAmt||0,
-        'Mode':g.mode||'','Cheque No':g.chequeNo||'','Receipt No':g.receiptNo||'',
-        'Bills Count':(g.bills||[]).length,'Bills Covered':billNos,
-        'Bill Sum':billSum,'Match':Math.abs(billSum-(g.grossAmt||0))<1?'OK':'DIFF','Remarks':g.remarks||''};
-    });
-    var wsG=XLSX.utils.json_to_sheet(gpRows);
-    wsG['!cols']=[{wch:18},{wch:12},{wch:14},{wch:8},{wch:12},{wch:12},{wch:10},{wch:50},{wch:12},{wch:8},{wch:25}];
-    wsG['!freeze']={xSplit:0,ySplit:1};
-    XLSX.utils.book_append_sheet(wb,wsG,'Gross Payments');
-  }
+  // ── Receipt Register (Tally-style: ONE row per voucher, NO detail rows) ──
+  // TALLY LOGIC: Receipt Voucher = actual money received from party
+  //   GROSS  = one cheque/NEFT covering multiple bills → ONE ROW (GP-ID + total + bills list)
+  //   SINGLE = one bill paid in full or with rebate   → ONE ROW
+  //   PARTIAL= one bill paid partially                → ONE ROW
+  //   DETAIL rows → SKIP completely (internal bill-allocation only, not a separate transaction)
 
-  // Payments sheet - SINGLE + PARTIAL only
-  var allPays=[];
-  pb.forEach(function(b){
-    payments.filter(function(p){return p.billId===b.id&&p.rowType!=='DETAIL';}).forEach(function(p){
-      allPays.push({'Bill No':b.billNo,'Pay Date':fmtDate(p.date),'Type':p.rowType||'SINGLE',
-        'Amount':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
-        'Net':(p.amount||0)+(p.rebate||0),'Mode':p.mode||'',
-        'Cheque No':p.chequeNo||'','Receipt No':p.receiptNo||'','Remarks':p.remarks||''});
+  var plReg=[];  // receipt register rows for this party
+
+  // 1. GROSS from grossPayments[] — authoritative, each g = one bank transaction
+  (grossPayments||[]).filter(function(g){return g.party===party;}).forEach(function(g){
+    var billNos=(g.bills||[]).map(function(b){return 'Bill#'+b.billNo;}).join(', ');
+    var billSum=(g.bills||[]).reduce(function(s,b){return s+(b.amount||0)+(b.rebate||0);},0);
+    var totalRebate=(g.bills||[]).reduce(function(s,b){return s+(b.rebate||0);},0);
+    var grossAmt=g.grossAmt||0;
+    var match=Math.abs(billSum-grossAmt)<1?'OK':'DIFF ('+fmt(billSum-grossAmt)+')';
+    var mlo=(g.mode||'').toLowerCase();
+    plReg.push({
+      _type:'GROSS',
+      'Date':fmtDate(g.date),'Voucher Type':'GROSS',
+      'Rcpt No / GP-ID':g.id||'','Mode':g.mode||'','Cheque No':g.chequeNo||'',
+      'Amount Received':grossAmt,'Rebate':totalRebate,'Interest':0,
+      'Net Received':grossAmt,
+      'Bills Count':(g.bills||[]).length,'Bills Covered':billNos,
+      'Bill Sum':billSum,'Match':match,'Remarks':g.remarks||''
     });
   });
-  if(allPays.length){var ws2=XLSX.utils.json_to_sheet(allPays);ws2['!cols']=[{wch:8},{wch:12},{wch:10},{wch:12},{wch:10},{wch:10},{wch:12},{wch:8},{wch:12},{wch:12},{wch:25}];XLSX.utils.book_append_sheet(wb,ws2,'Payments');}
+
+  // 2. From payments[]: Remarks-GROSS groups + SINGLE/PARTIAL (skip DETAIL)
+  var plGpMap={};
+  pb.forEach(function(b){
+    payments.filter(function(p){return p.billId===b.id;}).forEach(function(p){
+      var rem=p.remarks||'';
+      var mode=p.mode||'';
+      var mlo=mode.toLowerCase();
+      var cash=mlo==='cash'?p.amount||0:0;
+      var cheq=mlo.includes('cheque')?p.amount||0:0;
+      var neft=(!mlo.includes('cash')&&!mlo.includes('cheque'))?p.amount||0:0;
+      var isLinked=/\d+ [Bb]ills? linked with GROSS/.test(rem)||/Gross Payment GP-/.test(rem);
+      var isInstall=/INSTALLMENT/.test(rem);
+      var gpIdMatch=rem.match(/(GP-\d{8}-\d{3})/);
+
+      if(p.rowType==='DETAIL') return; // SKIP — not a separate transaction
+
+      if(isInstall){
+        plReg.push({
+          _type:'INSTALL',
+          'Date':fmtDate(p.date),'Voucher Type':'INSTALMENT',
+          'Rcpt No / GP-ID':p.receiptNo||'','Mode':mode,'Cheque No':p.chequeNo||'',
+          'Amount Received':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+          'Net Received':p.amount||0,
+          'Bills Count':1,'Bills Covered':'Bill#'+(b.billNo||''),
+          'Bill Sum':b.netAmt||0,'Match':'INSTALMENT','Remarks':rem
+        });
+      } else if(isLinked){
+        // Aggregate into one GROSS header row per group
+        var gkey=gpIdMatch?gpIdMatch[1]:((p.date||'')+'|'+mlo+'|'+(p.chequeNo||''));
+        if(!plGpMap[gkey]){
+          plGpMap[gkey]={date:p.date,mode:mode,cheqNo:p.chequeNo||'',rcptNo:p.receiptNo||'',
+            cash:0,cheque:0,neft:0,rebate:0,interest:0,bills:[],billSum:0,gpId:gpIdMatch?gpIdMatch[1]:''};
+        }
+        var gm=plGpMap[gkey];
+        gm.cash+=cash; gm.cheque+=cheq; gm.neft+=neft;
+        gm.rebate+=(p.rebate||0); gm.interest+=(p.interest||0);
+        gm.bills.push('Bill#'+(b.billNo||'')); gm.billSum+=(b.netAmt||0);
+        if(!gm.cheqNo&&p.chequeNo)gm.cheqNo=p.chequeNo;
+        if(!gm.rcptNo&&p.receiptNo)gm.rcptNo=p.receiptNo;
+      } else {
+        // SINGLE or PARTIAL — one row per payment
+        var rType=p.rowType||'SINGLE';
+        if(rType==='SINGLE'&&(p.rebate||0)>0) rType='SINGLE+Rebate';
+        plReg.push({
+          _type:rType,
+          'Date':fmtDate(p.date),'Voucher Type':rType,
+          'Rcpt No / GP-ID':p.receiptNo||'','Mode':mode,'Cheque No':p.chequeNo||'',
+          'Amount Received':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+          'Net Received':p.amount||0,
+          'Bills Count':1,'Bills Covered':'Bill#'+(b.billNo||''),
+          'Bill Sum':b.netAmt||0,'Match':'','Remarks':rem
+        });
+      }
+    });
+  });
+
+  // Add Remarks-GROSS aggregated groups
+  Object.keys(plGpMap).forEach(function(k){
+    var g=plGpMap[k];
+    var totalAmt=g.cash+g.cheque+g.neft;
+    var match=Math.abs(g.billSum-totalAmt)<1?'OK':'DIFF ('+fmt(g.billSum-totalAmt)+')';
+    plReg.push({
+      _type:'GROSS',
+      'Date':fmtDate(g.date),'Voucher Type':'GROSS',
+      'Rcpt No / GP-ID':g.gpId||g.rcptNo||'','Mode':g.mode,'Cheque No':g.cheqNo,
+      'Amount Received':totalAmt,'Rebate':g.rebate,'Interest':g.interest,
+      'Net Received':totalAmt,
+      'Bills Count':g.bills.length,'Bills Covered':g.bills.join(', '),
+      'Bill Sum':g.billSum,'Match':match,'Remarks':g.gpId?('Gross Payment '+g.gpId):''
+    });
+  });
+
+  // Sort by Date desc
+  plReg.sort(function(a,b2){
+    var da=a['Date']?a['Date'].split('-').reverse().join(''):'';
+    var db=b2['Date']?b2['Date'].split('-').reverse().join(''):'';
+    return db>da?1:db<da?-1:0;
+  });
+
+  if(plReg.length){
+    var PL_HDRS=['Date','Voucher Type','Rcpt No / GP-ID','Mode','Cheque No','Amount Received','Rebate','Interest','Net Received','Bills Count','Bills Covered','Bill Sum','Match','Remarks'];
+    var PL_NUM=[5,6,7,8,9,11];
+    // Style map per type
+    function plStyle(type){
+      if(type==='GROSS')return{bg:'#1F3864',tc:'#FFFFFF',fw:'bold'};
+      if(type==='PARTIAL')return{bg:'#FEF9C3',tc:'#854D0E',fw:'normal'};
+      if(type==='INSTALL')return{bg:'#F3E8FF',tc:'#6B21A8',fw:'normal'};
+      if(type&&type.includes('Rebate'))return{bg:'#BBF7D0',tc:'#14532D',fw:'normal'};
+      return{bg:'#DCFCE7',tc:'#166534',fw:'normal'};
+    }
+    var plHtml='<table><tr>'+PL_HDRS.map(function(h){
+      return '<th style="background:#1F3864;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap;text-align:center">'+h+'</th>';
+    }).join('')+'</tr>';
+    plReg.forEach(function(r){
+      var s=plStyle(r._type);
+      plHtml+='<tr>'+PL_HDRS.map(function(h,ci){
+        var v=r[h]!=null?r[h]:'';
+        var isNum=typeof v==='number';
+        return '<td style="background:'+s.bg+';color:'+s.tc+';font-weight:'+s.fw+';text-align:'+(isNum?'right':'left')+';padding:5px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+(isNum&&v===0?'':encodeHtml(String(isNum?Math.round(v):v)))+'</td>';
+      }).join('')+'</tr>';
+    });
+    plHtml+='</table>';
+    var tmpPl=document.createElement('div');tmpPl.innerHTML=plHtml;
+    var wsR=XLSX.utils.table_to_sheet(tmpPl.querySelector('table'));
+    plReg.forEach(function(r,ri){
+      PL_NUM.forEach(function(ci){
+        var addr=XLSX.utils.encode_cell({r:ri+1,c:ci});
+        var v=r[PL_HDRS[ci]];
+        if(typeof v==='number'&&wsR[addr]){wsR[addr].t='n';wsR[addr].v=v;wsR[addr].z='#,##0';}
+      });
+      if(r._type==='GROSS'){
+        PL_HDRS.forEach(function(_,ci){
+          var addr=XLSX.utils.encode_cell({r:ri+1,c:ci});
+          if(wsR[addr])wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'1F3864'}},font:{bold:true,color:{rgb:'FFFFFF'},sz:10},alignment:{horizontal:PL_NUM.indexOf(ci)>=0?'right':'left',wrapText:false}};
+        });
+      }
+    });
+    wsR['!cols']=[{wch:12},{wch:14},{wch:18},{wch:8},{wch:12},{wch:14},{wch:8},{wch:8},{wch:14},{wch:8},{wch:50},{wch:12},{wch:16},{wch:30}];
+    wsR['!freeze']={xSplit:0,ySplit:1};
+    var gC2=plReg.filter(function(r){return r._type==='GROSS';}).length;
+    var sC2=plReg.filter(function(r){return r._type!=='GROSS'&&r._type!=='INSTALL';}).length;
+    XLSX.utils.book_append_sheet(wb,wsR,'Receipt Register ('+gC2+'G+'+sC2+'S)');
+  }
+
   XLSX.writeFile(wb,party.replace(/[^a-zA-Z0-9]/g,'_')+'_Ledger_'+today()+'.xlsx');
-  toast('Ledger exported — '+partyGross.length+' Gross + '+allPays.length+' payments!');
+  toast('Ledger exported — '+plReg.filter(function(r){return r._type==='GROSS';}).length+' Gross + '+plReg.filter(function(r){return r._type!=='GROSS';}).length+' Single/Partial receipts!');
 }
 
 
@@ -20775,76 +21010,222 @@ function exportReceiptLedgerExcel(){
   if(rlState.dateFrom)filterDesc+=' | From: '+rlState.dateFrom;
   if(rlState.dateTo)filterDesc+=' | To: '+rlState.dateTo;
   var wb2=XLSX.utils.book_new();
-  // Sheet 1: Gross Payments with bills[] — filtered
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TALLY-STYLE RECEIPT REGISTER (Sheet 1)
+  // ONE ROW per receipt voucher:
+  //   GROSS   = one row, total amount, all bills listed, cheque/rcpt no
+  //   SINGLE  = one row per bill payment
+  //   PARTIAL = one row showing partial received
+  //   INSTALL = one row per instalment
+  // ─────────────────────────────────────────────────────────────────────────
+  function passFilter(party,date,mode,cheqNo,rcptNo,billNo,remarks){
+    if(mf&&mf!=='ALL'&&mode!==mf)return false;
+    if(dfr&&toISO(date||'')<dfr)return false;
+    if(dto2&&toISO(date||'')>dto2)return false;
+    if(q2){
+      var hay=(party||'').toLowerCase()+'|'+(billNo||'').toLowerCase()+'|'+
+              (cheqNo||'').toLowerCase()+'|'+(rcptNo||'').toLowerCase()+'|'+
+              (mode||'').toLowerCase()+'|'+(remarks||'').toLowerCase();
+      if(!hay.includes(q2))return false;
+    }
+    return true;
+  }
+
+  var rlReg=[];  // final rows for Receipt Register
+
+  // ── 1. GROSS PAYMENTS from grossPayments[] (authoritative source) ──
+  (grossPayments||[]).forEach(function(g){
+    var billNos=(g.bills||[]).map(function(b){return 'Bill#'+b.billNo;}).join(', ');
+    var billSum=(g.bills||[]).reduce(function(s,b){return s+(b.amount||0)+(b.rebate||0);},0);
+    var totalRebate=(g.bills||[]).reduce(function(s,b){return s+(b.rebate||0);},0);
+    var grossAmt=g.grossAmt||0;
+    var match=Math.abs(billSum-grossAmt)<1?'OK':'DIFF ('+fmt(billSum-grossAmt)+')';
+    if(!passFilter(g.party,g.date,g.mode||'',g.chequeNo||'',g.receiptNo||'','',g.remarks||''))return;
+    var mlo=(g.mode||'').toLowerCase();
+    rlReg.push({
+      _type:'GROSS',_bg:'#1F3864',_tc:'#FFFFFF',_bold:true,
+      'Rcpt Type':'GROSS','Date':fmtDate(g.date),'Party':g.party||'',
+      'Voucher / Ref':g.id||'','Bills Count':(g.bills||[]).length,
+      'Gross Amt':grossAmt,'Rebate':totalRebate,'Interest':0,
+      'Cash':mlo==='cash'?grossAmt:0,
+      'Cheque':mlo.includes('cheque')?grossAmt:0,
+      'NEFT/UPI':(!mlo.includes('cash')&&!mlo.includes('cheque'))?grossAmt:0,
+      'Cheque No':g.chequeNo||'','Receipt No':g.receiptNo||'',
+      'Mode':g.mode||'','Bill Sum':billSum,'Match':match,
+      'Bills Covered':billNos,'Remarks':g.remarks||''
+    });
+  });
+
+  // ── 2. SINGLE & PARTIAL payments (from payments[], skip DETAIL rows) ──
+  // Also build GROSS groups from Remarks-based gross (bills with "N Bills linked with GROSS")
+  var remarksGpMap={};
+  payments.forEach(function(p){
+    var b=bills.find(function(x){return x.id===p.billId;})||{};
+    var rem=p.remarks||'';
+    var isLinked=/\d+ [Bb]ills? linked with GROSS/.test(rem)||/Gross Payment GP-/.test(rem);
+    var isInstall=/INSTALLMENT/.test(rem);
+    var mode=p.mode||'';
+    var mlo=mode.toLowerCase();
+    var cash=mlo==='cash'?p.amount||0:0;
+    var cheq=mlo.includes('cheque')?p.amount||0:0;
+    var neft=(!mlo.includes('cash')&&!mlo.includes('cheque'))?p.amount||0:0;
+
+    if(isInstall){
+      if(!passFilter(b.party||'',p.date,mode,p.chequeNo||'',p.receiptNo||'',b.billNo||'',rem))return;
+      rlReg.push({
+        _type:'INSTALL',_bg:'#F3E8FF',_tc:'#6B21A8',_bold:false,
+        'Rcpt Type':'INSTALMENT','Date':fmtDate(p.date),'Party':b.party||'',
+        'Voucher / Ref':'Bill#'+(b.billNo||''),'Bills Count':1,
+        'Gross Amt':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+        'Cash':cash,'Cheque':cheq,'NEFT/UPI':neft,
+        'Cheque No':p.chequeNo||'','Receipt No':p.receiptNo||'',
+        'Mode':mode,'Bill Sum':b.netAmt||0,'Match':'INSTALMENT',
+        'Bills Covered':'Bill#'+(b.billNo||''),'Remarks':rem
+      });
+    } else if(isLinked){
+      // Remarks-based GROSS group: aggregate
+      var gpIdMatch=rem.match(/(GP-\d{8}-\d{3})/);
+      var gkey=gpIdMatch?gpIdMatch[1]:((b.party||'')+'|'+(p.date||'')+'|'+mlo+'|'+(p.chequeNo||''));
+      if(!remarksGpMap[gkey]){
+        remarksGpMap[gkey]={party:b.party||'',date:p.date||'',mode:mode,
+          cheqNo:p.chequeNo||'',rcptNo:p.receiptNo||'',
+          cash:0,cheque:0,neft:0,rebate:0,interest:0,bills:[],billSum:0,
+          gpId:gpIdMatch?gpIdMatch[1]:'',passedFilter:false};
+      }
+      var gm=remarksGpMap[gkey];
+      gm.cash+=cash; gm.cheque+=cheq; gm.neft+=neft;
+      gm.rebate+=(p.rebate||0); gm.interest+=(p.interest||0);
+      gm.bills.push('Bill#'+(b.billNo||''));
+      gm.billSum+=(b.netAmt||0);
+      if(!gm.cheqNo&&p.chequeNo)gm.cheqNo=p.chequeNo;
+      if(!gm.rcptNo&&p.receiptNo)gm.rcptNo=p.receiptNo;
+      if(passFilter(b.party||'',p.date,mode,p.chequeNo||'',p.receiptNo||'',b.billNo||'',rem))gm.passedFilter=true;
+    } else {
+      // SINGLE or PARTIAL
+      if(p.rowType==='DETAIL')return;
+      if(!passFilter(b.party||'',p.date,mode,p.chequeNo||'',p.receiptNo||'',b.billNo||'',rem))return;
+      var rowType=p.rowType||'SINGLE';
+      var rType=rowType==='PARTIAL'?'PARTIAL':'SINGLE';
+      if(rType==='SINGLE'&&(p.rebate||0)>0)rType='SINGLE+Rebate';
+      var bg2=rType==='PARTIAL'?'#FEF9C3':(rType.includes('Rebate')?'#BBF7D0':'#DCFCE7');
+      var tc2=rType==='PARTIAL'?'#854D0E':(rType.includes('Rebate')?'#14532D':'#166534');
+      rlReg.push({
+        _type:rType,_bg:bg2,_tc:tc2,_bold:false,
+        'Rcpt Type':rType,'Date':fmtDate(p.date),'Party':b.party||'',
+        'Voucher / Ref':'Bill#'+(b.billNo||''),'Bills Count':1,
+        'Gross Amt':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
+        'Cash':cash,'Cheque':cheq,'NEFT/UPI':neft,
+        'Cheque No':p.chequeNo||'','Receipt No':p.receiptNo||'',
+        'Mode':mode,'Bill Sum':b.netAmt||0,'Match':'',
+        'Bills Covered':'Bill#'+(b.billNo||''),'Remarks':rem
+      });
+    }
+  });
+
+  // ── 3. Add Remarks-based GROSS groups ──
+  Object.keys(remarksGpMap).forEach(function(k){
+    var g=remarksGpMap[k];
+    if(!g.passedFilter)return;
+    var totalAmt=g.cash+g.cheque+g.neft;
+    var match=Math.abs(g.billSum-totalAmt)<1?'OK':'DIFF ('+fmt(g.billSum-totalAmt)+')';
+    rlReg.push({
+      _type:'GROSS',_bg:'#1F3864',_tc:'#FFFFFF',_bold:true,
+      'Rcpt Type':'GROSS','Date':fmtDate(g.date),'Party':g.party,
+      'Voucher / Ref':g.gpId||'GROSS','Bills Count':g.bills.length,
+      'Gross Amt':totalAmt,'Rebate':g.rebate,'Interest':g.interest,
+      'Cash':g.cash,'Cheque':g.cheque,'NEFT/UPI':g.neft,
+      'Cheque No':g.cheqNo,'Receipt No':g.rcptNo,
+      'Mode':g.mode,'Bill Sum':g.billSum,'Match':match,
+      'Bills Covered':g.bills.join(', '),'Remarks':g.gpId?('Gross Payment '+g.gpId):''
+    });
+  });
+
+  // ── 4. Sort by Date desc ──
+  rlReg.sort(function(a,b){
+    var da=a['Date']?a['Date'].split('-').reverse().join(''):'';
+    var db=b['Date']?b['Date'].split('-').reverse().join(''):'';
+    return db>da?1:db<da?-1:0;
+  });
+
+  // ── 5. Build styled sheet ──
+  var RL_HDRS=['Rcpt Type','Date','Party','Voucher / Ref','Bills Count','Gross Amt','Rebate','Interest','Cash','Cheque','NEFT/UPI','Cheque No','Receipt No','Mode','Bill Sum','Match','Bills Covered','Remarks'];
+  var RL_NUM=[4,5,6,7,8,9,10,14];
+
+  if(rlReg.length){
+    var rlHtml='<table><tr>'+RL_HDRS.map(function(h){
+      return '<th style="background:#1F3864;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap;text-align:center">'+h+'</th>';
+    }).join('')+'</tr>';
+    rlReg.forEach(function(r){
+      var bg=r._type==='GROSS'?'#1F3864':r._bg;
+      var tc=r._type==='GROSS'?'#FFFFFF':r._tc;
+      var fw=r._bold?'bold':'normal';
+      rlHtml+='<tr>'+RL_HDRS.map(function(h,ci){
+        var v=r[h]!=null?r[h]:'';
+        var isNum=typeof v==='number';
+        return '<td style="background:'+bg+';color:'+tc+';font-weight:'+fw+';text-align:'+(isNum?'right':'left')+';padding:5px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+(isNum&&v===0?'':encodeHtml(String(isNum?Math.round(v):v)))+'</td>';
+      }).join('')+'</tr>';
+    });
+    rlHtml+='</table>';
+    var tmpRl=document.createElement('div');tmpRl.innerHTML=rlHtml;
+    var wsReg=XLSX.utils.table_to_sheet(tmpRl.querySelector('table'));
+    rlReg.forEach(function(r,ri){
+      RL_NUM.forEach(function(ci){
+        var addr=XLSX.utils.encode_cell({r:ri+1,c:ci});
+        var v=r[RL_HDRS[ci]];
+        if(typeof v==='number'&&wsReg[addr]){wsReg[addr].t='n';wsReg[addr].v=v;wsReg[addr].z='#,##0';}
+      });
+      if(r._type==='GROSS'){
+        RL_HDRS.forEach(function(_,ci){
+          var addr=XLSX.utils.encode_cell({r:ri+1,c:ci});
+          if(wsReg[addr])wsReg[addr].s={fill:{patternType:'solid',fgColor:{rgb:'1F3864'}},font:{bold:true,color:{rgb:'FFFFFF'},sz:10},alignment:{horizontal:RL_NUM.indexOf(ci)>=0?'right':'left',wrapText:false}};
+        });
+      }
+    });
+    wsReg['!cols']=[{wch:14},{wch:12},{wch:28},{wch:18},{wch:8},{wch:12},{wch:8},{wch:8},{wch:10},{wch:10},{wch:10},{wch:12},{wch:12},{wch:8},{wch:12},{wch:14},{wch:50},{wch:30}];
+    wsReg['!freeze']={xSplit:0,ySplit:1};
+    var gC=rlReg.filter(function(r){return r._type==='GROSS';}).length;
+    var sC=rlReg.filter(function(r){return r._type==='SINGLE'||r._type==='SINGLE+Rebate';}).length;
+    var pC=rlReg.filter(function(r){return r._type==='PARTIAL';}).length;
+    XLSX.utils.book_append_sheet(wb2,wsReg,'Receipt Register');
+  }
+
+  // ── Keep legacy Gross Payments sheet (for Party Ledger linking) ──
   var grossRows=(grossPayments||[]).filter(function(g){
     if(mf&&mf!=='ALL'&&(g.mode||'')!==mf)return false;
     if(dfr&&toISO(g.date||'')<dfr)return false;
     if(dto2&&toISO(g.date||'')>dto2)return false;
-    if(q2){
-      var m2=(g.party||'').toLowerCase().includes(q2)||(g.id||'').toLowerCase().includes(q2)||
-             (g.chequeNo||'').toLowerCase().includes(q2)||(g.mode||'').toLowerCase().includes(q2);
-      if(!m2)return false;
-    }
+    if(q2){var m2=(g.party||'').toLowerCase().includes(q2)||(g.id||'').toLowerCase().includes(q2)||(g.chequeNo||'').toLowerCase().includes(q2)||(g.mode||'').toLowerCase().includes(q2);if(!m2)return false;}
     return true;
   }).map(function(g){
     var billNos=(g.bills||[]).map(function(b){return 'Bill#'+b.billNo;}).join(', ');
     var billSum=(g.bills||[]).reduce(function(s,b){return s+(b.amount||0)+(b.rebate||0);},0);
-    return{'Gross ID':g.id,'Date':fmtDate(g.date),'Party':g.party||'',
-      'Gross Amount':g.grossAmt||0,'Mode':g.mode||'','Cheque No':g.chequeNo||'','Receipt No':g.receiptNo||'',
-      'Bills Count':(g.bills||[]).length,'Bills Covered':billNos,'Bill Sum':billSum,
-      'Match':Math.abs(billSum-(g.grossAmt||0))<1?'OK':'DIFF','Remarks':g.remarks||''};
+    return{'Gross ID':g.id,'Date':fmtDate(g.date),'Party':g.party||'','Gross Amount':g.grossAmt||0,'Mode':g.mode||'','Cheque No':g.chequeNo||'','Receipt No':g.receiptNo||'','Bills Count':(g.bills||[]).length,'Bills Covered':billNos,'Bill Sum':billSum,'Match':Math.abs(billSum-(g.grossAmt||0))<1?'OK':'DIFF','Remarks':g.remarks||''};
   }).sort(function(a,b){return toISO(a['Date']||'')>toISO(b['Date']||'')?-1:1;});
-  if(grossRows.length){
-    var wsG=XLSX.utils.json_to_sheet(grossRows);
-    wsG['!cols']=[{wch:18},{wch:12},{wch:28},{wch:14},{wch:8},{wch:12},{wch:12},{wch:10},{wch:50},{wch:12},{wch:8},{wch:25}];
-    wsG['!freeze']={xSplit:0,ySplit:1};
-    XLSX.utils.book_append_sheet(wb2,wsG,'Gross Payments');
-  }
-  // Sheet 2: Single & Partial — filtered
-  var singleData=payments.filter(function(p){
-    if(p.rowType==='DETAIL')return false;
-    var b=bills.find(function(x){return x.id===p.billId;})||{};
-    if(mf&&mf!=='ALL'&&(p.mode||'')!==mf)return false;
-    if(dfr&&toISO(p.date||'')<dfr)return false;
-    if(dto2&&toISO(p.date||'')>dto2)return false;
-    if(q2){
-      var m2=(b.party||'').toLowerCase().includes(q2)||(b.billNo||'').includes(q2)||
-             (p.chequeNo||'').toLowerCase().includes(q2)||(p.receiptNo||'').toLowerCase().includes(q2)||
-             (p.remarks||'').toLowerCase().includes(q2)||(p.mode||'').toLowerCase().includes(q2);
-      if(!m2)return false;
-    }
-    return true;
-  }).map(function(p){
-    var b=bills.find(function(x){return x.id===p.billId;})||{};
-    return{'Date':fmtDate(p.date),'Party':b.party||'','Bill No':b.billNo||'',
-      'Type':p.rowType||'SINGLE','Amount':p.amount||0,'Rebate':p.rebate||0,'Interest':p.interest||0,
-      'Net':(p.amount||0)+(p.rebate||0),'Mode':p.mode||'',
-      'Cheque No':p.chequeNo||'','Receipt No':p.receiptNo||'','Remarks':p.remarks||''};
-  }).sort(function(a,b){return toISO(a['Date']||'')>toISO(b['Date']||'')?-1:1;});
-  if(singleData.length){
-    var ws=XLSX.utils.json_to_sheet(singleData);
-    ws['!cols']=[{wch:12},{wch:28},{wch:10},{wch:10},{wch:12},{wch:10},{wch:10},{wch:12},{wch:8},{wch:12},{wch:12},{wch:25}];
-    ws['!freeze']={xSplit:0,ySplit:1};
-    XLSX.utils.book_append_sheet(wb2,ws,'Single & Partial');
-  }
-  // Sheet 3: Summary (based on filtered data)
-  var gt=grossRows.reduce(function(s,g){return s+(g['Gross Amount']||0);},0);
-  var st2=singleData.filter(function(p){return !p['Type']||p['Type']==='SINGLE';}).reduce(function(s,p){return s+(p['Amount']||0);},0);
-  var pt2=singleData.filter(function(p){return p['Type']==='PARTIAL';}).reduce(function(s,p){return s+(p['Amount']||0);},0);
-  var it=singleData.reduce(function(s,p){return s+(p['Interest']||0);},0);
-  var rt=singleData.reduce(function(s,p){return s+(p['Rebate']||0);},0);
+  if(grossRows.length){var wsG=XLSX.utils.json_to_sheet(grossRows);wsG['!cols']=[{wch:18},{wch:12},{wch:28},{wch:14},{wch:8},{wch:12},{wch:12},{wch:10},{wch:50},{wch:12},{wch:8},{wch:25}];wsG['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb2,wsG,'Gross Payments');}
+
+  // ── Summary sheet ──
+  var rlGrossAmt=rlReg.filter(function(r){return r._type==='GROSS';}).reduce(function(s,r){return s+(r['Gross Amt']||0);},0);
+  var rlSingleAmt=rlReg.filter(function(r){return r._type==='SINGLE'||r._type==='SINGLE+Rebate';}).reduce(function(s,r){return s+(r['Gross Amt']||0);},0);
+  var rlPartialAmt=rlReg.filter(function(r){return r._type==='PARTIAL';}).reduce(function(s,r){return s+(r['Gross Amt']||0);},0);
+  var rlInstAmt=rlReg.filter(function(r){return r._type==='INSTALMENT';}).reduce(function(s,r){return s+(r['Gross Amt']||0);},0);
+  var rlRebate=rlReg.reduce(function(s,r){return s+(r['Rebate']||0);},0);
+  var rlInterest=rlReg.reduce(function(s,r){return s+(r['Interest']||0);},0);
+  var rlTotal=rlGrossAmt+rlSingleAmt+rlPartialAmt+rlInstAmt;
   var wsSum=XLSX.utils.json_to_sheet([
     {'Category':'Filter','Count':'','Amount':filterDesc},
-    {'Category':'Gross Payments','Count':grossRows.length,'Amount':gt},
-    {'Category':'Single/Partial','Count':singleData.length,'Amount':st2+pt2},
-    {'Category':'Interest Earned','Count':'','Amount':it},
-    {'Category':'TOTAL RECEIVED','Count':'','Amount':gt+st2+pt2},
-    {'Category':'Rebate Allowed','Count':'','Amount':rt}
+    {'Category':'GROSS Receipts','Count':rlReg.filter(function(r){return r._type==='GROSS';}).length,'Amount':rlGrossAmt},
+    {'Category':'SINGLE Receipts','Count':rlReg.filter(function(r){return r._type==='SINGLE'||r._type==='SINGLE+Rebate';}).length,'Amount':rlSingleAmt},
+    {'Category':'PARTIAL Receipts','Count':rlReg.filter(function(r){return r._type==='PARTIAL';}).length,'Amount':rlPartialAmt},
+    {'Category':'INSTALMENT Receipts','Count':rlReg.filter(function(r){return r._type==='INSTALMENT';}).length,'Amount':rlInstAmt},
+    {'Category':'TOTAL RECEIVED','Count':rlReg.length,'Amount':rlTotal},
+    {'Category':'Rebate Allowed','Count':'','Amount':rlRebate},
+    {'Category':'Interest Earned','Count':'','Amount':rlInterest}
   ]);
   wsSum['!cols']=[{wch:22},{wch:10},{wch:20}];
   XLSX.utils.book_append_sheet(wb2,wsSum,'Summary');
   XLSX.writeFile(wb2,'ReceiptLedger_'+today()+'.xlsx');
-  toast('\u2705 Receipt Ledger exported! ('+filterDesc+')');
+  toast('\u2705 Receipt Ledger exported! '+rlReg.length+' receipts ('+filterDesc+')');
 }
 
 
