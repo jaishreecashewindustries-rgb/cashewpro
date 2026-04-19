@@ -4596,6 +4596,10 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
   var sepSheet   = gc('separateSheet');
   var autoFilter = gc('autoFilter');
 
+  // FY-aware payments — sirf filteredBills ke bill IDs ke payments
+  var _expBillIds = new Set(filteredBills.map(function(b){return b.id;}));
+  var _fyPaymentsExp = payments.filter(function(p){return _expBillIds.has(p.billId);});
+
   var sourceBills = onlyDue
     ? filteredBills.filter(function(b){ return getBillStatus(b).status !== 'paid'; })
     : filteredBills;
@@ -4670,7 +4674,7 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
   var dataRows = [];
   sourceBills.forEach(function(b){
     var s = getBillStatus(b);
-    var bPays = payments.filter(function(p){ return p.billId===b.id; });
+    var bPays = _fyPaymentsExp.filter(function(p){ return p.billId===b.id; });
     var lastPay = bPays.length ? bPays[bPays.length-1] : null;
     var cashAmt=0,chequeAmt=0,neftAmt=0,chequeNo='',receiptNo='',payRemarks='';
     bPays.forEach(function(p){
@@ -5173,9 +5177,14 @@ function doCustomExport(filteredBills, billColDefs, payColDefs, optDefs, gc) {
 
 function exportBillsExcel() {
   var wb = XLSX.utils.book_new();
+  // ── FY-aware: sirf current FY ke bills aur payments ──
+  var _fy = getActiveFY();
+  var _fyBillsExp = getFYBills(_fy);
+  var _fyBillIds = new Set(_fyBillsExp.map(function(b){return b.id;}));
+  var _fyPayments = payments.filter(function(p){return _fyBillIds.has(p.billId);});
 
   // ── Sheet 1: Bills Detail (all filled fields) ──
-  var billRows = bills.map(function(b) {
+  var billRows = _fyBillsExp.map(function(b) {
     var s = getBillStatus(b);
     var gst=(b.cgst||0)+(b.sgst||0)+(b.igst||0);
     return {
@@ -5217,9 +5226,9 @@ function exportBillsExcel() {
   ws1['!freeze']={xSplit:0,ySplit:1};
   XLSX.utils.book_append_sheet(wb, ws1, 'Bills Detail');
 
-  // ── Sheet 2: Payments ──
-  var payRows = payments.map(function(p){
-    var b=bills.find(function(x){return x.id===p.billId;})||{};
+  // ── Sheet 2: Payments ── (sirf current FY ke payments)
+  var payRows = _fyPayments.map(function(p){
+    var b=_fyBillsExp.find(function(x){return x.id===p.billId;})||{};
     return{
       'Bill No':b.billNo||'',
       'Party':b.party||'',
@@ -5250,10 +5259,10 @@ function exportBillsExcel() {
     XLSX.utils.book_append_sheet(wb,ws2,'Payments');
   }
 
-  // ── Sheet 3: Party Summary ──
-  var parties3=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
+  // ── Sheet 3: Party Summary ── (sirf current FY)
+  var parties3=Array.from(new Set(_fyBillsExp.map(function(b){return b.party;}))).sort();
   var partyRows=parties3.map(function(p){
-    var pb=bills.filter(function(b){return b.party===p;});
+    var pb=_fyBillsExp.filter(function(b){return b.party===p;});
     var recv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
     var due=pb.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
     var total=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
@@ -5268,8 +5277,8 @@ function exportBillsExcel() {
     XLSX.utils.book_append_sheet(wb,ws3,'Party Summary');
   }
 
-  // ── Sheet 4: Outstanding Only ──
-  var dueRows=bills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b){
+  // ── Sheet 4: Outstanding Only ── (sirf current FY)
+  var dueRows=_fyBillsExp.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b){
     var s=getBillStatus(b);
     var days=Math.floor((new Date()-new Date(toISO(b.date||'')))/(86400000));
     return{
@@ -5303,9 +5312,9 @@ function exportBillsExcel() {
     XLSX.utils.book_append_sheet(wb,ws6,'Advances');
   }
 
-  // ── Sheet 7: Monthly Summary ──
+  // ── Sheet 7: Monthly Summary ── (sirf current FY)
   var mmap={};
-  bills.forEach(function(b){
+  _fyBillsExp.forEach(function(b){
     var m=b.date?toISO(b.date).substring(0,7):'';if(!m)return;
     if(!mmap[m])mmap[m]={Month:m,Bills:0,Sales:0,Received:0,Outstanding:0,GST:0};
     var s=getBillStatus(b);
@@ -5319,9 +5328,9 @@ function exportBillsExcel() {
     XLSX.utils.book_append_sheet(wb,ws7,'Monthly Summary');
   }
 
-  var fname='CashewPro_Report_'+today()+'.xlsx';
+  var fname='CashewPro_Report_'+_fy+'_'+today()+'.xlsx';
   XLSX.writeFile(wb, fname);
-  toast('✅ Report exported: '+bills.length+' bills, '+payments.length+' payments — '+fname);
+  toast('✅ Report exported: '+_fyBillsExp.length+' bills, '+_fyPayments.length+' payments ('+getFYLabel(_fy)+') — '+fname);
 }
 // ── EDIT BILL ──
 function openEditBill(bill) {
@@ -14880,12 +14889,15 @@ function exportStyledReport(data,gcFn) {
 
 // ── STYLED REPORT AS EXCEL ──
 function exportStyledReportExcel(data) {
-  if(!data)data=bills;
+  if(!data)data=getFYBills(getActiveFY());
+  // FY-aware payments — sirf 'data' bills ke payments hi lenge
+  var _styleExpIds=new Set(data.map(function(b){return b.id;}));
+  var _stylePayments=payments.filter(function(p){return _styleExpIds.has(p.billId);});
   var wb=XLSX.utils.book_new();
   // Sheet 1: Bills with all details
   var billRows=data.map(function(b){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;});
+    var bPays=_stylePayments.filter(function(p){return p.billId===b.id;});
     var lastPay=bPays.sort(function(a,b2){return (toISO(b2.date||'')).localeCompare(toISO(a.date||''));})[0]||{};
     var grade=(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'-';
     var bGross=bPays.filter(function(p){return p.grossAmt&&p.grossAmt>0;});
@@ -14927,10 +14939,16 @@ function exportStyledReportExcel(data) {
     return{'Bill#':b.billNo,'Date':fmtDate(b.date),'Party':b.party,'Broker':b.broker||'','Grade':(b.rows||[]).map(function(r){return r.grade;}).join(', '),'Net Amt':b.netAmt,'Received':s.recv,'Balance':s.bal,'Days Old':days,'Status':s.status.toUpperCase()};
   }).sort(function(a,b){return b['Balance']-a['Balance'];});
   if(dueRows.length){var ws3=XLSX.utils.json_to_sheet(dueRows);XLSX.utils.book_append_sheet(wb,ws3,'Outstanding');}
-  // Sheet 4: Gross Payments
+  // Sheet 4: Gross Payments (sirf current FY ke bills waali parties)
   var gpParties=Array.from(new Set(data.map(function(b){return b.party;}))).sort();
   var gpExRows=[];
-  (grossPayments||[]).filter(function(g){return gpParties.includes(g.party);}).forEach(function(g){
+  (grossPayments||[]).filter(function(g){
+    // Gross payment tabhi include karo jab uske kisi bhi bill ka ID _styleExpIds mein ho
+    return gpParties.includes(g.party) && (g.bills||[]).some(function(gb){
+      var mb=data.find(function(b){return String(b.billNo)===String(gb.billNo)&&b.party===g.party;});
+      return !!mb;
+    });
+  }).forEach(function(g){
     var billsStr=(g.bills||[]).map(function(b){return 'Bill#'+b.billNo+' \u20b9'+fmt(b.amount||0)+(b.rebate>0?' Reb\u20b9'+fmt(b.rebate):'');}).join('; ');
     gpExRows.push({'Gross ID':g.id,'Party':g.party,'Date':fmtDate(g.date),'Gross Amount':g.grossAmt||0,'Mode':g.mode||'','Cheque/Rcpt':(g.chequeNo||'-')+(g.receiptNo&&g.receiptNo!==g.chequeNo?' / '+g.receiptNo:''),'Bills Count':(g.bills||[]).length,'Bills Covered':billsStr});
   });
