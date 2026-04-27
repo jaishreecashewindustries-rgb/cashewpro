@@ -13264,12 +13264,16 @@ function openEditCheque(c) {
 function pgInterest() {
   var _activeFY=getActiveFY(); var _fyBills=getFYBills(_activeFY);
   var cfg2=DB.getObj('intCfg',{rate:24,freeDays:7});
-  var state=pageState.int=pageState.int||{
-    partyFilter:'',dateFrom:'',dateTo:'',
-    showPaid:false,          // show paid bills too
-    payDateAdj:{},           // per-payment adjusted date: payId -> DD-MM-YYYY
-    selectedBills:new Set()  // empty = all, else only these billIds
-  };
+  // Load saved cheque dates from DB (persists across sessions)
+  if(!pageState.int){
+    pageState.int={
+      partyFilter:'',dateFrom:'',dateTo:'',
+      showPaid:false,
+      payDateAdj: DB.getObj('intPayAdj',{}),
+      selectedBills:new Set()
+    };
+  }
+  var state=pageState.int;
   var wrap=document.createElement('div');
 
   // ── SETTINGS CARD ──
@@ -13343,6 +13347,23 @@ function pgInterest() {
   fBar.appendChild(el('span',{text:'Party:',style:'font-size:12px;color:#6b7280'}));
   fBar.appendChild(partySel);fBar.appendChild(pSearch);fBar.appendChild(viewLedgerBtn);
   fBar.appendChild(intPrintBtn);fBar.appendChild(intExcelBtn);
+  // Save / Clear cheque dates buttons
+  var _savedCnt=Object.keys(state.payDateAdj).length;
+  var saveDatesBtn=el('button',{cls:'btn btn-sm',text:'\uD83D\uDCBE Save Dates'+(_savedCnt>0?' ('+_savedCnt+')':''),style:'background:#d97706;color:#fff;border:none;font-size:11px'});
+  saveDatesBtn.title='Saari cheque dates permanently save karo — baar baar set nahi karni padegi';
+  saveDatesBtn.addEventListener('click',function(){
+    DB.setObj('intPayAdj',state.payDateAdj);
+    toast('\u2705 '+(Object.keys(state.payDateAdj).length)+' cheque dates saved!');
+    renderIntPage();
+  });
+  var clearDatesBtn=el('button',{cls:'btn btn-outline btn-sm',text:'\uD83D\uDDD1 Clear Dates',style:'color:#dc2626;border-color:#fca5a5;font-size:11px'});
+  clearDatesBtn.title='Saari adjusted dates hata do';
+  clearDatesBtn.addEventListener('click',function(){
+    if(!confirm('Saari saved cheque dates delete karni hain?'))return;
+    state.payDateAdj={};DB.setObj('intPayAdj',{});
+    toast('Dates cleared');renderIntPage();
+  });
+  fBar.appendChild(saveDatesBtn);fBar.appendChild(clearDatesBtn);
   wrap.appendChild(fBar);
 
   // ── SETUP ──
@@ -13485,7 +13506,7 @@ function pgInterest() {
     var tOuter=document.createElement('div');tOuter.style.overflow='auto';
     var tbl=document.createElement('table');tbl.style.width='100%';
     var thead=document.createElement('thead');var htr=document.createElement('tr');htr.style.background='#f9fafb';
-    ['','Bill#','Date','Net Amt','Balance','Payment Dates (editable)','Period','Int Days','Interest (₹)','Action'].forEach(function(h){
+    ['','Bill#','Date','Net Amt','Balance','Chq Date  |  Amount  |  Cheque No','Period','Int Days','Interest (₹)','Action'].forEach(function(h){
       var th=document.createElement('th');
       th.style.cssText='padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;font-weight:700;white-space:nowrap;text-align:left';
       th.textContent=h;
@@ -13555,6 +13576,7 @@ function pgInterest() {
             state.payDateAdj[cfKey]=nd;
             this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';
           }
+          DB.setObj('intPayAdj',state.payDateAdj);
           renderIntPage();
         });
         var cfBadge=document.createElement('span');
@@ -13571,7 +13593,7 @@ function pgInterest() {
           var cfRev=document.createElement('button');cfRev.textContent='↩';
           cfRev.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';
           cfRev.title='Reset to auto-detected date';
-          cfRev.addEventListener('click',function(){delete state.payDateAdj[cfKey];renderIntPage();});
+          cfRev.addEventListener('click',function(){delete state.payDateAdj[cfKey];DB.setObj('intPayAdj',state.payDateAdj);renderIntPage();});
           cfRow.appendChild(cfRev);
         }
         var cfHint=document.createElement('div');
@@ -13592,7 +13614,8 @@ function pgInterest() {
             var newDate=this.value.trim();
             var origFmt=fmtDate(p.origDate);
             if(newDate===origFmt){delete state.payDateAdj[p.id];this.style.borderColor='';this.style.background='';}
-            else{state.payDateAdj[p.id]=newDate;this.style.borderColor='var(--brand)';this.style.background='#f0fdf4';}
+            else{state.payDateAdj[p.id]=newDate;this.style.borderColor='#d97706';this.style.background='#fffbeb';}
+            DB.setObj('intPayAdj',state.payDateAdj);
             renderIntPage();
           });
           var pAmt=document.createElement('span');pAmt.style.cssText='font-size:11px;color:#374151;white-space:nowrap';
@@ -13608,10 +13631,10 @@ function pgInterest() {
               iGrossRef=' <span style="background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">Gross(\u20b9'+fmt(p.grossAmt)+')</span>';
             }
           }
-          pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef;
+          pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef+(p.receipt?' <span style="background:#f3f4f6;color:#374151;padding:1px 4px;border-radius:6px;font-size:9px;font-family:monospace;border:1px solid #e5e7eb">'+p.receipt+'</span>':'');
           if(p.adjDate){
             var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date par wapas jao';
-            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});
+            revert.addEventListener('click',function(){delete state.payDateAdj[p.id];DB.setObj('intPayAdj',state.payDateAdj);renderIntPage();});
             pRow.appendChild(revert);
           }
           pRow.appendChild(chqLbl);pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
@@ -13632,6 +13655,7 @@ function pgInterest() {
               var nd=this.value.trim();
               if(!nd){delete state.payDateAdj[key3];}
               else{state.payDateAdj[key3]=nd;}
+              DB.setObj('intPayAdj',state.payDateAdj);
               renderIntPage();
             };})(cfKey3));
             var cfBadge3=document.createElement('span');cfBadge3.style.cssText='font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:4px;font-weight:700';
@@ -13639,7 +13663,7 @@ function pgInterest() {
             cfRow3.appendChild(cfInp3);cfRow3.appendChild(cfBadge3);
             if(cfCurDate3){
               var cfRev3=document.createElement('button');cfRev3.textContent='↩';cfRev3.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';cfRev3.title='Reset';
-              cfRev3.addEventListener('click',(function(key3){return function(){delete state.payDateAdj[key3];renderIntPage();};})(cfKey3));
+              cfRev3.addEventListener('click',(function(key3){return function(){delete state.payDateAdj[key3];DB.setObj('intPayAdj',state.payDateAdj);renderIntPage();};})(cfKey3));
               cfRow3.appendChild(cfRev3);
             }
             var cfHint3=document.createElement('div');cfHint3.style.cssText='font-size:9px;color:#92400e;margin-top:1px';cfHint3.textContent='CF credit date (optional)';
@@ -16180,6 +16204,7 @@ function buildBackupData() {
     archivedBills: archivedBills,
     brokerRates:   brokerRates,
     intCfg:        intCfg,
+    intPayAdj:     DB.getObj('intPayAdj',{}),
     hiddenPages:   hiddenPagesSnap,
     aiPermRules:   aiPermRules,
     aiFmtRules:    aiFmtRules,
@@ -16344,6 +16369,7 @@ function restoreFromCloudBackup() {
           if(parsed.archivedBills&&Object.keys(parsed.archivedBills).length) DB.setObj('archived_bills',parsed.archivedBills);
           if(parsed.brokerRates&&Object.keys(parsed.brokerRates).length) DB.setObj('brokerRates',parsed.brokerRates);
           if(parsed.intCfg) DB.setObj('intCfg',parsed.intCfg);
+          if(parsed.intPayAdj) DB.setObj('intPayAdj',parsed.intPayAdj);
           if(parsed.hiddenPages){hiddenPages=parsed.hiddenPages;DB.setObj('hiddenPages',parsed.hiddenPages);}
           if(parsed.aiPermRules) localStorage.setItem('cp_ai_permanent_rules',parsed.aiPermRules);
           if(parsed.aiFmtRules)  localStorage.setItem('cp_ai_format_rules',parsed.aiFmtRules);
@@ -16562,6 +16588,10 @@ function restoreFromJSON(file) {
       }
       if(data.intCfg) {
         DB.setObj('intCfg', data.intCfg);
+      }
+      if(data.intPayAdj) {
+        DB.setObj('intPayAdj', data.intPayAdj);
+        if(pageState.int) pageState.int.payDateAdj = data.intPayAdj;
       }
       if(data.hiddenPages) {
         hiddenPages = data.hiddenPages;
