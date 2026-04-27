@@ -13443,22 +13443,41 @@ function pgInterest() {
     var schedule=[];
     var freeDaysUsed=false;
 
-    // Process each payment
+    // Process each payment — FIX: same-date payments grouped together
+    // First group payments by date so all same-day payments reduce balance correctly
+    var payGroups=[];
     bPays.forEach(function(p){
-      if(p.date<=prevDate) return; // skip if before bill date
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
+      if(payGroups.length>0 && payGroups[payGroups.length-1].date.getTime()===p.date.getTime()){
+        // Same date — add to existing group
+        payGroups[payGroups.length-1].totalAmt+=p.amount;
+        payGroups[payGroups.length-1].payments.push(p);
+      } else {
+        payGroups.push({date:new Date(p.date),totalAmt:p.amount,payments:[p]});
+      }
+    });
+
+    payGroups.forEach(function(grp){
+      if(grp.date<=prevDate){
+        // Same or before prevDate — just reduce balance, no interest segment
+        prevBal=Math.max(0,prevBal-grp.totalAmt);
+        return;
+      }
+      var days=Math.max(0,Math.floor((grp.date-prevDate)/86400000));
       var fta=freeDaysUsed?0:freeDays;
       var intDays=Math.max(0,days-fta);
       if(days>0) freeDaysUsed=true;
       var periodInt=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
       if(intDays>0&&prevBal>0) totalInterest+=periodInt;
+      var lbl=grp.payments.length>1
+        ? grp.payments.length+' payments \u20b9'+fmt(grp.totalAmt)
+        : 'Payment \u20b9'+fmt(grp.payments[0].amount)+(grp.payments[0].mode?' ('+grp.payments[0].mode+')':'');
       schedule.push({
-        from:new Date(prevDate),to:new Date(p.date),
+        from:new Date(prevDate),to:new Date(grp.date),
         bal:prevBal,days:days,intDays:intDays,int:periodInt,
-        label:'Payment \u20b9'+fmt(p.amount)+(p.mode?' ('+p.mode+')':'')
+        label:lbl
       });
-      prevBal=Math.max(0,prevBal-p.amount);
-      prevDate=new Date(p.date);
+      prevBal=Math.max(0,prevBal-grp.totalAmt);
+      prevDate=new Date(grp.date);
     });
 
     // Final period: last event → endDate
