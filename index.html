@@ -7768,41 +7768,40 @@ function exportPartyLedgerExcel(party) {
 
   if(plReg.length){
     var PL_HDRS=['Date','Voucher Type','Rcpt No / GP-ID','Mode','Cheque No','Amount Received','Rebate','Interest','Net Received','Bills Count','Bills Covered','Bill Sum','Match','Remarks'];
-    var PL_NUM=[5,6,7,8,9,11];
-    // Style map per type
-    function plStyle(type){
-      if(type==='GROSS')return{bg:'#1F3864',tc:'#FFFFFF',fw:'bold'};
-      if(type==='PARTIAL')return{bg:'#FEF9C3',tc:'#854D0E',fw:'normal'};
-      if(type==='INSTALL')return{bg:'#F3E8FF',tc:'#6B21A8',fw:'normal'};
-      if(type&&type.includes('Rebate'))return{bg:'#BBF7D0',tc:'#14532D',fw:'normal'};
-      return{bg:'#DCFCE7',tc:'#166534',fw:'normal'};
-    }
-    var plHtml='<table><tr>'+PL_HDRS.map(function(h){
-      return '<th style="background:#1F3864;color:#fff;font-weight:bold;padding:7px 10px;font-size:11px;border:1px solid rgba(255,255,255,.3);white-space:nowrap;text-align:center">'+h+'</th>';
-    }).join('')+'</tr>';
-    plReg.forEach(function(r){
-      var s=plStyle(r._type);
-      plHtml+='<tr>'+PL_HDRS.map(function(h,ci){
-        var v=r[h]!=null?r[h]:'';
-        var isNum=typeof v==='number';
-        return '<td style="background:'+s.bg+';color:'+s.tc+';font-weight:'+s.fw+';text-align:'+(isNum?'right':'left')+';padding:5px 9px;font-size:11px;border:1px solid #e5e7eb;white-space:nowrap">'+(isNum&&v===0?'':encodeHtml(String(isNum?Math.round(v):v)))+'</td>';
-      }).join('')+'</tr>';
+    var PL_NUM_SET=new Set([5,6,7,8,9,11]);
+    // Build clean rows for json_to_sheet (no _type, no encodeHtml needed)
+    var plClean=plReg.map(function(r){
+      var out={};
+      PL_HDRS.forEach(function(h){out[h]=r[h]!=null?r[h]:'';});
+      return out;
     });
-    plHtml+='</table>';
-    var tmpPl=document.createElement('div');tmpPl.innerHTML=plHtml;
-    var wsR=XLSX.utils.table_to_sheet(tmpPl.querySelector('table'));
+    var wsR=XLSX.utils.json_to_sheet(plClean,{header:PL_HDRS});
+    // Apply number format + styling per row
     plReg.forEach(function(r,ri){
-      PL_NUM.forEach(function(ci){
-        var addr=XLSX.utils.encode_cell({r:ri+1,c:ci});
-        var v=r[PL_HDRS[ci]];
-        if(typeof v==='number'&&wsR[addr]){wsR[addr].t='n';wsR[addr].v=v;wsR[addr].z='#,##0';}
+      var rowIdx=ri+1; // +1 for header
+      PL_HDRS.forEach(function(h,ci){
+        var addr=XLSX.utils.encode_cell({r:rowIdx,c:ci});
+        if(!wsR[addr])return;
+        // Number cells
+        if(PL_NUM_SET.has(ci)&&typeof r[h]==='number'){
+          wsR[addr].t='n';wsR[addr].v=r[h];wsR[addr].z='#,##0';
+        }
+        // Style GROSS rows
+        if(r._type==='GROSS'){
+          wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'1F3864'}},font:{bold:true,color:{rgb:'FFFFFF'},sz:10},alignment:{horizontal:PL_NUM_SET.has(ci)?'right':'left',wrapText:false}};
+        } else if(r._type==='PARTIAL'){
+          wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'FEF9C3'}},font:{color:{rgb:'854D0E'},sz:10}};
+        } else if(r._type==='INSTALL'){
+          wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'F3E8FF'}},font:{color:{rgb:'6B21A8'},sz:10}};
+        } else {
+          wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'DCFCE7'}},font:{color:{rgb:'166534'},sz:10}};
+        }
       });
-      if(r._type==='GROSS'){
-        PL_HDRS.forEach(function(_,ci){
-          var addr=XLSX.utils.encode_cell({r:ri+1,c:ci});
-          if(wsR[addr])wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'1F3864'}},font:{bold:true,color:{rgb:'FFFFFF'},sz:10},alignment:{horizontal:PL_NUM.indexOf(ci)>=0?'right':'left',wrapText:false}};
-        });
-      }
+    });
+    // Header row styling
+    PL_HDRS.forEach(function(h,ci){
+      var addr=XLSX.utils.encode_cell({r:0,c:ci});
+      if(wsR[addr])wsR[addr].s={fill:{patternType:'solid',fgColor:{rgb:'1F3864'}},font:{bold:true,color:{rgb:'FFFFFF'},sz:11},alignment:{horizontal:'center',wrapText:false}};
     });
     wsR['!cols']=[{wch:12},{wch:14},{wch:18},{wch:8},{wch:12},{wch:14},{wch:8},{wch:8},{wch:14},{wch:8},{wch:50},{wch:12},{wch:16},{wch:30}];
     wsR['!freeze']={xSplit:0,ySplit:1};
@@ -13231,7 +13230,9 @@ function openEditPayment(p) {
     invalidateBillStatusCache();DB.set('payments',payments);
     toast('Payment updated!');
     closeModal();
-    go('duplicates');
+    var _plParty=b.party||'';
+    if(_plParty){pageState.ledgerParty=_plParty;go('ledger');}
+    else{refresh();}
   }}]);
 }
 
@@ -13312,7 +13313,12 @@ function pgInterest() {
     DB.setObj('intCfg',cfg2);
     refresh(); // full refresh needed for settings change
   });
-  setB.appendChild(applyBtn);setCard.appendChild(setB);wrap.appendChild(setCard);
+  setB.appendChild(applyBtn);
+  var chqTip=document.createElement('div');
+  chqTip.style.cssText='width:100%;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:11px;color:#92400e;margin-top:6px';
+  chqTip.innerHTML='<strong>📅 Cheque Date kaise use karein:</strong> Neeche har bill ke payments mein date field dikhti hai. <span style="color:#d97706;font-weight:600">Orange border</span> = cheque date set hai. Wahan apni debtor sheet wali actual cheque date daalo — interest usi date se calculate hoga (receipt/deposit date nahi).';
+  setB.appendChild(chqTip);
+  setCard.appendChild(setB);wrap.appendChild(setCard);
 
   // ── FILTER BAR ──
   var fBar=document.createElement('div');fBar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap';
@@ -13577,10 +13583,11 @@ function pgInterest() {
       } else {
         calc.bPays.forEach(function(p){
           var pRow=document.createElement('div');pRow.style.cssText='display:flex;align-items:center;gap:5px;margin-bottom:4px';
+          var chqLbl=document.createElement('span');chqLbl.style.cssText='font-size:9px;color:#92400e;font-weight:600;white-space:nowrap';chqLbl.textContent='Chq Date:';
           var adjInp=document.createElement('input');adjInp.type='text';adjInp.className='inp-sm';
-          adjInp.style.cssText='width:95px;font-size:11px;height:24px;'+(p.adjDate?'border-color:var(--brand);background:#f0fdf4':'');
+          adjInp.style.cssText='width:95px;font-size:11px;height:24px;'+(p.adjDate?'border-color:#d97706;background:#fffbeb':'');
           adjInp.value=p.adjDate||fmtDate(p.origDate);
-          adjInp.title='Interest calculation ke liye date adjust karo (cheque clearing date, etc.)';
+          adjInp.title='Cheque date daalo (aapki debtor sheet wali date) — interest usi date se calculate hoga';
           adjInp.addEventListener('change',function(){
             var newDate=this.value.trim();
             var origFmt=fmtDate(p.origDate);
@@ -13603,11 +13610,11 @@ function pgInterest() {
           }
           pAmt.innerHTML='\u20b9'+fmt(p.amount)+(p.mode?' <span style="background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;font-size:9px;font-weight:600">'+p.mode+'</span>':'')+iGrossRef;
           if(p.adjDate){
-            var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date';
+            var revert=document.createElement('button');revert.textContent='↩';revert.style.cssText='background:none;border:none;cursor:pointer;color:var(--red);font-size:12px;padding:0 2px';revert.title='Original date par wapas jao';
             revert.addEventListener('click',function(){delete state.payDateAdj[p.id];renderIntPage();});
             pRow.appendChild(revert);
           }
-          pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
+          pRow.appendChild(chqLbl);pRow.appendChild(adjInp);pRow.appendChild(pAmt);payHist.appendChild(pRow);
         });
         // If bill is paid but last payment didn't fully clear (CF cleared remainder)
         // show CF date input
