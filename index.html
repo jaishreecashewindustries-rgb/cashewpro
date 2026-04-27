@@ -814,7 +814,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 #mob-search-close { display:none; background:none; border:none; cursor:pointer; padding:6px 10px; font-size:18px; color:var(--text-2); flex-shrink:0; }
 
 /* ── PRINT ── */
-@media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
+@page{margin:10mm;size:auto}@media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
 
 /* ══ LOGIN SCREEN ══ */
 #login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0a3d22 0%,#1a6b3c 60%,#2d7d50 100%);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:var(--font);}
@@ -5417,7 +5417,7 @@ function printBill(bill) {
     'th{background:#f5f5f5;font-weight:700;text-align:center}'+
     '.nb{border:0}'+
     '.company-name{font-size:14px;font-weight:700;color:#000}'+
-    '@media print{body{margin:0;padding:0}.no-print{display:none!important}.page{border:none;padding:6mm;width:100%;min-height:auto}}'+
+    '@page{margin:10mm;size:auto}@media print{body{margin:0;padding:0}.no-print{display:none!important}.page{border:none;padding:6mm;width:100%;min-height:auto}}'+
     '</style></head><body>'+
     '<div class="page">'+
 
@@ -6102,7 +6102,7 @@ function printDueListReport(data,gcFn) {
     +'.due{background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}'
     +'.partial{background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}'
     +'tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534;padding:6px 8px}'
-    +'@media print{.no-print{display:none!important}}'
+    +'@page{margin:10mm;size:auto}@media print{.no-print{display:none!important}}'
     +'</style></head><body>'
     +'<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:6px 16px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:700">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600">✕ Close</button></div>'
     +'<div class="hdr"><div><h2>'+cfg.company+'</h2><div class="sub">'+(cfg.address||'')+' | '+(cfg.phone||'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>'
@@ -9731,7 +9731,7 @@ function printMultipleBills(billList){
     +'table{width:100%;border-collapse:collapse;font-size:10px;margin:6px 0}th{background:#166534;color:#fff;padding:4px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #eee}'
     +'h3{color:#166534;margin:0 0 4px;font-size:13px}.net{background:#f0fdf4;padding:8px;text-align:right;border-radius:4px;margin-top:6px}'
     +'.gross-ref{background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}'
-    +'@media print{.np{display:none}}</style></head><body>'
+    +'@page{margin:10mm;size:auto}@media print{.np{display:none}}</style></head><body>'
     +'<div class="np" style="margin-bottom:10px">'
     +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;margin-right:8px">Print All</button>'
     +'<button onclick="window.close()" style="background:#f3f4f6;border:none;padding:7px 18px;border-radius:6px;cursor:pointer">Close</button></div>';
@@ -14515,7 +14515,7 @@ function printPartyStatement(party, plState) {
     +'.sumbar{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 14px;margin:10px 0;display:flex;gap:20px;flex-wrap:wrap}'
     +'.si{text-align:center}.sl{font-size:9px;text-transform:uppercase;color:#6b7280;font-weight:700}'
     +'.sv{font-size:15px;font-weight:700}'
-    +'@media print{button{display:none!important}}</style></head><body>';
+    +'@page{margin:10mm;size:auto}@media print{button{display:none!important}}</style></head><body>';
   h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
   h+='<h2>'+(cfg.company||'')+'</h2>';
   h+='<div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+(cfg.address||'')+' | '+(cfg.phone||'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div>';
@@ -14633,13 +14633,14 @@ function printInterestStatement() {
     }
     var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
     var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
-    bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
+    var _pg=[];bPays.forEach(function(p){if(_pg.length>0&&_pg[_pg.length-1].date.getTime()===p.date.getTime()){_pg[_pg.length-1].amt+=p.amount;}else{_pg.push({date:new Date(p.date),amt:p.amount});}});
+    _pg.forEach(function(g){
+      if(g.date<=prevDate){prevBal=Math.max(0,prevBal-g.amt);return;}
+      var days=Math.max(0,Math.floor((g.date-prevDate)/86400000));
       var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
       if(days>0)fdUsed=true;
       if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+      prevBal=Math.max(0,prevBal-g.amt);prevDate=new Date(g.date);
     });
     if(prevBal>0&&endDate>prevDate){
       var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
@@ -14658,7 +14659,7 @@ function printInterestStatement() {
     +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
     +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'@media print{button{display:none}}</style></head><body>'
+    +'@page{margin:10mm;size:auto}@media print{button{display:none}}</style></head><body>'
     +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
     +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
@@ -14674,19 +14675,25 @@ function printInterestStatement() {
       pTotBal+=s.bal;pTotInt+=calc.interest;
       var bPays2=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,b2){return toISO(a.date||'').localeCompare(toISO(b2.date||''));});
       var isCF=(calc.isPaid&&bPays2.length===0);
-      var payStr=bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join(', '):(isCF?'Carry Fwd Credit':'No payments');
+      var payStr=bPays2.length?bPays2.map(function(p){
+        var adjDate=(st.payDateAdj||{})[p.id]||'';
+        var dStr=fmtDate(adjDate||p.date);
+        var chqStr=p.chequeNo||p.receiptNo||'';
+        return dStr+' \u20b9'+fmt(p.amount||0)+(chqStr?' ['+chqStr+']':'');
+      }).join(', '):(isCF?'Carry Fwd Credit':'No payments');
       // Calculate int days for print
       var printIntDays=0;
       var printPrevDate=new Date(toISO(b.date||today()));var printPrevBal=b.netAmt;var printFdUsed=false;
       var isPaid2=s.status==='paid';
       var printEndDate=asOf;
       if(isPaid2&&bPays2.length>0)printEndDate=new Date(toISO(bPays2[bPays2.length-1].date||today()));
-      bPays2.forEach(function(p){
-        var pDate=new Date(toISO(p.date||today()));if(pDate<=printPrevDate)return;
-        var days=Math.max(0,Math.floor((pDate-printPrevDate)/86400000));
+      var _ppg=[];bPays2.forEach(function(p){var pd=new Date(toISO(p.date||today()));if(_ppg.length>0&&_ppg[_ppg.length-1].date.getTime()===pd.getTime()){_ppg[_ppg.length-1].amt+=(p.amount||0);}else{_ppg.push({date:pd,amt:(p.amount||0)});}});
+      _ppg.forEach(function(g){
+        if(g.date<=printPrevDate){printPrevBal=Math.max(0,printPrevBal-g.amt);return;}
+        var days=Math.max(0,Math.floor((g.date-printPrevDate)/86400000));
         var fta=printFdUsed?0:freeDays;if(days>0)printFdUsed=true;
         printIntDays+=Math.max(0,days-fta);
-        printPrevBal=Math.max(0,printPrevBal-(p.amount||0)+(p.rebate||0));printPrevDate=pDate;
+        printPrevBal=Math.max(0,printPrevBal-g.amt);printPrevDate=g.date;
       });
       if(printPrevBal>0.5){var fd2=Math.max(0,Math.floor((printEndDate-printPrevDate)/86400000));printIntDays+=Math.max(0,fd2-(printFdUsed?0:freeDays));}
       h+='<tr><td>'+(b.billNo||'-')+(calc.isPaid?' <span style="background:#dcfce7;color:#166534;padding:1px 4px;border-radius:4px;font-size:9px">PAID</span>':'')+'</td>'
@@ -14746,13 +14753,14 @@ function exportInterestExcel() {
     }
     var endDate=asOf;if(isPaid&&bPays.length>0)endDate=bPays[bPays.length-1].date;
     var prevDate=new Date(toISO(b.date||today()));var prevBal=b.netAmt;var totalInt=0;var fdUsed=false;
-    bPays.forEach(function(p){
-      if(p.date<=prevDate)return;
-      var days=Math.max(0,Math.floor((p.date-prevDate)/86400000));
+    var _pg=[];bPays.forEach(function(p){if(_pg.length>0&&_pg[_pg.length-1].date.getTime()===p.date.getTime()){_pg[_pg.length-1].amt+=p.amount;}else{_pg.push({date:new Date(p.date),amt:p.amount});}});
+    _pg.forEach(function(g){
+      if(g.date<=prevDate){prevBal=Math.max(0,prevBal-g.amt);return;}
+      var days=Math.max(0,Math.floor((g.date-prevDate)/86400000));
       var fta=fdUsed?0:freeDays;var intDays=Math.max(0,days-fta);
       if(days>0)fdUsed=true;
       if(intDays>0&&prevBal>0)totalInt+=Math.round(prevBal*(rate/100)*(intDays/365)*100)/100;
-      prevBal=Math.max(0,prevBal-p.amount);prevDate=new Date(p.date);
+      prevBal=Math.max(0,prevBal-g.amt);prevDate=new Date(g.date);
     });
     if(prevBal>0&&endDate>prevDate){
       var fd2=Math.max(0,Math.floor((endDate-prevDate)/86400000));
@@ -14770,7 +14778,12 @@ function exportInterestExcel() {
       'Party':b.party,'Bill#':b.billNo||'','Bill Date':fmtDate(b.date),
       'Net Amt':b.netAmt||0,'Balance':Math.round(calc.bal),
       'Status':s.status.toUpperCase(),
-      'Payment Dates':bPays2.length?bPays2.map(function(p){return fmtDate(p.date)+' \u20b9'+fmt(p.amount||0);}).join('; '):(isCF?'Carry Fwd Credit':'No payments'),
+      'Payment Dates':bPays2.length?bPays2.map(function(p){
+        var adjDate=(st.payDateAdj||{})[p.id]||'';
+        var dStr=fmtDate(adjDate||p.date);
+        var chqStr=p.chequeNo||p.receiptNo||'';
+        return dStr+' \u20b9'+fmt(p.amount||0)+(chqStr?' ['+chqStr+']':'');
+      }).join('; '):(isCF?'Carry Fwd Credit':'No payments'),
       'Interest (\u20b9)':calc.interest
     });
   });
@@ -14867,7 +14880,7 @@ function exportStyledReport(data,gcFn) {
     '.b-partial{background:#fef9c3;color:#92400e;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     '.b-paid{background:#dcfce7;color:#1a6b3c;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     'tfoot td{background:#f0faf4;font-weight:700;border-top:2px solid #1a6b3c;padding:9px 12px;font-size:12px}'+
-    '.no-print{display:block}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
+    '.no-print{display:block}@page{margin:10mm;size:auto}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
     '</style></head><body>';
   // Print bar
   h+='<div class="no-print" style="background:#1a6b3c;color:#fff;padding:9px 16px;margin:-20px -20px 16px;display:flex;justify-content:space-between;align-items:center">'+
@@ -15785,7 +15798,7 @@ function exportYearWisePDF(fyStart) {
     '.sum-label{font-size:9px;text-transform:uppercase;color:#6b7280;font-weight:700}'+
     '.sum-val{font-size:16px;font-weight:700;color:#1a6b3c;margin-top:2px}'+
     '.paid{color:#166534}.due{color:#dc2626}.partial{color:#d97706}'+
-    '.tfoot{background:#f0fdf4;font-weight:700}@media print{.no-print{display:none}}</style></head><body>';
+    '.tfoot{background:#f0fdf4;font-weight:700}@page{margin:10mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
   h+='<div class="no-print" style="margin-bottom:12px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px">✕ Close</button></div>';
   h+='<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">';
   h+='<div><h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280">'+cfg.address+' | '+cfg.phone+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>';
@@ -16097,7 +16110,7 @@ function pgBrokerage() {
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.r{text-align:right}.brok{color:#d97706;font-weight:700}'+
       '.total{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'+
       '.grand{background:#fff7ed;padding:12px;border:2px solid #d97706;border-radius:6px;margin-top:10px;display:flex;gap:20px}'+
-      '@media print{.no-print{display:none}}</style></head><body>';
+      '@page{margin:10mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
     h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+cfg.address+'</div>';
     h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px">'+
@@ -22898,7 +22911,7 @@ function printReceiptLedger(){
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top}'
     +'.gross{background:#dbeafe!important;font-weight:700}'
     +'.sumbar{display:flex;gap:20px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin-bottom:10px;font-weight:600}'
-    +'@media print{button{display:none}}</style></head><body>'
+    +'@page{margin:10mm;size:auto}@media print{button{display:none}}</style></head><body>'
     +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'JAI SHREE CASHEW INDUSTRIES')+' \u2014 Receipt Ledger</h2>'
     +'<div style="font-size:11px;color:#1d4ed8;font-weight:600;margin-bottom:4px">Filter: '+filterDesc+'</div>'
