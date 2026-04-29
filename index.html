@@ -704,9 +704,19 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
   /* Mobile: search bar hidden by default, shown on icon click */
   #search-wrap { display: none !important; }
   #search-wrap.mob-open { display: flex !important; position:fixed; top:0; left:0; right:0; z-index:200; background:var(--surface); padding:8px 12px; box-shadow:var(--shadow); }
-  #search-wrap.mob-open #global-search { max-width:none; flex:1; font-size:14px; padding:9px 12px; }
+  #search-wrap.mob-open #global-search { max-width:none; flex:1; font-size:16px; padding:10px 12px; }
   #mob-search-btn { display:flex !important; -webkit-tap-highlight-color:transparent; }
   #mob-search-close { display:none; }
+  /* iOS/Mobile improvements */
+  .btn { min-height:36px; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+  .btn-sm { min-height:30px; }
+  .btn-xs { min-height:26px; font-size:11px; }
+  .inp { min-height:38px; font-size:16px !important; -webkit-appearance:none; border-radius:6px; }
+  select.inp { min-height:38px; }
+  td, th { padding:8px 8px; }
+  .modal { max-height:90dvh; }
+  /* Bill block mobile - stack columns */
+  [data-bill-id] > div { grid-template-columns:24px 60px 70px 1fr 80px 80px 70px 60px !important; font-size:11px; }
   #usr-btn { display:none; }
   #hist-undo-topbar { padding:4px 8px; font-size:10px; }
   #hist-redo-topbar { padding:4px 8px; font-size:10px; }
@@ -814,7 +824,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 #mob-search-close { display:none; background:none; border:none; cursor:pointer; padding:8px 12px; font-size:18px; color:var(--text-2); flex-shrink:0; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
 
 /* ── PRINT ── */
-@page{margin:10mm;size:auto}@media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
+@page{margin:8mm 6mm;size:auto}@media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
 
 /* ══ LOGIN SCREEN ══ */
 #login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0a3d22 0%,#1a6b3c 60%,#2d7d50 100%);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:var(--font);}
@@ -2536,7 +2546,13 @@ function openModal(title, bodyEl, footerBtns, wide) {
   document.body.appendChild(overlay);
 
   overlay.addEventListener('click', function(e) {
-    if (e.target === overlay) closeModal();
+    if (e.target === overlay) {
+      // Check if modal has form inputs with values - if so, confirm before close
+      var hasData=false;
+      overlay.querySelectorAll('input[type=text],input[type=number]').forEach(function(inp){if(inp.value&&inp.value!=='0')hasData=true;});
+      if(hasData){if(confirm('Form mein data hai. Band karein?'))closeModal();}
+      else closeModal();
+    }
   });
 }
 
@@ -2902,7 +2918,7 @@ function openPayModal(billId) {
   var amtF=mkF('Amount Received (\u20b9)','pay-amt','number',s.bal>0?Math.max(0,s.bal):'');
   var rebF=mkF('Rebate / Discount (\u20b9)','pay-reb','number','0');
   var intF=mkF('Interest Received (\u20b9)','pay-int','number','0');
-  var dateF=mkF('Payment Date','pay-date','date',today());
+  var dateF=mkF('Payment Date','pay-date','text',today(),{placeholder:'DD-MM-YYYY',maxlength:10,style:'text-transform:uppercase'});
   var modeF=mkFS('Mode','pay-mode',['NEFT','RTGS','CHEQUE','IMPS','UPI','CASH'],'NEFT');
   var chqF=mkF('Cheque No','pay-chq','text','',{placeholder:'Optional'});
   var rcptF=mkF('Receipt No','pay-rcpt','text','',{placeholder:'Optional'});
@@ -5425,7 +5441,7 @@ function printBill(bill) {
     'th{background:#f5f5f5;font-weight:700;text-align:center}'+
     '.nb{border:0}'+
     '.company-name{font-size:14px;font-weight:700;color:#000}'+
-    '@page{margin:10mm;size:auto}@media print{body{margin:0;padding:0}.no-print{display:none!important}.page{border:none;padding:6mm;width:100%;min-height:auto}}'+
+    '@page{margin:8mm 6mm;size:auto}@media print{body{margin:0;padding:0}.no-print{display:none!important}.page{border:none;padding:6mm;width:100%;min-height:auto}}'+
     '</style></head><body>'+
     '<div class="page">'+
 
@@ -6115,7 +6131,7 @@ function printDueListReport(data,gcFn) {
     +'.due{background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}'
     +'.partial{background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}'
     +'tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534;padding:6px 8px}'
-    +'@page{margin:10mm;size:auto}@media print{.no-print{display:none!important}}'
+    +'@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none!important}}'
     +'</style></head><body>'
     +'<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:6px 16px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:700">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600">✕ Close</button></div>'
     +'<div class="hdr"><div><h2>'+cfg.company+'</h2><div class="sub">'+(cfg.address||'')+' | '+(cfg.phone||'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>'
@@ -7020,6 +7036,7 @@ function pgCheques() {
     {l:'Bank',k:'bank'},
     {l:'Amount',k:'amount',num:true,fk:'amount'},
     {l:'Status',k:'status',fk:'status',uv:uStatus},
+    {l:'Matched Bills',k:'_match',noSort:true},
     {l:'Actions',k:'id',noSort:true}
   ];
   var chqHdr=document.createElement('tr');chqHdr.style.background='#f9fafb';
@@ -7051,9 +7068,22 @@ function pgCheques() {
     var td3=document.createElement('td');td3.style.padding='7px 10px';td3.textContent=c.bank||'-';tr2.appendChild(td3);
     var td4=document.createElement('td');td4.style.cssText='padding:7px 10px;text-align:right;font-weight:700;color:#166534';td4.textContent='\u20b9'+fmt(c.amount||0);tr2.appendChild(td4);
     var td5=document.createElement('td');td5.style.padding='7px 10px';td5.appendChild(badge(c.status||'Received'));tr2.appendChild(td5);
+    // Match payments with this cheque number
+    var matchedPays=payments.filter(function(p){return (p.chequeNo||'').trim()===(c.chequeNo||'').trim()&&c.chequeNo;});
+    var matchTd=document.createElement('td');matchTd.style.cssText='padding:7px 10px;font-size:11px';
+    if(matchedPays.length){
+      var matchBills=matchedPays.map(function(p){var mb=bills.find(function(b){return b.id===p.billId;})||{};return '#'+(mb.billNo||'?')+' ₹'+fmt(p.amount||0);});
+      matchTd.innerHTML='<span style="color:#166534;font-weight:600">'+matchedPays.length+' payment(s)</span><div style="font-size:10px;color:#6b7280">'+matchBills.slice(0,3).join(', ')+(matchBills.length>3?'...':'')+'</div>';
+    } else {
+      matchTd.innerHTML='<span style="color:#9ca3af;font-size:10px">No match</span>';
+    }
+    tr2.appendChild(matchTd);
     var actTd=document.createElement('td');actTd.style.padding='7px 10px';
+    var ledBtn=el('button',{cls:'btn btn-xs btn-outline',text:'📋 Ledger'});
+    ledBtn.addEventListener('click',function(){pageState.ledgerParty=c.party;go('ledger');});
+    actTd.appendChild(ledBtn);
     actTd.appendChild(actionBtns([
-      {label:'✏️ Edit',cls:'btn-xs btn-blue',fn:function(){openEditCheque(c);}},
+      {label:'✏️',cls:'btn-xs btn-blue',fn:function(){openEditCheque(c);}},
       {label:'🗑',cls:'btn-xs btn-red',fn:function(){
         if(!confirm('Delete?'))return;saveUndo('Cheque Delete');cheques=cheques.filter(function(x){return x.id!==c.id;});DB.set('cheques',cheques);toast('Deleted');refresh();
       }}
@@ -7301,10 +7331,19 @@ function pgPartyLedger(party) {
   // ── BILLS TABLE (New Design) ──
   var card=document.createElement('div');card.className='card';card.style.marginBottom='12px';
   var cHead=document.createElement('div');cHead.className='card-head';
-  cHead.innerHTML='<h4 style="color:#166534;font-size:14px">📋 Bills & Payments</h4><div style="font-size:11px;color:#6b7280">Click on a bill row to expand payments</div>';
+  cHead.innerHTML='<h4 style="color:#166534;font-size:14px">📋 Bills & Payments</h4><div style="font-size:11px;color:#6b7280">Click row to expand payments</div>';
   var bulkBtn=el('button',{cls:'btn btn-green btn-sm',text:'💰 Pay Selected'});
   bulkBtn.addEventListener('click',function(){openBulkPayModal(party);});
-  cHead.appendChild(bulkBtn);card.appendChild(cHead);
+  var expandAllBtn=el('button',{cls:'btn btn-outline btn-sm',text:'⬇ Expand All'});
+  var _allExpanded=false;
+  expandAllBtn.addEventListener('click',function(){
+    _allExpanded=!_allExpanded;
+    expandAllBtn.textContent=_allExpanded?'⬆ Collapse All':'⬇ Expand All';
+    document.querySelectorAll('[id^="pexp2-"]').forEach(function(ep){
+      ep.style.display=_allExpanded?'block':'none';
+    });
+  });
+  cHead.appendChild(expandAllBtn);cHead.appendChild(bulkBtn);card.appendChild(cHead);
 
   pb.forEach(function(b,bi){
     var s=getBillStatus(b);
@@ -7553,7 +7592,7 @@ function pgPartyLedger(party) {
 
   // ── Sticky Summary Bar ──
   var plSumBar=document.createElement('div');
-  plSumBar.style.cssText='padding:10px 16px;background:#f0fdf4;border-top:2px solid #bbf7d0;font-size:12.5px;display:flex;gap:20px;flex-wrap:wrap;font-weight:500;position:sticky;bottom:0;z-index:3;border-radius:0 0 8px 8px';
+  plSumBar.style.cssText='padding:10px 16px;background:#f0fdf4;border-top:2px solid #bbf7d0;font-size:12.5px;display:flex;gap:20px;flex-wrap:wrap;font-weight:500;border-radius:8px;margin-top:4px';
   plSumBar.innerHTML=
     '<span>Bills: <strong>'+pb.length+'</strong></span>'+
     '<span>Total Sales: <strong style="color:#1d4ed8">₹'+fmt(totalAmt)+'</strong></span>'+
@@ -7565,11 +7604,12 @@ function pgPartyLedger(party) {
   if(partyAdv.length>0){
     var advCard=document.createElement("div");advCard.className="card";advCard.style.marginBottom="12px";
     var advH=document.createElement("div");advH.className="card-head";
-    advH.innerHTML="<h4 style='color:#7c3aed'>Advances ("+partyAdv.length+") &mdash; &yen;"+fmt(partyAdv.reduce(function(s,a){return s+(a.amount||0);},0))+"</h4>";
+    advH.innerHTML="<h4 style='color:#7c3aed'>Advances ("+partyAdv.length+") &mdash; &#8377;"+fmt(partyAdv.reduce(function(s,a){return s+(a.amount||0);},0))+"</h4>";
     var advVB=el("button",{cls:"btn btn-outline btn-sm",text:"View All Advances"});
     advVB.addEventListener("click",function(){pageState.advSt=pageState.advSt||{};pageState.advSt.q=party;go("advances");});
     advH.appendChild(advVB);advCard.appendChild(advH);
     var advTbl=document.createElement("table");advTbl.style.cssText="width:100%;border-collapse:collapse;font-size:12px";
+    advTbl.innerHTML='<thead><tr style="background:#ede9fe"><th style="padding:6px 10px;font-size:10px;color:#7c3aed;font-weight:700">Date</th><th style="padding:6px 10px;font-size:10px;color:#7c3aed;font-weight:700">Mode</th><th style="padding:6px 10px;font-size:10px;color:#7c3aed;font-weight:700;text-align:right">Amount</th><th style="padding:6px 10px;font-size:10px;color:#7c3aed;font-weight:700">Linked Bill</th><th style="padding:6px 10px;font-size:10px;color:#7c3aed;font-weight:700">Remarks</th></tr></thead>';
     var advTbody=document.createElement("tbody");
     partyAdv.slice(0,10).forEach(function(a,i){var lb=a.linkedBillId?bills.find(function(b){return b.id===a.linkedBillId;}):null;var atr=document.createElement("tr");atr.style.background=i%2===0?"#fff":"#fafafa";atr.innerHTML="<td style='padding:6px 10px'>"+fmtDate(a.date)+"</td><td style='padding:6px 10px;font-weight:700;color:#7c3aed'>" + (a.mode||"&mdash;") + "</td><td style='padding:6px 10px;text-align:right;font-weight:700;color:#7c3aed'>&#8377;"+fmt(a.amount||0)+"</td><td style='padding:6px 10px'>"+(lb?"#"+lb.billNo:"<span style='color:#d97706'>Unlinked</span>")+"</td><td style='padding:6px 10px;color:#6b7280;font-size:10px'>"+(a.remarks||"&mdash;")+"</td>";advTbody.appendChild(atr);});
     advTbl.appendChild(advTbody);advCard.appendChild(advTbl);wrap.appendChild(advCard);
@@ -7584,7 +7624,9 @@ function pgPartyLedger(party) {
     retH.appendChild(retVB);retCard.appendChild(retH);
     var retTbody2=document.createElement("tbody");
     partyRet.slice(0,10).forEach(function(r,i){var rtr=document.createElement("tr");rtr.style.background=i%2===0?"#fff":"#fff5f5";rtr.innerHTML="<td style='padding:6px 10px'>"+fmtDate(r.date)+"</td><td style='padding:6px 10px;color:#1d4ed8'>"+(r.billNo?"#"+r.billNo:"&mdash;")+"</td><td style='padding:6px 10px'>"+(r.grade||"&mdash;")+"</td><td style='padding:6px 10px;text-align:right;font-weight:700;color:#dc2626'>&#8377;"+fmt(r.amount||0)+"</td><td style='padding:6px 10px;color:#6b7280;font-size:10px'>"+(r.remarks||"&mdash;")+"</td>";retTbody2.appendChild(rtr);});
-    var retTbl2=document.createElement("table");retTbl2.style.cssText="width:100%;border-collapse:collapse;font-size:12px";retTbl2.appendChild(retTbody2);retCard.appendChild(retTbl2);wrap.appendChild(retCard);
+    var retTbl2=document.createElement("table");retTbl2.style.cssText="width:100%;border-collapse:collapse;font-size:12px";
+    retTbl2.innerHTML='<thead><tr style="background:#fff1f2"><th style="padding:6px 10px;font-size:10px;color:#dc2626;font-weight:700">Date</th><th style="padding:6px 10px;font-size:10px;color:#dc2626;font-weight:700">Bill#</th><th style="padding:6px 10px;font-size:10px;color:#dc2626;font-weight:700">Grade</th><th style="padding:6px 10px;font-size:10px;color:#dc2626;font-weight:700;text-align:right">Amount</th><th style="padding:6px 10px;font-size:10px;color:#dc2626;font-weight:700">Remarks</th></tr></thead>';
+    retTbl2.appendChild(retTbody2);retCard.appendChild(retTbl2);wrap.appendChild(retCard);
   }
   wrap.appendChild(plSumBar);
   return wrap;
@@ -7612,7 +7654,7 @@ function openBulkPayModal(party) {
   var grid2=document.createElement('div');grid2.className='grid g2';
   function mF(lbl,id,type,val,ph){var d=document.createElement('div');d.className='fg';var l=document.createElement('label');l.textContent=lbl;var i=el('input',{cls:'inp',type:type||'text',id:id});if(val)i.value=val;if(ph)i.placeholder=ph;d.appendChild(l);d.appendChild(i);return d;}
   function mFS(lbl,id,opts,val){var d=document.createElement('div');d.className='fg';var l=document.createElement('label');l.textContent=lbl;var s2=document.createElement('select');s2.className='inp';s2.id=id;opts.forEach(function(o){var opt=document.createElement('option');opt.value=o;opt.textContent=o;if(o===val)opt.selected=true;s2.appendChild(opt);});d.appendChild(l);d.appendChild(s2);return d;}
-  [mF('Date','bpm-date','date',today()),mFS('Mode','bpm-mode',['NEFT','RTGS','CHEQUE','IMPS','UPI','CASH'],'NEFT'),
+  [mF('Date','bpm-date','text',today(),{placeholder:'DD-MM-YYYY'}),mFS('Mode','bpm-mode',['NEFT','RTGS','CHEQUE','IMPS','UPI','CASH'],'NEFT'),
    mF('Cheque No','bpm-chq','text','','Optional'),mF('Receipt No','bpm-rcpt','text','','Optional')].forEach(function(f){grid2.appendChild(f);});
   var rmkF=mF('Remarks','bpm-rmk','text','','Optional');rmkF.style.gridColumn='span 2';grid2.appendChild(rmkF);
   body.appendChild(grid2);
@@ -9622,6 +9664,92 @@ function pgSettings() {
   mergeGrid.appendChild(fromFg);mergeGrid.appendChild(mergeBtn2);mergeGrid.appendChild(toFg);
   mb2.appendChild(mergeGrid);mc.appendChild(mb2);wrap.appendChild(mc);
 
+  // ── MERGE BROKERS CARD ──
+  var bmc=document.createElement('div');bmc.className='card';bmc.style.marginBottom='12px';
+  var bmh=document.createElement('div');bmh.className='card-head';bmh.innerHTML='<h4>🤝 Merge Broker Names</h4><span style="font-size:11px;color:#6b7280">Duplicate broker names ko ek mein merge karo</span>';bmc.appendChild(bmh);
+  var bmb=document.createElement('div');bmb.style.padding='14px';
+  var allBrokers=Array.from(new Set(bills.map(function(b){return b.broker||'';}).filter(Boolean))).sort();
+  var bmergeInfo=document.createElement('div');bmergeInfo.style.cssText='font-size:12px;color:#6b7280;margin-bottom:10px';
+  bmergeInfo.textContent='Total unique brokers: '+allBrokers.length;
+  bmb.appendChild(bmergeInfo);
+  var bmergeGrid=document.createElement('div');bmergeGrid.style.cssText='display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end';
+  var bFromSel=document.createElement('select');bFromSel.className='inp';
+  var bToSel=document.createElement('select');bToSel.className='inp';
+  var bFromFg=document.createElement('div');bFromFg.className='fg';bFromFg.innerHTML='<label>From (rename this)</label>';bFromFg.appendChild(bFromSel);
+  var bToFg=document.createElement('div');bToFg.className='fg';bToFg.innerHTML='<label>To (keep this name)</label>';bToFg.appendChild(bToSel);
+  allBrokers.forEach(function(b){
+    var o1=document.createElement('option');o1.value=b;o1.textContent=b;bFromSel.appendChild(o1);
+    var o2=document.createElement('option');o2.value=b;o2.textContent=b;bToSel.appendChild(o2);
+  });
+  var bMergeBtn=el('button',{cls:'btn btn-red btn-sm',text:'Merge'});bMergeBtn.style.alignSelf='end';
+  bMergeBtn.addEventListener('click',function(){
+    var from2=bFromSel.value,to2=bToSel.value;
+    if(from2===to2){toast('Same broker select karo mat!','err');return;}
+    var cnt2=bills.filter(function(b){return b.broker===from2;}).length;
+    if(!confirm('"'+from2+'" ke '+cnt2+' bills ka broker "'+to2+'" mein merge karein?'))return;
+    bills.forEach(function(b){if(b.broker===from2)b.broker=to2;});
+    invalidateBillStatusCache();DB.set('bills',bills);
+    toast('✅ Broker merged! '+cnt2+' bills updated');refresh();
+  });
+  bmergeGrid.appendChild(bFromFg);bmergeGrid.appendChild(bMergeBtn);bmergeGrid.appendChild(bToFg);
+  bmb.appendChild(bmergeGrid);bmc.appendChild(bmb);wrap.appendChild(bmc);
+
+  // ── FUZZY PARTY TRACKING CARD ──
+  var fpc=document.createElement('div');fpc.className='card';fpc.style.marginBottom='12px';
+  var fph=document.createElement('div');fph.className='card-head';fph.innerHTML='<h4>🔍 Fuzzy Party Name Check</h4><span style="font-size:11px;color:#6b7280">Similar-sounding party names detect karo jo galti se alag bane hain</span>';fpc.appendChild(fph);
+  var fpb=document.createElement('div');fpb.style.padding='14px';
+  var allParties=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
+  // Find parties with similar names (>60% word overlap)
+  var suspectPairs=[];
+  allParties.forEach(function(p1,i){
+    var w1=p1.split(/\s+/).filter(function(w){return w.length>2;});
+    allParties.slice(i+1).forEach(function(p2){
+      var w2=p2.split(/\s+/).filter(function(w){return w.length>2;});
+      if(!w1.length||!w2.length)return;
+      var common=w1.filter(function(w){return w2.indexOf(w)>=0;}).length;
+      var score=common/Math.max(w1.length,w2.length);
+      if(score>=0.5&&p1!==p2)suspectPairs.push({p1:p1,p2:p2,score:score});
+    });
+  });
+  if(!suspectPairs.length){
+    fpb.innerHTML='<div style="color:#166534;font-weight:600;padding:12px;background:#f0fdf4;border-radius:7px">✅ Koi duplicate party names nahi mile!</div>';
+  } else {
+    var fpInfo=document.createElement('div');fpInfo.style.cssText='font-size:12px;color:#92400e;font-weight:600;margin-bottom:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px';
+    fpInfo.textContent='⚠️ '+suspectPairs.length+' possible duplicate pair(s) mila. Check karo:';
+    fpb.appendChild(fpInfo);
+    var fpTbl=document.createElement('table');fpTbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
+    fpTbl.innerHTML='<thead><tr style="background:#fffbeb"><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Party 1</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Bills</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Party 2</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Bills</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Match%</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Action</th></tr></thead>';
+    var fpTbody=document.createElement('tbody');
+    suspectPairs.slice(0,20).forEach(function(pair,i){
+      var c1=bills.filter(function(b){return b.party===pair.p1;}).length;
+      var c2=bills.filter(function(b){return b.party===pair.p2;}).length;
+      var ftr=document.createElement('tr');ftr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#fffbeb');
+      ftr.innerHTML='<td style="padding:6px 10px;font-weight:600;color:#166534">'+pair.p1+'</td>'+
+        '<td style="padding:6px 10px;color:#6b7280">'+c1+' bills</td>'+
+        '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+pair.p2+'</td>'+
+        '<td style="padding:6px 10px;color:#6b7280">'+c2+' bills</td>'+
+        '<td style="padding:6px 10px;font-weight:700;color:#d97706">'+Math.round(pair.score*100)+'%</td>';
+      var facTd=document.createElement('td');facTd.style.padding='6px 10px';
+      var mergeHereBtn=el('button',{cls:'btn btn-xs btn-red',text:'Merge →'});
+      (function(p1,p2){mergeHereBtn.addEventListener('click',function(){
+        var cnt3=bills.filter(function(b){return b.party===p1;}).length;
+        if(!confirm('"'+p1+'" ('+cnt3+' bills) ko "'+p2+'" mein merge karein?'))return;
+        bills.forEach(function(b){if(b.party===p1)b.party=p2;});
+        advances.forEach(function(a){if(a.party===p1)a.party=p2;});
+        cheques.forEach(function(c){if(c.party===p1)c.party=p2;});
+        returns_.forEach(function(r){if(r.party===p1)r.party=p2;});
+        invalidateBillStatusCache();DB.set('bills',bills);DB.set('advances',advances);DB.set('cheques',cheques);DB.set('returns',returns_);
+        toast('✅ Merged!');refresh();
+      });})(pair.p1,pair.p2);
+      facTd.appendChild(mergeHereBtn);
+      ftr.appendChild(facTd);fpTbody.appendChild(ftr);
+    });
+    fpTbl.appendChild(fpTbody);fpb.appendChild(fpTbl);
+  }
+  fpc.appendChild(fpb);wrap.appendChild(fpc);
+
+  // Broker merge and fuzzy check added above
+
   // ── YEAR-WISE EXPORT CARD ──
   var yc=document.createElement('div');yc.className='card';yc.style.marginBottom='12px';
   var yh=document.createElement('div');yh.className='card-head';
@@ -9732,7 +9860,7 @@ function printMultipleBills(billList){
     +'table{width:100%;border-collapse:collapse;font-size:10px;margin:6px 0}th{background:#166534;color:#fff;padding:4px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #eee}'
     +'h3{color:#166534;margin:0 0 4px;font-size:13px}.net{background:#f0fdf4;padding:8px;text-align:right;border-radius:4px;margin-top:6px}'
     +'.gross-ref{background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}'
-    +'@page{margin:10mm;size:auto}@media print{.np{display:none}}</style></head><body>'
+    +'@page{margin:8mm 6mm;size:auto}@media print{.np{display:none}}</style></head><body>'
     +'<div class="np" style="margin-bottom:10px">'
     +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;margin-right:8px">Print All</button>'
     +'<button onclick="window.close()" style="background:#f3f4f6;border:none;padding:7px 18px;border-radius:6px;cursor:pointer">Close</button></div>';
@@ -12540,7 +12668,10 @@ function pgOverpayments() {
     var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #fee2e2;background:'+(i%2===0?'#fff':'#fff5f5');
     tr.innerHTML='<td style="padding:7px 10px;font-weight:700;color:#1d4ed8">#'+b.billNo+'</td><td style="padding:7px 10px">'+fmtDate(b.date)+'</td><td style="padding:7px 10px;font-weight:600;color:#166534;cursor:pointer">'+b.party+'</td><td style="padding:7px 10px;text-align:right">₹'+fmt(b.netAmt||0)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700">₹'+fmt(s.recv)+'</td><td style="padding:7px 10px;text-align:right;font-weight:700;color:#dc2626">₹'+fmt(oa)+'</td>';
     var atd=document.createElement('td');atd.style.cssText='padding:7px 10px;text-align:center';
-    var vb=el('button',{cls:'btn btn-xs btn-outline',text:'View'});vb.addEventListener('click',function(){pageState.ledgerParty=b.party;go('ledger');});atd.appendChild(vb);tr.appendChild(atd);tbody.appendChild(tr);
+    var vb=el('button',{cls:'btn btn-xs btn-outline',text:'📋 View Ledger'});vb.addEventListener('click',function(){pageState.ledgerParty=b.party;go('ledger');});atd.appendChild(vb);
+    var payBtn2=el('button',{cls:'btn btn-xs btn-green',text:'Pay'});payBtn2.style.marginLeft='4px';
+    payBtn2.addEventListener('click',function(){openPayModal(b.id);});atd.appendChild(payBtn2);
+    tr.appendChild(atd);tbody.appendChild(tr);
   });
   tbl.appendChild(tbody);card.appendChild(tbl);wrap.appendChild(card);return wrap;
 }
@@ -12737,16 +12868,17 @@ function pgCashSplit() {
       var b=bills.find(function(x){return x.id===p.billId;})||{};
       var tr=document.createElement('tr');tr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#f9fafb');
       var tdChk=document.createElement('td');tdChk.style.cssText='padding:6px 10px;text-align:center';
-      var chk=document.createElement('input');chk.type='radio';chk.name='split-existing';chk.value=p.id;chk.style.cssText='width:15px;height:15px;accent-color:#166534;cursor:pointer';
-      chk.addEventListener('change',function(){showSplitForm(p);});
+      var chk=document.createElement('input');chk.type='radio';chk.name='split-existing';chk.value=p.id;chk.style.cssText='width:18px;height:18px;accent-color:#166534;cursor:pointer';
+      (function(pay){chk.addEventListener('change',function(){showSplitForm(pay);});})(p);
       tdChk.appendChild(chk);tr.appendChild(tdChk);
-      tr.innerHTML+=
-        '<td style="padding:6px 10px">'+fmtDate(p.date)+'</td>'+
-        '<td style="padding:6px 10px;font-weight:600;color:#166534">'+(b.party||'?')+'</td>'+
-        '<td style="padding:6px 10px;color:#1d4ed8">#'+(b.billNo||'?')+'</td>'+
-        '<td style="padding:6px 10px;text-align:right;font-weight:700;color:#dc2626">₹'+fmt(p.amount||0)+'</td>'+
-        '<td style="padding:6px 10px;color:#6b7280;font-size:10px">'+(p.remarks||'—')+'</td>';
-      tr.firstChild.appendChild(chk);
+      var td1=document.createElement('td');td1.style.cssText='padding:6px 10px';td1.textContent=fmtDate(p.date);tr.appendChild(td1);
+      var td2=document.createElement('td');td2.style.cssText='padding:6px 10px;font-weight:600;color:#166534';td2.textContent=b.party||'?';tr.appendChild(td2);
+      var td3=document.createElement('td');td3.style.cssText='padding:6px 10px;color:#1d4ed8';td3.textContent='#'+(b.billNo||'?');tr.appendChild(td3);
+      var td4=document.createElement('td');td4.style.cssText='padding:6px 10px;text-align:right;font-weight:700;color:#dc2626';td4.textContent='₹'+fmt(p.amount||0);tr.appendChild(td4);
+      var td5=document.createElement('td');td5.style.cssText='padding:6px 10px;color:#6b7280;font-size:10px';td5.textContent=p.remarks||'—';tr.appendChild(td5);
+      // Click anywhere on row to select
+      tr.style.cursor='pointer';
+      (function(pay,radio){tr.addEventListener('click',function(){radio.checked=true;showSplitForm(pay);});})(p,chk);
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);hCard.appendChild(tbl);panel2.appendChild(hCard);
@@ -14672,7 +14804,7 @@ function printPartyStatement(party, plState) {
     +'.status-partial{color:#92400e;font-weight:700;font-size:9px;background:#fef9c3;padding:1px 5px;border-radius:3px}'
     /* Footer */
     +'.footer{margin-top:12px;padding-top:6px;border-top:1.5px solid #166534;display:flex;justify-content:space-between;font-size:9px;color:#555}'
-    +'@page{margin:10mm;size:auto}'
+    +'@page{margin:8mm 6mm;size:auto}'
     +'@media print{.no-print{display:none!important}body{font-size:10px}}'
     +'</style></head><body><div class="wrap">';
 
@@ -14847,7 +14979,7 @@ function printInterestStatement() {
     +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
     +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'@page{margin:10mm;size:auto}@media print{button{display:none}}</style></head><body>'
+    +'@page{margin:8mm 6mm;size:auto}@media print{button{display:none}}</style></head><body>'
     +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
     +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
@@ -15068,7 +15200,7 @@ function exportStyledReport(data,gcFn) {
     '.b-partial{background:#fef9c3;color:#92400e;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     '.b-paid{background:#dcfce7;color:#1a6b3c;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     'tfoot td{background:#f0faf4;font-weight:700;border-top:2px solid #1a6b3c;padding:9px 12px;font-size:12px}'+
-    '.no-print{display:block}@page{margin:10mm;size:auto}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
+    '.no-print{display:block}@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
     '</style></head><body>';
   // Print bar
   h+='<div class="no-print" style="background:#1a6b3c;color:#fff;padding:9px 16px;margin:-20px -20px 16px;display:flex;justify-content:space-between;align-items:center">'+
@@ -15986,7 +16118,7 @@ function exportYearWisePDF(fyStart) {
     '.sum-label{font-size:9px;text-transform:uppercase;color:#6b7280;font-weight:700}'+
     '.sum-val{font-size:16px;font-weight:700;color:#1a6b3c;margin-top:2px}'+
     '.paid{color:#166534}.due{color:#dc2626}.partial{color:#d97706}'+
-    '.tfoot{background:#f0fdf4;font-weight:700}@page{margin:10mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
+    '.tfoot{background:#f0fdf4;font-weight:700}@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
   h+='<div class="no-print" style="margin-bottom:12px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px">✕ Close</button></div>';
   h+='<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">';
   h+='<div><h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280">'+cfg.address+' | '+cfg.phone+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>';
@@ -16298,7 +16430,7 @@ function pgBrokerage() {
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.r{text-align:right}.brok{color:#d97706;font-weight:700}'+
       '.total{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'+
       '.grand{background:#fff7ed;padding:12px;border:2px solid #d97706;border-radius:6px;margin-top:10px;display:flex;gap:20px}'+
-      '@page{margin:10mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
+      '@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
     h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+cfg.address+'</div>';
     h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px">'+
@@ -23106,7 +23238,7 @@ function printReceiptLedger(){
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top}'
     +'.gross{background:#dbeafe!important;font-weight:700}'
     +'.sumbar{display:flex;gap:20px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin-bottom:10px;font-weight:600}'
-    +'@page{margin:10mm;size:auto}@media print{button{display:none}}</style></head><body>'
+    +'@page{margin:8mm 6mm;size:auto}@media print{button{display:none}}</style></head><body>'
     +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'JAI SHREE CASHEW INDUSTRIES')+' \u2014 Receipt Ledger</h2>'
     +'<div style="font-size:11px;color:#1d4ed8;font-weight:600;margin-bottom:4px">Filter: '+filterDesc+'</div>'
