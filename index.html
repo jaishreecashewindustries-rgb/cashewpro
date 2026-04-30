@@ -7074,9 +7074,9 @@ function pgCheques() {
     var chqInPay=payments.filter(function(p){return p.chequeNo&&p.chequeNo.trim();});
     var uniqueChqNos=Array.from(new Set(chqInPay.map(function(p){return p.chequeNo;})));
     if(uniqueChqNos.length>0){
-      etd.innerHTML='<div style="font-size:14px;margin-bottom:8px">📋 Cheque Register Khali Hai</div>'+
-        '<div style="font-size:12px;color:#374151;margin-bottom:12px">'+chqInPay.length+' payments mein cheque numbers hain ('+uniqueChqNos.slice(0,5).join(', ')+'...) but Cheque Register mein manually add nahi hue</div>'+
-        '<button onclick="alert('+ Add Cheque button se cheques manually add karo. Ya payments mein jo cheque numbers hain woh party ledger mein dikhtey hain.')" style="background:#166534;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px">Cheque Register ke baare mein</button>';
+      etd.innerHTML='<div style="font-size:14px;margin-bottom:8px">&#128203; Cheque Register Khali Hai</div>'+
+        '<div style="font-size:12px;color:#374151;margin-bottom:12px">'+chqInPay.length+' payments mein cheque numbers hain but Cheque Register mein manually add nahi hue.</div>'+
+        '<div style="font-size:11px;color:#6b7280;margin-top:6px">+ Add Cheque button se naye cheques add karo. Payments ke cheque numbers Party Ledger mein dikhte hain.</div>';
     } else {
       etd.innerHTML='<div style="font-size:14px;margin-bottom:6px">No cheques found</div>'+
         '<div style="font-size:12px">+ Add Cheque button se naye cheques add karo</div>';
