@@ -1149,9 +1149,14 @@ var DB = {
       })(toDelete.slice(j,j+10));
     }
     _pending={};
+    // Timeout fallback - if Firebase doesn't respond in 8s, show local saved
+    var _saveTimeout=setTimeout(function(){ DB._sync('saved','✓ Local'); }, 8000);
     Promise.all(promises)
-      .then(function(){ DB._sync('saved','✓ Saved'); })
-      .catch(function(e){ console.error('Save error',e); DB._sync('offline','⚠ Save failed'); });
+      .then(function(){ clearTimeout(_saveTimeout); DB._sync('saved','✓ Saved'); })
+      .catch(function(e){ clearTimeout(_saveTimeout); console.error('Save error',e); DB._sync('offline','⚠ Retry...'); 
+        // Retry once after 3s
+        setTimeout(function(){ DB._flush(); }, 3000);
+      });
   },
 
   loadAll: function(uid, cb){
@@ -6939,6 +6944,33 @@ function pgCheques() {
   si2.addEventListener('input',function(){state.q=this.value;var pos=this.selectionStart;var self=this;clearTimeout(st2);st2=setTimeout(function(){refresh();setTimeout(function(){var e=document.querySelector('[placeholder="Search party/cheque..."]');if(e){e.focus();try{e.setSelectionRange(pos,pos);}catch(ex){}}},10);},120);});
   var clrBtn=el('button',{cls:'btn btn-red btn-sm',text:'x Clear'});
   clrBtn.addEventListener('click',function(){state.filters={};state.q='';si2.value='';refresh();});
+  var autoImportBtn=el('button',{cls:'btn btn-outline btn-sm',text:'⚡ Auto Import from Payments'});
+  autoImportBtn.title='Payments mein jo cheque numbers hain unhe automatically Cheque Register mein import karo';
+  autoImportBtn.addEventListener('click',function(){
+    var existing=new Set(cheques.map(function(c){return (c.chequeNo||'').trim();}));
+    // Group payments by chequeNo+party
+    var toImport={};
+    payments.forEach(function(p){
+      var cn=(p.chequeNo||'').trim();
+      if(!cn||cn==='-'||existing.has(cn))return;
+      var b=bills.find(function(x){return x.id===p.billId;})||{};
+      var key=cn+'__'+b.party;
+      if(!toImport[key]){
+        toImport[key]={
+          chequeNo:cn,party:b.party||'',amount:p.amount||0,
+          date:p.date||today(),mode:p.mode||'CHEQUE',
+          bank:'',status:'Received',_payId:p.id
+        };
+      }
+    });
+    var list=Object.values(toImport);
+    if(!list.length){toast('Koi naya cheque nahi mila ya sab already imported hain');return;}
+    if(!confirm(list.length+' naye cheques import karein? ('+list.map(function(x){return x.chequeNo;}).slice(0,5).join(', ')+(list.length>5?'...':'')+')')){return;}
+    list.forEach(function(c){cheques.push({id:uid(),party:c.party,chequeNo:c.chequeNo,bank:c.bank,amount:c.amount,date:c.date,mode:c.mode,status:c.status,importedFrom:'payments',createdAt:new Date().toISOString()});});
+    DB.set('cheques',cheques);
+    toast('✅ '+list.length+' cheques imported from payments!');refresh();
+  });
+
   var addChqBtn=btn('+ Add Cheque','btn-green btn-sm',function(){
     openAddModal('+ Add Cheque',[
       {id:'ch-party',label:'Party',placeholder:'PARTY NAME',extra:{list:'ch-party-dl2',style:'text-transform:uppercase'}},
@@ -7321,12 +7353,25 @@ function pgPartyLedger(party) {
   var plClrBtn=el('button',{cls:'btn btn-outline btn-sm',text:'Clear'});
   plClrBtn.addEventListener('click',function(){plState.dateFrom='';plState.dateTo='';dfInp.value='';dtInp.value='';refresh();});
   var plPrintBtn=el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
-  plPrintBtn.addEventListener('click',function(){printPartyStatement(party,plState);});
+  var printStyleSel=document.createElement('select');printStyleSel.className='inp-sm';printStyleSel.style.cssText='width:110px;font-size:11px';
+  [['bills','Bill-wise'],['tally','Tally Dr/Cr']].forEach(function(s){
+    var o=document.createElement('option');o.value=s[0];o.textContent=s[1];
+    if((plState.printStyle||'bills')===s[0])o.selected=true;
+    printStyleSel.appendChild(o);
+  });
+  printStyleSel.addEventListener('change',function(){plState.printStyle=this.value;});
+  plPrintBtn.addEventListener('click',function(){
+    plState.printStyle=printStyleSel.value;
+    if(plState.printStyle==='tally') printPartyStatementTally(party,plState);
+    else printPartyStatement(party,plState);
+  });
   var exBtn=el('button',{cls:'btn btn-outline btn-sm',text:'📥 Excel'});
   exBtn.addEventListener('click',function(){exportPartyLedgerExcel(party);});
   actDiv.appendChild(backBtn);actDiv.appendChild(el('span',{text:'From:',style:'font-size:11px;color:#6b7280'}));
   actDiv.appendChild(dfInp);actDiv.appendChild(el('span',{text:'To:',style:'font-size:11px;color:#6b7280'}));
-  actDiv.appendChild(dtInp);actDiv.appendChild(plClrBtn);actDiv.appendChild(plPrintBtn);actDiv.appendChild(exBtn);
+  actDiv.appendChild(dtInp);actDiv.appendChild(plClrBtn);
+  actDiv.appendChild(el('span',{text:'Style:',style:'font-size:11px;color:#6b7280'}));
+  actDiv.appendChild(printStyleSel);actDiv.appendChild(plPrintBtn);actDiv.appendChild(exBtn);
   topBar.appendChild(titleDiv);topBar.appendChild(actDiv);wrap.appendChild(topBar);
 
   // ── SUMMARY CARDS ──
@@ -9722,66 +9767,121 @@ function pgSettings() {
   var fph=document.createElement('div');fph.className='card-head';fph.innerHTML='<h4>🔍 Fuzzy Party Name Check</h4><span style="font-size:11px;color:#6b7280">Similar-sounding party names detect karo jo galti se alag bane hain</span>';fpc.appendChild(fph);
   var fpb=document.createElement('div');fpb.style.padding='14px';
   var allParties=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
-  // Find parties with spelling mistakes / typos (NOT just word overlap)
-  // Use Levenshtein distance for short names, prefix+suffix for longer
+  // Find parties with spelling mistakes / typos
   function editDist(a,b){
     var m=a.length,n=b.length;
-    if(Math.abs(m-n)>4)return 99;
+    if(Math.abs(m-n)>6)return 99;
     var dp=[];
     for(var i=0;i<=m;i++){dp[i]=[i];for(var j=1;j<=n;j++){if(i===0){dp[i][j]=j;}else{dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1));}}}
     return dp[m][n];
   }
+  // Word-swap check: "RAM SHYAM" vs "SHYAM RAM" - split words, check all permutations
+  function isWordSwap(a,b){
+    var wa=a.split(' ').filter(Boolean).sort();
+    var wb=b.split(' ').filter(Boolean).sort();
+    if(wa.length!==wb.length||wa.length<2)return false;
+    return wa.join(' ')===wb.join(' ');
+  }
   var suspectPairs=[];
+  var seenPairs=new Set();
   allParties.forEach(function(p1,i){
     allParties.slice(i+1).forEach(function(p2){
       if(p1===p2)return;
+      var key=[p1,p2].sort().join('||');
+      if(seenPairs.has(key))return;
+      seenPairs.add(key);
       var len=Math.max(p1.length,p2.length);
       if(len<4)return;
+      // Check edit distance
       var dist=editDist(p1,p2);
-      // Threshold: max 2 edits for short (<=10 chars), 3 for medium (11-20), 4 for long (>20)
-      // Also catch station suffix difference e.g. "RAJU CHAKSU" vs "RAJU"
       var threshold=len<=8?2:len<=15?3:4;
-      var score=1-(dist/len);
       if(dist<=threshold&&dist>0){
-        suspectPairs.push({p1:p1,p2:p2,score:score,dist:dist});
+        suspectPairs.push({p1:p1,p2:p2,score:1-(dist/len),dist:dist,reason:'spelling'});
+        return;
+      }
+      // Check word swap (vice versa names)
+      if(isWordSwap(p1,p2)){
+        suspectPairs.push({p1:p1,p2:p2,score:0.95,dist:0,reason:'word_swap'});
+        return;
       }
     });
   });
-  // Sort by distance (smallest first = most likely typo)
-  suspectPairs.sort(function(a,b){return a.dist-b.dist;});
+  // Sort: word_swap first, then by distance
+  suspectPairs.sort(function(a,b){
+    if(a.reason==='word_swap'&&b.reason!=='word_swap')return -1;
+    if(b.reason==='word_swap'&&a.reason!=='word_swap')return 1;
+    return a.dist-b.dist;
+  });
   if(!suspectPairs.length){
     fpb.innerHTML='<div style="color:#166534;font-weight:600;padding:12px;background:#f0fdf4;border-radius:7px">✅ Koi duplicate party names nahi mile!</div>';
   } else {
-    var fpInfo=document.createElement('div');fpInfo.style.cssText='font-size:12px;color:#92400e;font-weight:600;margin-bottom:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px';
-    fpInfo.textContent='⚠️ '+suspectPairs.length+' possible duplicate pair(s) mila. Check karo:';
+    var _fpPage=0,_fpPerPage=25;
+    var swapCount=suspectPairs.filter(function(p){return p.reason==='word_swap';}).length;
+    var fpInfo=document.createElement('div');fpInfo.style.cssText='font-size:12px;color:#92400e;font-weight:600;margin-bottom:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px';
+    fpInfo.innerHTML='<span>⚠️ '+suspectPairs.length+' possible duplicate pair(s) mila</span>'+
+      '<span style="font-size:10px;color:#92400e">'+(swapCount>0?swapCount+' word-swap, ':'')+
+      (suspectPairs.length-swapCount)+' spelling</span>';
     fpb.appendChild(fpInfo);
+    var fpPagDiv=document.createElement('div');fpPagDiv.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px';
+    var fpPrev=el('button',{cls:'btn btn-outline btn-sm',text:'← Prev'});
+    var fpNext=el('button',{cls:'btn btn-outline btn-sm',text:'Next →'});
+    var fpPI=document.createElement('span');fpPI.style.cssText='font-size:11px;color:#6b7280;flex:1;text-align:center';
+    fpPagDiv.appendChild(fpPrev);fpPagDiv.appendChild(fpPI);fpPagDiv.appendChild(fpNext);
+    fpb.appendChild(fpPagDiv);
     var fpTbl=document.createElement('table');fpTbl.style.cssText='width:100%;border-collapse:collapse;font-size:12px';
-    fpTbl.innerHTML='<thead><tr style="background:#fffbeb"><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Party 1</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Bills</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Party 2</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Bills</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Match%</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Action</th></tr></thead>';
+    fpTbl.innerHTML='<thead><tr style="background:#fffbeb"><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Party 1</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Bills</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Party 2</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Bills</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Type</th><th style="padding:7px 10px;font-size:10px;color:#92400e;font-weight:700">Action</th></tr></thead>';
     var fpTbody=document.createElement('tbody');
-    suspectPairs.slice(0,20).forEach(function(pair,i){
-      var c1=bills.filter(function(b){return b.party===pair.p1;}).length;
-      var c2=bills.filter(function(b){return b.party===pair.p2;}).length;
-      var ftr=document.createElement('tr');ftr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(i%2===0?'#fff':'#fffbeb');
-      ftr.innerHTML='<td style="padding:6px 10px;font-weight:600;color:#166534">'+pair.p1+'</td>'+
-        '<td style="padding:6px 10px;color:#6b7280">'+c1+' bills</td>'+
-        '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+pair.p2+'</td>'+
-        '<td style="padding:6px 10px;color:#6b7280">'+c2+' bills</td>'+
-        '<td style="padding:6px 10px;font-weight:700;color:#d97706">'+pair.dist+' char change(s)</td>';
-      var facTd=document.createElement('td');facTd.style.padding='6px 10px';
-      var mergeHereBtn=el('button',{cls:'btn btn-xs btn-red',text:'Merge →'});
-      (function(p1,p2){mergeHereBtn.addEventListener('click',function(){
-        var cnt3=bills.filter(function(b){return b.party===p1;}).length;
-        if(!confirm('"'+p1+'" ('+cnt3+' bills) ko "'+p2+'" mein merge karein?'))return;
-        bills.forEach(function(b){if(b.party===p1)b.party=p2;});
-        advances.forEach(function(a){if(a.party===p1)a.party=p2;});
-        cheques.forEach(function(c){if(c.party===p1)c.party=p2;});
-        returns_.forEach(function(r){if(r.party===p1)r.party=p2;});
-        invalidateBillStatusCache();DB.set('bills',bills);DB.set('advances',advances);DB.set('cheques',cheques);DB.set('returns',returns_);
-        toast('✅ Merged!');refresh();
-      });})(pair.p1,pair.p2);
-      facTd.appendChild(mergeHereBtn);
-      ftr.appendChild(facTd);fpTbody.appendChild(ftr);
-    });
+    function renderFzPage(){
+      fpTbody.innerHTML='';
+      var total=suspectPairs.length,pages=Math.ceil(total/_fpPerPage);
+      _fpPage=Math.max(0,Math.min(_fpPage,pages-1));
+      fpPI.textContent='Page '+(_fpPage+1)+' of '+pages+' ('+total+' pairs)';
+      fpPrev.disabled=_fpPage===0;fpNext.disabled=_fpPage>=pages-1;
+      var slice=suspectPairs.slice(_fpPage*_fpPerPage,(_fpPage+1)*_fpPerPage);
+      slice.forEach(function(pair,i){
+        var c1=bills.filter(function(b){return b.party===pair.p1;}).length;
+        var c2=bills.filter(function(b){return b.party===pair.p2;}).length;
+        var isSwap=pair.reason==='word_swap';
+        var ftr=document.createElement('tr');ftr.style.cssText='border-bottom:1px solid #e5e7eb;background:'+(isSwap?'#fef9c3':(i%2===0?'#fff':'#fffbeb'));
+        ftr.innerHTML='<td style="padding:6px 10px;font-weight:600;color:#166534">'+pair.p1+'</td>'+
+          '<td style="padding:6px 10px;color:#6b7280">'+c1+' bills</td>'+
+          '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+pair.p2+'</td>'+
+          '<td style="padding:6px 10px;color:#6b7280">'+c2+' bills</td>'+
+          '<td style="padding:6px 10px;font-weight:700;color:'+(isSwap?'#7c3aed':'#d97706')+'">'+(isSwap?'Word Swap':pair.dist+' char(s)')+'</td>';
+        var facTd=document.createElement('td');facTd.style.cssText='padding:6px 10px;white-space:nowrap';
+        var m1Btn=el('button',{cls:'btn btn-xs btn-red',text:'→ Keep 2'});
+        var m2Btn=el('button',{cls:'btn btn-xs',text:'← Keep 1',style:'background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;margin-left:4px'});
+        (function(p1,p2){
+          m1Btn.title='Merge: "'+p1+'" → "'+p2+'"';
+          m1Btn.addEventListener('click',function(){
+            var cnt=bills.filter(function(b){return b.party===p1;}).length;
+            if(!confirm('"'+p1+'" ('+cnt+' bills) ko "'+p2+'" mein merge karein?'))return;
+            bills.forEach(function(b){if(b.party===p1)b.party=p2;});
+            advances.forEach(function(a){if(a.party===p1)a.party=p2;});
+            cheques.forEach(function(c){if(c.party===p1)c.party=p2;});
+            returns_.forEach(function(r){if(r.party===p1)r.party=p2;});
+            invalidateBillStatusCache();DB.set('bills',bills);DB.set('advances',advances);DB.set('cheques',cheques);DB.set('returns',returns_);
+            toast('✅ Merged: '+p1+' → '+p2);refresh();
+          });
+          m2Btn.title='Merge: "'+p2+'" → "'+p1+'"';
+          m2Btn.addEventListener('click',function(){
+            var cnt=bills.filter(function(b){return b.party===p2;}).length;
+            if(!confirm('"'+p2+'" ('+cnt+' bills) ko "'+p1+'" mein merge karein?'))return;
+            bills.forEach(function(b){if(b.party===p2)b.party=p1;});
+            advances.forEach(function(a){if(a.party===p2)a.party=p1;});
+            cheques.forEach(function(c){if(c.party===p2)c.party=p1;});
+            returns_.forEach(function(r){if(r.party===p2)r.party=p1;});
+            invalidateBillStatusCache();DB.set('bills',bills);DB.set('advances',advances);DB.set('cheques',cheques);DB.set('returns',returns_);
+            toast('✅ Merged: '+p2+' → '+p1);refresh();
+          });
+        })(pair.p1,pair.p2);
+        facTd.appendChild(m1Btn);facTd.appendChild(m2Btn);
+        ftr.appendChild(facTd);fpTbody.appendChild(ftr);
+      });
+    }
+    fpPrev.addEventListener('click',function(){_fpPage--;renderFzPage();});
+    fpNext.addEventListener('click',function(){_fpPage++;renderFzPage();});
+    renderFzPage();
     fpTbl.appendChild(fpTbody);fpb.appendChild(fpTbl);
   }
   fpc.appendChild(fpb);wrap.appendChild(fpc);
@@ -12998,6 +13098,10 @@ function pgCashSplit() {
         toast('✅ Split done! '+toSave.length+' payments saved');refresh();
       });
       sCard.appendChild(sBody);splitFormDiv.appendChild(sCard);
+      // Scroll to split form after it appears
+      setTimeout(function(){
+        sCard.scrollIntoView({behavior:'smooth',block:'start'});
+      },50);
     }
   }
 
@@ -13084,6 +13188,11 @@ function pgDuplicates() {
     // Check if all are DETAIL rows sharing the same gpId (gross payment) — that is NOT a duplicate
     var allSameGross=group.every(function(p){return p.rowType==='DETAIL'&&p.gpId&&p.gpId===group[0].gpId;});
     if(allSameGross)return;
+    // NEW: If all payments are from DIFFERENT parties AND different amounts, it's not a duplicate
+    // Same cheque number used by different parties (e.g. two different cheque books) = ok
+    var parties=Array.from(new Set(group.map(function(p){var b=bills.find(function(x){return x.id===p.billId;})||{};return b.party||'';})));
+    var amounts=Array.from(new Set(group.map(function(p){return p.amount||0;})));
+    if(parties.length===group.length&&amounts.length===group.length)return; // All different party+amount = different cheques
     issues.dupChequeNo = issues.dupChequeNo.concat(group);
   });
 
@@ -13191,6 +13300,17 @@ function pgDuplicates() {
   // ── Helper: build issue section ──
   function mkSection(title, icon, color, bg, rows, cols, onDelete, onEdit) {
     if(!rows.length) return null;
+    // Separate accepted from non-accepted rows
+    var nonAccepted=rows.filter(function(row){
+      var key=row.id||row.billNo||JSON.stringify(row).substring(0,30);
+      return !acceptedDups||!acceptedDups.has(key);
+    });
+    var acceptedRows=rows.filter(function(row){
+      var key=row.id||row.billNo||JSON.stringify(row).substring(0,30);
+      return acceptedDups&&acceptedDups.has(key);
+    });
+    // Show only non-accepted by default
+    var displayRows=nonAccepted;
     var selected=new Set();
     var sec = document.createElement('div');
     sec.className = 'card';
@@ -13200,7 +13320,10 @@ function pgDuplicates() {
     head.style.cssText='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px';
 
     var titleEl=document.createElement('div');
-    titleEl.innerHTML='<h4 style="color:'+color+';margin:0">'+icon+' '+title+' <span style="background:'+bg+';color:'+color+';padding:2px 8px;border-radius:12px;font-size:11px;margin-left:6px">'+rows.length+'</span></h4>';
+    titleEl.innerHTML='<h4 style="color:'+color+';margin:0">'+icon+' '+title+
+      ' <span style="background:'+bg+';color:'+color+';padding:2px 8px;border-radius:12px;font-size:11px;margin-left:6px">'+displayRows.length+'</span>'+
+      (acceptedRows.length>0?' <span style="background:#f0fdf4;color:#166534;padding:2px 8px;border-radius:12px;font-size:10px;margin-left:4px">✓ '+acceptedRows.length+' accepted</span>':'')+
+      '</h4>';
 
     var headBtns=document.createElement('div');headBtns.style.cssText='display:flex;gap:6px;align-items:center';
     var selCountSpan=document.createElement('span');selCountSpan.style.cssText='font-size:12px;color:#6b7280;display:none';
@@ -13211,7 +13334,7 @@ function pgDuplicates() {
         if(!selected.size)return;
         if(!confirm('Selected '+selected.size+' items delete karne chahte ho?'))return;
         var toDelete=Array.from(selected);
-        toDelete.forEach(function(i){onDelete(rows[i],i);});
+        toDelete.forEach(function(i){onDelete(displayRows[i],i);});
         refresh();
       });
       headBtns.appendChild(selCountSpan);
@@ -13240,7 +13363,7 @@ function pgDuplicates() {
       allChk2.style.cssText='accent-color:#dc2626;width:14px;height:14px;cursor:pointer';
       allChk2.title='Select All';
       allChk2.addEventListener('change',function(){
-        if(this.checked)rows.forEach(function(r,i){selected.add(i);});
+        if(this.checked)displayRows.forEach(function(r,i){selected.add(i);});
         else selected.clear();
         tbl.querySelectorAll('.dup-row-chk').forEach(function(c,i){c.checked=selected.has(i);});
         updateSelUI();
@@ -13256,7 +13379,7 @@ function pgDuplicates() {
     th2.appendChild(htr);tbl.appendChild(th2);
     var tb2 = document.createElement('tbody');
 
-    rows.forEach(function(row, ri){
+    displayRows.forEach(function(row, ri){
       var tr2 = document.createElement('tr');
       tr2.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(ri%2?'#fafafa':'#fff');
 
@@ -13472,8 +13595,8 @@ function pgDuplicates() {
       }},
       {l:'Issue', html:function(s){return '<span style="font-size:11px;color:#0369a1">'+s.reason+'</span>';}},
     ],
-    null, // no delete — these are party-level warnings, not records
-    null  // no edit
+    null, // no delete
+    function(s){ pageState.ledgerParty=s.party; go('ledger'); } // edit = view ledger
   );
   if(suspectSec) wrap.appendChild(suspectSec);
 
@@ -14954,6 +15077,108 @@ function printPartyStatement(party, plState) {
     +'</div>';
 
   h+='<div class="footer"><span>Generated: '+today()+' by '+(cfg.company||'')+'</span><span>'+party+'</span></div>';
+  h+='</div></body></html>';
+
+  var win=window.open('','_blank');if(!win){toast('Allow popups!','err');return;}
+  win.document.write(h);win.document.close();
+}
+
+
+function printPartyStatementTally(party, plState) {
+  var df=plState&&plState.dateFrom?plState.dateFrom:'';
+  var dt=plState&&plState.dateTo?plState.dateTo:'';
+  var pb2=bills.filter(function(b){
+    if(b.party!==party)return false;
+    if(df&&toISO(b.date||'')<toISO(df))return false;
+    if(dt&&toISO(b.date||'')>toISO(dt))return false;
+    return true;
+  }).sort(function(a,b){return toISO(a.date||'').localeCompare(toISO(b.date||''));});
+
+  var _pStn=(bills.find(function(b){return b.party===party&&b.station;})||{}).station||'';
+  var tAmt=pb2.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
+  var tRecv=pb2.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
+  var tBal=pb2.reduce(function(s,b){return s+getBillStatus(b).bal;},0);
+
+  // Build all ledger entries (Dr = bills, Cr = payments) sorted by date
+  var entries=[];
+  pb2.forEach(function(b){
+    entries.push({date:toISO(b.date||''),type:'Dr',particulars:'Bill #'+b.billNo+' ('+(b.rows||[]).map(function(r){return r.grade;}).join(',')+')'+((b.station)?' '+b.station:''),dr:parseFloat(b.netAmt)||0,cr:0,ref:'Bill #'+b.billNo});
+  });
+  var bIds=new Set(pb2.map(function(b){return b.id;}));
+  payments.filter(function(p){return bIds.has(p.billId);}).forEach(function(p){
+    var b=bills.find(function(x){return x.id===p.billId;})||{};
+    var mode=p.mode||'';
+    var chq=(p.chequeNo||p.receiptNo)?(' | '+(p.chequeNo||p.receiptNo)):'';
+    var particulars='Payment Rcvd | Bill #'+(b.billNo||'?')+' | '+mode+chq;
+    entries.push({date:toISO(p.date||''),type:'Cr',particulars:particulars,dr:0,cr:(p.amount||0)+(p.rebate||0),ref:mode+(p.chequeNo?' '+p.chequeNo:'')});
+    if(p.rebate>0) entries.push({date:toISO(p.date||''),type:'Cr',particulars:'Rebate | Bill #'+(b.billNo||'?'),dr:0,cr:p.rebate,ref:'Rebate'});
+  });
+  entries.sort(function(a,b){return a.date.localeCompare(b.date);});
+
+  // Calculate running balance
+  var runBal=0;
+  entries.forEach(function(e){runBal+=e.dr-e.cr;e.balance=runBal;e.balType=runBal>=0?'Dr':'Cr';});
+
+  var h='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+party+' — Tally Statement</title>'
+    +'<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;color:#000}.wrap{padding:14px 16px}'
+    +'.co-name{font-size:15px;font-weight:900;color:#000;border-bottom:2px solid #000;padding-bottom:4px;margin-bottom:8px}'
+    +'.party-head{display:flex;justify-content:space-between;margin-bottom:8px;font-size:11px}'
+    +'table{width:100%;border-collapse:collapse}'
+    +'th{background:#1F3864;color:#fff;padding:5px 7px;font-size:9.5px;font-weight:700;text-align:left;border:1px solid #ccc}'
+    +'th.r{text-align:right}'
+    +'td{padding:4px 7px;border:1px solid #ddd;font-size:10px;vertical-align:middle}'
+    +'td.r{text-align:right}'
+    +'.dr-row{background:#fff}'
+    +'.cr-row{background:#f9fafb}'
+    +'.bal-dr{color:#dc2626;font-weight:700}'
+    +'.bal-cr{color:#166534;font-weight:700}'
+    +'.total-row{background:#1F3864;color:#fff;font-weight:700}'
+    +'.total-row td{color:#fff;border:1px solid #2d4a7a}'
+    +'.no-print{margin-bottom:8px}'
+    +'@page{margin:8mm;size:auto}'
+    +'@media print{.no-print{display:none}}'
+    +'</style></head><body><div class="wrap">';
+
+  h+='<div class="no-print" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">'
+    +'<button onclick="window.print()" style="background:#1F3864;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;font-size:11px">🖨️ Print</button>'
+    +'<button onclick="window.close()" style="background:#f3f4f6;border:1px solid #ccc;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11px">✕ Close</button>'
+    +'<span style="font-size:10px;color:#9ca3af">iOS: Safari → Print → uncheck Header &amp; Footer</span></div>';
+
+  h+='<div class="co-name">'+(cfg.company||'')+' — Account Statement (Tally Style)</div>';
+  h+='<div class="party-head">'
+    +'<div><strong style="font-size:13px">'+party+'</strong>'+((_pStn)?(' &nbsp;|&nbsp; '+_pStn):'')+'<div style="font-size:9px;color:#555;margin-top:2px">'
+    +(df||dt?'Period: '+(df?fmtDate(df):'Start')+' to '+(dt?fmtDate(dt):today()):'All transactions')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:9px;color:#555">Date: '+today()+'</div>'
+    +'<div style="font-size:12px;font-weight:700;color:'+(tBal>0?'#dc2626':'#166534')+'">₹'+fmt(tBal)+' '+(tBal>0?'Dr':'Cr')+'</div></div>'
+    +'</div>';
+
+  h+='<table><thead><tr><th style="width:70px">Date</th><th>Particulars</th><th class="r" style="width:80px">Dr (₹)</th><th class="r" style="width:80px">Cr (₹)</th><th class="r" style="width:90px">Balance (₹)</th></tr></thead><tbody>';
+
+  // Opening balance (if any old bills outside range were not paid)
+  h+='<tr style="background:#fffbeb"><td colspan="2" style="font-weight:700;color:#92400e">Opening Balance</td><td class="r">—</td><td class="r">—</td><td class="r" style="font-weight:700;color:#92400e">0.00</td></tr>';
+
+  entries.forEach(function(e,i){
+    var rowCls=e.type==='Dr'?'dr-row':'cr-row';
+    var balCls=e.balance>=0?'bal-dr':'bal-cr';
+    h+='<tr class="'+rowCls+'">'
+      +'<td>'+fmtDate(e.date)+'</td>'
+      +'<td>'+e.particulars+'</td>'
+      +'<td class="r">'+(e.dr>0?fmt(e.dr):'—')+'</td>'
+      +'<td class="r">'+(e.cr>0?fmt(e.cr):'—')+'</td>'
+      +'<td class="r '+balCls+'">'+fmt(Math.abs(e.balance))+' '+e.balType+'</td>'
+      +'</tr>';
+  });
+
+  // Total row
+  h+='<tr class="total-row">'
+    +'<td colspan="2">Total</td>'
+    +'<td class="r">'+fmt(tAmt)+'</td>'
+    +'<td class="r">'+fmt(tRecv)+'</td>'
+    +'<td class="r">'+fmt(Math.abs(tBal))+' '+(tBal>=0?'Dr':'Cr')+'</td>'
+    +'</tr>';
+
+  h+='</tbody></table>';
+  h+='<div style="margin-top:8px;font-size:9px;color:#555;text-align:right">Generated: '+today()+' | '+( cfg.company||'')+' | '+party+'</div>';
   h+='</div></body></html>';
 
   var win=window.open('','_blank');if(!win){toast('Allow popups!','err');return;}
@@ -21894,8 +22119,11 @@ function pgAIRules() {
     'Type values: SINGLE | GROSS_GROUP | INSTALLMENT',
   ].join('\n');
 
-  var permRules = localStorage.getItem(PERMANENT_RULES_KEY) || DB.getObj('_aiPermRules','') || defaultPermanentRules;
-  var fmtRules  = localStorage.getItem(FORMAT_RULES_KEY)    || DB.getObj('_aiFmtRules','')   || defaultFormatRules;
+  var _rawPerm = localStorage.getItem(PERMANENT_RULES_KEY) || DB.getObj('_aiPermRules','') || defaultPermanentRules;
+  var _rawFmt  = localStorage.getItem(FORMAT_RULES_KEY)    || DB.getObj('_aiFmtRules','')   || defaultFormatRules;
+  // Fix: If stored as Array (from old backup format), join to string
+  var permRules = Array.isArray(_rawPerm) ? _rawPerm.join('\n') : (typeof _rawPerm === 'string' ? _rawPerm : String(_rawPerm));
+  var fmtRules  = Array.isArray(_rawFmt)  ? _rawFmt.join('\n')  : (typeof _rawFmt  === 'string' ? _rawFmt  : String(_rawFmt));
 
   var wrap = document.createElement('div');
   wrap.innerHTML = '<div style="margin-bottom:14px"><span style="font-size:17px;font-weight:700;color:#166534">AI Import Rules</span><span style="font-size:11px;color:#9ca3af;margin-left:8px">Permanent business rules + auto-updating format rules for AI assistants</span></div>';
