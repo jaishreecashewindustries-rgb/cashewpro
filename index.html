@@ -128,11 +128,13 @@ input, select, textarea { font-family: var(--font); }
 }
 .sb-nav {
   padding: 10px 8px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 .sb-nav::-webkit-scrollbar { width: 4px; }
 .sb-nav::-webkit-scrollbar-track { background: transparent; }
@@ -688,6 +690,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
     transform: translateX(-100%);
     z-index: 100;
     box-shadow: var(--shadow-lg);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .sidebar.open { transform: translateX(0); }
   .sb-overlay { display: none; }
@@ -698,6 +701,10 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
   .topbar {
     padding: 0 12px;
     gap: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    -webkit-transform: translateZ(0); /* iOS layer fix */
   }
   .menu-toggle { display: flex; }
   .topbar h3 { font-size: 13px; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -6774,7 +6781,7 @@ function pgAdvances() {
       'table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}'+
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'+
       '.total{background:#f0fdf4;font-weight:700}</style></head><body>';
-    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">🖨️ Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+' — Advances List</h2>';
     h+='<div style="font-size:10px;color:#6b7280;margin-bottom:8px">Date: '+today()+'</div>';
     h+='<table><thead><tr><th>Date</th><th>Party</th><th>Amount</th><th>Mode</th><th>Status</th><th>Remarks</th></tr></thead><tbody>';
@@ -6958,7 +6965,7 @@ function pgCheques() {
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}'+
       '.cleared{color:#166534}.bounced{color:#dc2626}.deposited{color:#d97706}'+
       '.total{background:#f0fdf4;font-weight:700}</style></head><body>';
-    h2+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
+    h2+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">🖨️ Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h2+='<h2>'+cfg.company+' — Cheques Register</h2>';
     h2+='<div style="font-size:10px;color:#6b7280;margin-bottom:8px">Date: '+today()+'</div>';
     // Build sortable headers for cheques
@@ -7059,7 +7066,23 @@ function pgCheques() {
   });
   thead2.appendChild(chqHdr);
 
-  if(!data2.length){var etr=document.createElement('tr');var etd=document.createElement('td');etd.setAttribute('colspan',chqCols.length);etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';etd.textContent='No cheques found';etr.appendChild(etd);tbody2.appendChild(etr);}
+  if(!data2.length){
+    var etr=document.createElement('tr');var etd=document.createElement('td');
+    etd.setAttribute('colspan',chqCols.length);
+    etd.style.cssText='text-align:center;padding:40px;color:#9ca3af';
+    // Check if there are cheque numbers in payments
+    var chqInPay=payments.filter(function(p){return p.chequeNo&&p.chequeNo.trim();});
+    var uniqueChqNos=Array.from(new Set(chqInPay.map(function(p){return p.chequeNo;})));
+    if(uniqueChqNos.length>0){
+      etd.innerHTML='<div style="font-size:14px;margin-bottom:8px">📋 Cheque Register Khali Hai</div>'+
+        '<div style="font-size:12px;color:#374151;margin-bottom:12px">'+chqInPay.length+' payments mein cheque numbers hain ('+uniqueChqNos.slice(0,5).join(', ')+'...) but Cheque Register mein manually add nahi hue</div>'+
+        '<button onclick="alert('+ Add Cheque button se cheques manually add karo. Ya payments mein jo cheque numbers hain woh party ledger mein dikhtey hain.')" style="background:#166534;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px">Cheque Register ke baare mein</button>';
+    } else {
+      etd.innerHTML='<div style="font-size:14px;margin-bottom:6px">No cheques found</div>'+
+        '<div style="font-size:12px">+ Add Cheque button se naye cheques add karo</div>';
+    }
+    etr.appendChild(etd);tbody2.appendChild(etr);
+  }
   data2.forEach(function(c){
     var tr2=document.createElement('tr');tr2.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(c.status==='Bounced'?'#fff1f2':c.status==='Cleared'?'#f0fdf4':'#fff');
     var td0=document.createElement('td');td0.style.padding='7px 10px';td0.textContent=fmtDate(c.date);tr2.appendChild(td0);
@@ -8227,7 +8250,7 @@ function pgPurchases() {
   purPrint.addEventListener('click',function(){
     var d=getPurData();
     var h='<!DOCTYPE html><html><head><title>Purchases</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px}h2{color:#166534;margin:0 0 8px}table{width:100%;border-collapse:collapse}th{background:#166534;color:#fff;padding:5px 8px;font-size:10px;text-align:left}td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.num{text-align:right}.total{background:#f0fdf4;font-weight:700}</style></head><body>';
-    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
+    h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer">🖨️ Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+' — Purchases Register</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+today()+'</div>';
     h+='<table><thead><tr><th>Date</th><th>Supplier</th><th>Grade</th><th class="num">Wt(kg)</th><th class="num">Rate</th><th class="num">Amount</th><th>Remarks</th></tr></thead><tbody>';
     var totAmt=0,totWt=0;
@@ -9699,18 +9722,33 @@ function pgSettings() {
   var fph=document.createElement('div');fph.className='card-head';fph.innerHTML='<h4>🔍 Fuzzy Party Name Check</h4><span style="font-size:11px;color:#6b7280">Similar-sounding party names detect karo jo galti se alag bane hain</span>';fpc.appendChild(fph);
   var fpb=document.createElement('div');fpb.style.padding='14px';
   var allParties=Array.from(new Set(bills.map(function(b){return b.party;}))).sort();
-  // Find parties with similar names (>60% word overlap)
+  // Find parties with spelling mistakes / typos (NOT just word overlap)
+  // Use Levenshtein distance for short names, prefix+suffix for longer
+  function editDist(a,b){
+    var m=a.length,n=b.length;
+    if(Math.abs(m-n)>4)return 99;
+    var dp=[];
+    for(var i=0;i<=m;i++){dp[i]=[i];for(var j=1;j<=n;j++){if(i===0){dp[i][j]=j;}else{dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1));}}}
+    return dp[m][n];
+  }
   var suspectPairs=[];
   allParties.forEach(function(p1,i){
-    var w1=p1.split(/\s+/).filter(function(w){return w.length>2;});
     allParties.slice(i+1).forEach(function(p2){
-      var w2=p2.split(/\s+/).filter(function(w){return w.length>2;});
-      if(!w1.length||!w2.length)return;
-      var common=w1.filter(function(w){return w2.indexOf(w)>=0;}).length;
-      var score=common/Math.max(w1.length,w2.length);
-      if(score>=0.5&&p1!==p2)suspectPairs.push({p1:p1,p2:p2,score:score});
+      if(p1===p2)return;
+      var len=Math.max(p1.length,p2.length);
+      if(len<4)return;
+      var dist=editDist(p1,p2);
+      // Threshold: max 2 edits for short (<=10 chars), 3 for medium (11-20), 4 for long (>20)
+      // Also catch station suffix difference e.g. "RAJU CHAKSU" vs "RAJU"
+      var threshold=len<=8?2:len<=15?3:4;
+      var score=1-(dist/len);
+      if(dist<=threshold&&dist>0){
+        suspectPairs.push({p1:p1,p2:p2,score:score,dist:dist});
+      }
     });
   });
+  // Sort by distance (smallest first = most likely typo)
+  suspectPairs.sort(function(a,b){return a.dist-b.dist;});
   if(!suspectPairs.length){
     fpb.innerHTML='<div style="color:#166534;font-weight:600;padding:12px;background:#f0fdf4;border-radius:7px">✅ Koi duplicate party names nahi mile!</div>';
   } else {
@@ -9728,7 +9766,7 @@ function pgSettings() {
         '<td style="padding:6px 10px;color:#6b7280">'+c1+' bills</td>'+
         '<td style="padding:6px 10px;font-weight:600;color:#1d4ed8">'+pair.p2+'</td>'+
         '<td style="padding:6px 10px;color:#6b7280">'+c2+' bills</td>'+
-        '<td style="padding:6px 10px;font-weight:700;color:#d97706">'+Math.round(pair.score*100)+'%</td>';
+        '<td style="padding:6px 10px;font-weight:700;color:#d97706">'+pair.dist+' char change(s)</td>';
       var facTd=document.createElement('td');facTd.style.padding='6px 10px';
       var mergeHereBtn=el('button',{cls:'btn btn-xs btn-red',text:'Merge →'});
       (function(p1,p2){mergeHereBtn.addEventListener('click',function(){
@@ -12651,9 +12689,13 @@ function pgBillImport() {
 // ═══════════════════════════════════════
 
 function pgOverpayments() {
+  var _activeFY=getActiveFY();
+  var _fyBills=getFYBills(_activeFY);
   var wrap=document.createElement('div');
-  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#dc2626;margin:0 0 6px">⚠️ Overpayments</h3><p style="font-size:12px;color:#6b7280;margin:0 0 16px">Bills jahan received > bill amount</p>';
-  var ob=bills.filter(function(b){var s=getBillStatus(b);return s.recv>(b.netAmt||0)+0.5;});
+  wrap.innerHTML='<h3 style="font-size:16px;font-weight:700;color:#dc2626;margin:0 0 6px">⚠️ Overpayments</h3>'+
+    '<p style="font-size:12px;color:#6b7280;margin:0 0 8px">Bills jahan received > bill amount — <span style="background:#dbeafe;color:#1d4ed8;padding:1px 8px;border-radius:10px;font-weight:700">'+getFYLabel(_activeFY)+'</span></p>'+
+    '<p style="font-size:11px;color:#9ca3af;margin:0 0 16px">Note: Excess amount agle bills mein carry forward hota hai automatically</p>';
+  var ob=_fyBills.filter(function(b){var s=getBillStatus(b);return s.recv>(b.netAmt||0)+0.5;});
   var tot=ob.reduce(function(s,b){var st=getBillStatus(b);return s+(st.recv-(b.netAmt||0));},0);
   var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px';
   [{l:'Overpaid Bills',v:ob.length,c:'#dc2626',bg:'#fff1f2'},{l:'Total Excess',v:'₹'+fmt(tot),c:'#dc2626',bg:'#fff1f2'},{l:'Parties',v:Array.from(new Set(ob.map(function(b){return b.party;}))).length,c:'#d97706',bg:'#fffbeb'}].forEach(function(s){var d=document.createElement('div');d.style.cssText='background:'+s.bg+';border:1px solid '+s.c+';border-radius:10px;padding:14px';d.innerHTML='<div style="font-size:10px;font-weight:700;color:'+s.c+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">'+s.l+'</div><div style="font-size:22px;font-weight:700;color:'+s.c+'">'+s.v+'</div>';sg.appendChild(d);});
@@ -12912,7 +12954,7 @@ function pgCashSplit() {
       sBody.appendChild(addSRow);sBody.appendChild(el('span',{text:' ',style:'display:inline-block;width:8px'}));sBody.appendChild(saveSpl);
       function updSBal(){var tot=0;sRows.querySelectorAll('.sp-amt').forEach(function(x){tot+=parseFloat(x.value)||0;});document.getElementById('sp-split').textContent='₹'+fmt(tot);var rem=origPay.amount-tot;var re=document.getElementById('sp-rem');re.textContent=(rem<-0.5?'Over: ₹'+fmt(Math.abs(rem)):rem>0.5?'Remaining: ₹'+fmt(rem):'✅ Balanced');re.style.color=rem<-0.5?'#dc2626':rem>0.5?'#d97706':'#166534';}
       function addSplitRow(defaultParty,defaultBillId,defaultAmt){
-        var sRow=document.createElement('div');sRow.style.cssText='display:grid;grid-template-columns:1.5fr 1.5fr 110px 32px;gap:8px;align-items:start;margin-bottom:6px;padding:6px 10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:7px';
+        var sRow=document.createElement('div');sRow.className='sp-data-row';sRow.style.cssText='display:grid;grid-template-columns:1.5fr 1.5fr 110px 32px;gap:8px;align-items:start;margin-bottom:6px;padding:6px 10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:7px';
         var piW=document.createElement('div');piW.style.position='relative';
         var spi=document.createElement('input');spi.className='inp';spi.placeholder='Party';spi.style.cssText='font-size:12px;width:100%';spi.value=defaultParty||'';
         var spDrop=document.createElement('div');spDrop.style.cssText='position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:999;max-height:150px;overflow-y:auto;display:none;font-size:12px';
@@ -12939,7 +12981,7 @@ function pgCashSplit() {
       addSRow.addEventListener('click',function(){addSplitRow('','',0);});
       saveSpl.addEventListener('click',function(){
         var toSave=[];var ok=true;
-        sRows.querySelectorAll('div[style*="grid"]').forEach(function(row){
+        sRows.querySelectorAll('.sp-data-row').forEach(function(row){
           var billSel=row.querySelector('select');var amt=parseFloat(row.querySelector('.sp-amt').value)||0;
           if(!billSel||!billSel.value)return;
           if(!amt){toast('Amount enter karo!','err');ok=false;return;}
@@ -14808,7 +14850,7 @@ function printPartyStatement(party, plState) {
     +'@media print{.no-print{display:none!important}body{font-size:10px}}'
     +'</style></head><body><div class="wrap">';
 
-  h+='<div class="no-print"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">🖨️ Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #ccc;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11px">✕ Close</button></div>';
+  h+='<div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">🖨️ Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #ccc;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11px">✕ Close</button><span style="font-size:10px;color:#9ca3af">iOS: Safari → Print → uncheck Header &amp; Footer to hide URL</span></div>';
 
   // Company header
   h+='<div class="co-hdr"><div class="co-name">'+(cfg.company||'')+'</div><div class="co-addr">'+(cfg.address||'')+(cfg.phone?' | Ph: '+cfg.phone:'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>';
@@ -16723,8 +16765,8 @@ function restoreFromCloudBackup() {
           if(parsed.intCfg) DB.setObj('intCfg',parsed.intCfg);
           if(parsed.intPayAdj) DB.setObj('intPayAdj',parsed.intPayAdj);
           if(parsed.hiddenPages){hiddenPages=parsed.hiddenPages;DB.setObj('hiddenPages',parsed.hiddenPages);}
-          if(parsed.aiPermRules) localStorage.setItem('cp_ai_permanent_rules',parsed.aiPermRules);
-          if(parsed.aiFmtRules)  localStorage.setItem('cp_ai_format_rules',parsed.aiFmtRules);
+          if(parsed.aiPermRules) {localStorage.setItem('cp_ai_permanent_rules',parsed.aiPermRules);DB.setObj('_aiPermRules',parsed.aiPermRules);}
+          if(parsed.aiFmtRules)  {localStorage.setItem('cp_ai_format_rules',parsed.aiFmtRules);DB.setObj('_aiFmtRules',parsed.aiFmtRules);}
           invalidateBillStatusCache();
           DB.set('bills',bills); DB.set('payments',payments);
           DB.set('cheques',cheques); DB.set('advances',advances);
@@ -21852,8 +21894,8 @@ function pgAIRules() {
     'Type values: SINGLE | GROSS_GROUP | INSTALLMENT',
   ].join('\n');
 
-  var permRules = localStorage.getItem(PERMANENT_RULES_KEY) || defaultPermanentRules;
-  var fmtRules  = localStorage.getItem(FORMAT_RULES_KEY)    || defaultFormatRules;
+  var permRules = localStorage.getItem(PERMANENT_RULES_KEY) || DB.getObj('_aiPermRules','') || defaultPermanentRules;
+  var fmtRules  = localStorage.getItem(FORMAT_RULES_KEY)    || DB.getObj('_aiFmtRules','')   || defaultFormatRules;
 
   var wrap = document.createElement('div');
   wrap.innerHTML = '<div style="margin-bottom:14px"><span style="font-size:17px;font-weight:700;color:#166534">AI Import Rules</span><span style="font-size:11px;color:#9ca3af;margin-left:8px">Permanent business rules + auto-updating format rules for AI assistants</span></div>';
@@ -22032,10 +22074,13 @@ function pgAIRules() {
     });
     saveBtn.addEventListener('click',function(){
       localStorage.setItem(storageKey, ta.value);
+      // Also save to DB for backup support
+      if(storageKey===PERMANENT_RULES_KEY) DB.setObj('_aiPermRules', ta.value);
+      else DB.setObj('_aiFmtRules', ta.value);
       pre.textContent=ta.value;
       pre.style.display='';ta.style.display='none';
       editBtn.style.display='';saveBtn.style.display='none';
-      toast('✅ Rules saved!');
+      toast('✅ Rules saved permanently! (localStorage + DB backup)');
     });
     resetBtn.addEventListener('click',function(){
       if(!confirm('Reset to default? Your edits will be lost.'))return;
@@ -22141,9 +22186,18 @@ function pgReceiptLedger() {
   var pdfBtn = el('button',{cls:'btn btn-outline btn-sm',text:'🖨️ Print'});
   pdfBtn.addEventListener('click',printReceiptLedger);
 
+  var groupSel=document.createElement('select');groupSel.className='inp-sm';groupSel.style.width='120px';
+  [['date','Date-wise'],['party','Party-wise'],['fy','FY-wise']].forEach(function(g){
+    var o=document.createElement('option');o.value=g[0];o.textContent=g[1];
+    if(state.groupBy===g[0])o.selected=true;
+    groupSel.appendChild(o);
+  });
+  groupSel.addEventListener('change',function(){state.groupBy=this.value;});
+
   [el('span',{text:'From:',style:'font-size:11px;color:#6b7280'}),dfInp,
    el('span',{text:'To:',style:'font-size:11px;color:#6b7280'}),dtInp,
    el('span',{text:'Mode:',style:'font-size:11px;color:#6b7280'}),modeSel,
+   el('span',{text:'Group:',style:'font-size:11px;color:#6b7280'}),groupSel,
    searchInp,clrBtn,xlBtn,pdfBtn].forEach(function(e){toolbar.appendChild(e);});
   wrap.appendChild(topBar);
   wrap.appendChild(toolbar);
@@ -23192,9 +23246,11 @@ function printReceiptLedger(){
   var dfr=rlState.dateFrom?toISO(rlState.dateFrom):'';
   var dto2=rlState.dateTo?toISO(rlState.dateTo):'';
   var q2=(rlState.q||'').toLowerCase();
+  var groupBy=rlState.groupBy||'date'; // 'date','party','fy'
   var filterDesc=q2?('Search: '+q2):'All Parties';
   if(mf&&mf!=='ALL')filterDesc+=' | Mode: '+mf;
   if(rlState.dateFrom)filterDesc+=' | '+rlState.dateFrom+' to '+(rlState.dateTo||'today');
+  filterDesc+=' | Group: '+(groupBy==='party'?'Party-wise':groupBy==='fy'?'FY-wise':'Date-wise');
   var grossData=(grossPayments||[]).filter(function(g){
     if(mf&&mf!=='ALL'&&(g.mode||'')!==mf)return false;
     if(dfr&&toISO(g.date||'')<dfr)return false;
@@ -23253,9 +23309,45 @@ function printReceiptLedger(){
     +'<table><thead><tr>'
     +['#','Date','Party','Type','Amount','Rebate','Interest','Mode','Cheque/Rcpt','Bills Covered'].map(function(h,i){return (i>=4&&i<=6)?'<th style="text-align:right">'+h+'</th>':'<th>'+h+'</th>';}).join('')
     +'</tr></thead><tbody>';
+  // Group by party or FY if selected
   var rowNum=0;
-  merged.forEach(function(item){
-    rowNum++;
+  if(groupBy==='party'){
+    // Group receipts by party
+    var partyGroups={};
+    merged.forEach(function(item){
+      var pty=item.type==='GROSS'?item.data.party:(bills.find(function(b){return b.id===item.data.billId;})||{}).party||'Unknown';
+      if(!partyGroups[pty])partyGroups[pty]=[];
+      partyGroups[pty].push(item);
+    });
+    Object.keys(partyGroups).sort().forEach(function(pty){
+      var grpItems=partyGroups[pty];
+      var grpTotal=grpItems.reduce(function(s,item){return s+(item.type==='GROSS'?item.data.grossAmt||0:item.data.amount||0);},0);
+      html+='<tr><td colspan="10" style="background:#1F3864;color:#fff;font-weight:700;padding:7px 10px;font-size:12px">'+pty+' — ₹'+fmt(grpTotal)+'</td></tr>';
+      grpItems.forEach(function(item){rowNum++;addRow(item,rowNum);});
+    });
+  } else if(groupBy==='fy'){
+    // Group by financial year
+    var fyGroups={};
+    merged.forEach(function(item){
+      var d=toISO(item.type==='GROSS'?item.data.date:item.data.date)||'';
+      var fyKey=d<(d.substring(0,4)+'-04-01')?((parseInt(d.substring(0,4))-1)+'-'+d.substring(0,4)):(d.substring(0,4)+'-'+(parseInt(d.substring(0,4))+1));
+      if(!fyGroups[fyKey])fyGroups[fyKey]=[];
+      fyGroups[fyKey].push(item);
+    });
+    Object.keys(fyGroups).sort().forEach(function(fy){
+      var grpItems=fyGroups[fy];
+      var grpTotal=grpItems.reduce(function(s,item){return s+(item.type==='GROSS'?item.data.grossAmt||0:item.data.amount||0);},0);
+      var fyParts=fy.split('-');
+      var fyLabel='FY '+fyParts[0]+'-'+fyParts[1].substring(2);
+      html+='<tr><td colspan="10" style="background:#166534;color:#fff;font-weight:700;padding:7px 10px;font-size:12px">'+fyLabel+' — ₹'+fmt(grpTotal)+'</td></tr>';
+      grpItems.forEach(function(item){rowNum++;addRow(item,rowNum);});
+    });
+  } else {
+    // Date-wise (default)
+    merged.forEach(function(item){rowNum++;addRow(item,rowNum);});
+  }
+
+  function addRow(item,rowNum){
     if(item.type==='GROSS'){
       var g=item.data;
       var billsH=(g.bills||[]).map(function(b){
@@ -23282,6 +23374,8 @@ function printReceiptLedger(){
         +'<td>Bill #'+(b.billNo||'?')+'</td></tr>';
     }
   });
+  } // end function addRow
+
   html+='<tr style="background:#f0fdf4;font-weight:700"><td colspan="4"><strong>TOTAL</strong></td>'
     +'<td style="text-align:right;color:#166534"><strong>\u20b9'+fmt(totalRecv)+'</strong></td>'
     +'<td style="text-align:right;color:#d97706"><strong>\u20b9'+fmt(rt)+'</strong></td>'
