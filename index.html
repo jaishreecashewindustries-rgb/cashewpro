@@ -831,7 +831,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; 
 #mob-search-close { display:none; background:none; border:none; cursor:pointer; padding:8px 12px; font-size:18px; color:var(--text-2); flex-shrink:0; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
 
 /* ── PRINT ── */
-@page{margin:8mm 6mm;size:auto}@media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
+@page{margin:5mm 4mm;size:auto}@media print { .no-print, .sidebar, .topbar, .mobile-nav { display: none !important; } }
 
 /* ══ LOGIN SCREEN ══ */
 #login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0a3d22 0%,#1a6b3c 60%,#2d7d50 100%);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:var(--font);}
@@ -5453,7 +5453,7 @@ function printBill(bill) {
     'th{background:#f5f5f5;font-weight:700;text-align:center}'+
     '.nb{border:0}'+
     '.company-name{font-size:14px;font-weight:700;color:#000}'+
-    '@page{margin:8mm 6mm;size:auto}@media print{body{margin:0;padding:0}.no-print{display:none!important}.page{border:none;padding:6mm;width:100%;min-height:auto}}'+
+    '@page{margin:5mm 4mm;size:auto}@media print{body{margin:0;padding:0}.no-print{display:none!important}.page{border:none;padding:6mm;width:100%;min-height:auto}}'+
     '</style></head><body>'+
     '<div class="page">'+
 
@@ -6143,7 +6143,7 @@ function printDueListReport(data,gcFn) {
     +'.due{background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}'
     +'.partial{background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}'
     +'tfoot td{background:#f0fdf4;font-weight:700;border-top:2px solid #166534;padding:6px 8px}'
-    +'@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none!important}}'
+    +'@page{margin:5mm 4mm;size:auto}@media print{.no-print{display:none!important}}'
     +'</style></head><body>'
     +'<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px;align-items:center"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:6px 16px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:700">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600">✕ Close</button></div>'
     +'<div class="hdr"><div><h2>'+cfg.company+'</h2><div class="sub">'+(cfg.address||'')+' | '+(cfg.phone||'')+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>'
@@ -7321,7 +7321,7 @@ function pgPartyLedger(party) {
     if(plState.dateFrom&&toISO(b.date||'')<toISO(plState.dateFrom))return false;
     if(plState.dateTo&&toISO(b.date||'')>toISO(plState.dateTo))return false;
     return true;
-  }).sort(function(a,b){return toISO(a.date||'').localeCompare(toISO(b.date||''));});
+  }).sort(function(a,b){return toISO(b.date||'').localeCompare(toISO(a.date||''));});  // Newest first
 
   var totalAmt=pb.reduce(function(s,b){return s+(parseFloat(b.netAmt)||0);},0);
   var totalRecv=pb.reduce(function(s,b){return s+getBillStatus(b).recv;},0);
@@ -7423,12 +7423,13 @@ function pgPartyLedger(party) {
 
     // ── Bill Header Row ──
     var billBlock=document.createElement('div');
-    billBlock.style.cssText='border-top:1px solid #e5e7eb;cursor:pointer;transition:background .1s';
+    billBlock.style.cssText='border-top:2px solid #e5e7eb;cursor:pointer;transition:all .15s;'+
+      'border-left:4px solid '+(isPaid?'#166534':s.status==='partial'?'#d97706':'#dc2626')+';';
     billBlock.setAttribute('data-bill-id',b.id);
 
     var billRow=document.createElement('div');
     billRow.style.cssText='display:grid;grid-template-columns:24px 80px 80px 1fr 90px 90px 90px 80px 90px;gap:0;align-items:center;padding:10px 14px;'+
-      (isPaid?'background:#f9fafb;':'background:#fff;')+
+      (isPaid?'background:#f8fafb;':'background:'+( s.status==='partial'?'#fffdf0':'#fff')+';')+
       (bi%2===0&&!isPaid?'':'');
 
     // Checkbox
@@ -7443,7 +7444,8 @@ function pgPartyLedger(party) {
 
     // Bill# 
     var billNoDiv=document.createElement('div');
-    billNoDiv.innerHTML='<span style="font-size:12px;font-weight:700;color:#1d4ed8">#'+b.billNo+'</span>';
+    billNoDiv.innerHTML='<span style="font-size:13px;font-weight:800;color:#1F3864">'+b.billNo+'</span>'+
+      '<div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Bill</div>';
     billRow.appendChild(billNoDiv);
 
     // Date
@@ -7495,7 +7497,7 @@ function pgPartyLedger(party) {
 
     // ── Payment Expand Panel ──
     var expandPanel=document.createElement('div');
-    expandPanel.style.cssText='display:none;background:#f0fdf4;border-top:1px solid #bbf7d0;padding:0';
+    expandPanel.style.cssText='display:none;background:#f0fdf4;border-top:2px solid #22c55e;border-left:4px solid #22c55e;padding:0;box-shadow:inset 0 2px 8px rgba(34,197,94,.08)';
     expandPanel.id='pexp2-'+b.id;
 
     if(!bPays.length){
@@ -7548,12 +7550,15 @@ function pgPartyLedger(party) {
           var gpBillStr=gpBills.map(function(gb){return '#'+gb.billNo+' ₹'+fmt(gb.amount||0)+(gb.rebate>0?' Reb ₹'+fmt(gb.rebate):'');}).join(' | ');
           var hdr=document.createElement('tr');
           hdr.style.cssText='background:#1e3a5f;border-bottom:1px solid #3b5998';
-          hdr.innerHTML='<td colspan="4" style="padding:7px 10px;color:#fff;font-weight:700;font-size:11px">'+
-            '💳 GROSS PAYMENT — '+gp.id+
+          var gpChqStr=(gp.chequeNo||'')+(gp.receiptNo&&gp.receiptNo!==gp.chequeNo?'/'+gp.receiptNo:'');
+          hdr.innerHTML='<td colspan="3" style="padding:7px 10px;color:#fff;font-weight:700;font-size:11px">'+
+            '💳 GROSS — '+gp.id+
             ' &nbsp;<span style="font-size:10px;opacity:.8">'+fmtDate(gp.date)+'</span>'+
             '<div style="font-size:9px;color:#93c5fd;margin-top:2px">Bills: '+gpBillStr+'</div>'+
             '</td>'+
-            '<td style="padding:7px 10px;color:#93c5fd;font-size:10px;text-align:right">Part of Gross</td>'+
+            '<td style="padding:7px 10px;color:#fff;font-size:10px">'+(gp.mode?'<span style="background:#1d4ed8;padding:1px 5px;border-radius:3px">'+gp.mode+'</span> ':'')+
+            (gpChqStr?'<div style="font-family:monospace;font-size:10px;color:#93c5fd;margin-top:2px">'+gpChqStr+'</div>':'')+'</td>'+
+            '<td style="padding:7px 10px;color:#93c5fd;font-size:10px;text-align:right">—</td>'+
             '<td style="padding:7px 10px;color:#93c5fd;font-size:10px;text-align:right">—</td>'+
             '<td style="padding:7px 10px;color:#93c5fd;font-size:10px;text-align:right">—</td>'+
             '<td style="padding:7px 10px;font-weight:800;color:#60a5fa;font-size:13px;text-align:right">₹'+fmt(gp.grossAmt||0)+'</td>'+
@@ -7599,7 +7604,14 @@ function pgPartyLedger(party) {
       if(!ep)return;
       var isOpen=ep.style.display==='block';
       ep.style.display=isOpen?'none':'block';
-      billRow.style.background=isOpen?(isPaid?'#f9fafb':'#fff'):'#ecfdf5';
+      // Visual toggle indicator
+      if(isOpen){
+        billRow.style.background=isPaid?'#f8fafb':(s.status==='partial'?'#fffdf0':'#fff');
+        billBlock.style.borderLeft='4px solid '+(isPaid?'#166534':s.status==='partial'?'#d97706':'#dc2626');
+      } else {
+        billRow.style.background='#ecfdf5';
+        billBlock.style.borderLeft='4px solid #22c55e';
+      }
     });
 
     billBlock.appendChild(billRow);billBlock.appendChild(expandPanel);
@@ -9816,9 +9828,18 @@ function pgSettings() {
   if(!suspectPairs.length){
     fpb.innerHTML='<div style="color:#166534;font-weight:600;padding:12px;background:#f0fdf4;border-radius:7px">✅ Koi duplicate party names nahi mile!</div>';
   } else {
+    var _ignoredPairs=DB.getObj('_fuzzyIgnored',[])||[];
+    // Filter out ignored pairs
+    suspectPairs=suspectPairs.filter(function(pair){
+      return !_ignoredPairs.some(function(ig){return (ig.p1===pair.p1&&ig.p2===pair.p2)||(ig.p1===pair.p2&&ig.p2===pair.p1);});
+    });
     var _fpPage=0,_fpPerPage=25;
     var swapCount=suspectPairs.filter(function(p){return p.reason==='word_swap';}).length;
     var fpInfo=document.createElement('div');fpInfo.style.cssText='font-size:12px;color:#92400e;font-weight:600;margin-bottom:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px';
+    var clearIgnBtn=el('button',{cls:'btn btn-xs btn-outline',text:'↩ Clear Ignored ('+_ignoredPairs.length+')',style:'font-size:10px;color:#6b7280'});
+    clearIgnBtn.style.display=_ignoredPairs.length>0?'':'none';
+    clearIgnBtn.addEventListener('click',function(){if(!confirm('Saare ignored pairs clear karein?'))return;DB.setObj('_fuzzyIgnored',[]);toast('Ignored pairs cleared');refresh();});
+    fpb.appendChild(clearIgnBtn);
     fpInfo.innerHTML='<span>⚠️ '+suspectPairs.length+' possible duplicate pair(s) mila</span>'+
       '<span style="font-size:10px;color:#92400e">'+(swapCount>0?swapCount+' word-swap, ':'')+
       (suspectPairs.length-swapCount)+' spelling</span>';
@@ -9879,7 +9900,17 @@ function pgSettings() {
             toast('✅ Merged: '+p2+' → '+p1);refresh();
           });
         })(pair.p1,pair.p2);
-        facTd.appendChild(m1Btn);facTd.appendChild(m2Btn);
+        var ignBtn=el('button',{cls:'btn btn-xs btn-outline',text:'🚫 Ignore',style:'margin-left:4px;color:#6b7280;border-color:#d1d5db'});
+        ignBtn.title='This pair permanently hide karo — dubara show nahi hoga';
+        (function(p1,p2){ignBtn.addEventListener('click',function(){
+          if(!confirm('"'+p1+'" and "'+p2+'" ko permanently ignore karein?'))return;
+          var ig=DB.getObj('_fuzzyIgnored',[])||[];
+          ig.push({p1:p1,p2:p2,ignoredAt:today()});
+          DB.setObj('_fuzzyIgnored',ig);
+          toast('✅ Ignored! Ye pair ab show nahi hoga');
+          refresh();
+        });})(pair.p1,pair.p2);
+        facTd.appendChild(m1Btn);facTd.appendChild(m2Btn);facTd.appendChild(ignBtn);
         ftr.appendChild(facTd);fpTbody.appendChild(ftr);
       });
     }
@@ -10002,7 +10033,7 @@ function printMultipleBills(billList){
     +'table{width:100%;border-collapse:collapse;font-size:10px;margin:6px 0}th{background:#166534;color:#fff;padding:4px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #eee}'
     +'h3{color:#166534;margin:0 0 4px;font-size:13px}.net{background:#f0fdf4;padding:8px;text-align:right;border-radius:4px;margin-top:6px}'
     +'.gross-ref{background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}'
-    +'@page{margin:8mm 6mm;size:auto}@media print{.np{display:none}}</style></head><body>'
+    +'@page{margin:5mm 4mm;size:auto}@media print{.np{display:none}}</style></head><body>'
     +'<div class="np" style="margin-bottom:10px">'
     +'<button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;margin-right:8px">Print All</button>'
     +'<button onclick="window.close()" style="background:#f3f4f6;border:none;padding:7px 18px;border-radius:6px;cursor:pointer">Close</button></div>';
@@ -13033,10 +13064,20 @@ function pgCashSplit() {
     });
     tbl.appendChild(tbody);hCard.appendChild(tbl);panel2.appendChild(hCard);
 
-    var splitFormDiv=document.createElement('div');splitFormDiv.id='split-form-div';panel2.appendChild(splitFormDiv);
+    var splitFormDiv=document.createElement('div');
+    splitFormDiv.id='split-form-div';
+    splitFormDiv.style.cssText='min-height:20px;margin-top:4px';
+    panel2.appendChild(splitFormDiv);
+    // Add helper text
+    var splitHelper=document.createElement('div');
+    splitHelper.id='split-helper-msg';
+    splitHelper.style.cssText='padding:12px 16px;text-align:center;color:#6b7280;font-size:12px;font-style:italic;background:#fffbeb;border:1px dashed #fde68a;border-radius:8px;margin:8px 0';
+    splitHelper.textContent='☝️ Upar koi ek payment row par click karo — split form yahan open hoga';
+    splitFormDiv.appendChild(splitHelper);
 
     function showSplitForm(origPay){
-      splitFormDiv.innerHTML='';
+      splitFormDiv.innerHTML=''; // Remove helper text
+
       var origBill=bills.find(function(x){return x.id===origPay.billId;})||{};
       var sCard=document.createElement('div');sCard.className='card';
       var sHead=document.createElement('div');sHead.className='card-head';
@@ -13106,9 +13147,11 @@ function pgCashSplit() {
         toast('✅ Split done! '+toSave.length+' payments saved');refresh();
       });
       sCard.appendChild(sBody);splitFormDiv.appendChild(sCard);
-      // Scroll to split form after it appears
+      // Scroll to split form
       setTimeout(function(){
-        sCard.scrollIntoView({behavior:'smooth',block:'start'});
+        splitFormDiv.scrollIntoView({behavior:'smooth',block:'nearest'});
+        sCard.style.boxShadow='0 0 0 3px #d97706';
+        setTimeout(function(){sCard.style.boxShadow='';},2000);
       },50);
     }
   }
@@ -13187,6 +13230,7 @@ function pgDuplicates() {
   // FIX: Group by chequeNo; flag only if from DIFFERENT gross payments or different standalone payments
   var chqNos = {};
   _fyPayments.forEach(function(p){
+    if(p.rowType==='DETAIL') return; // SKIP - gross payment detail rows, cheque belongs to gross header
     var c=(p.chequeNo||'').trim();
     if(!c||c==='-')return;
     if(!chqNos[c])chqNos[c]=[];
@@ -15011,7 +15055,7 @@ function printPartyStatement(party, plState) {
     +'.status-partial{color:#92400e;font-weight:700;font-size:9px;background:#fef9c3;padding:1px 5px;border-radius:3px}'
     /* Footer */
     +'.footer{margin-top:12px;padding-top:6px;border-top:1.5px solid #166534;display:flex;justify-content:space-between;font-size:9px;color:#555}'
-    +'@page{margin:8mm 6mm;size:auto}'
+    +'@page{margin:5mm 4mm;size:auto}'
     +'@media print{.no-print{display:none!important}body{font-size:10px}}'
     +'</style></head><body><div class="wrap">';
 
@@ -15330,7 +15374,7 @@ function printInterestStatement() {
     +'th{background:#166534;color:#fff;padding:5px 8px;text-align:left;font-size:10px}th.num{text-align:right}'
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}td.num{text-align:right}'
     +'.ph{background:#eff6ff;font-weight:700}tfoot td{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'
-    +'@page{margin:8mm 6mm;size:auto}@media print{button{display:none}}</style></head><body>'
+    +'@page{margin:5mm 4mm;size:auto}@media print{button{display:none}}</style></head><body>'
     +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'')+' \u2014 Interest Statement</h2>'
     +'<div style="font-size:10px;color:#6b7280;margin-bottom:6px">As Of: '+fmtDate(asOfStr)+' | Rate: '+rate+'% p.a. | Free Days: '+freeDays+'</div>';
@@ -15551,7 +15595,7 @@ function exportStyledReport(data,gcFn) {
     '.b-partial{background:#fef9c3;color:#92400e;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     '.b-paid{background:#dcfce7;color:#1a6b3c;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}'+
     'tfoot td{background:#f0faf4;font-weight:700;border-top:2px solid #1a6b3c;padding:9px 12px;font-size:12px}'+
-    '.no-print{display:block}@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
+    '.no-print{display:block}@page{margin:5mm 4mm;size:auto}@media print{.no-print{display:none!important}body{background:#fff}table{box-shadow:none}}'+
     '</style></head><body>';
   // Print bar
   h+='<div class="no-print" style="background:#1a6b3c;color:#fff;padding:9px 16px;margin:-20px -20px 16px;display:flex;justify-content:space-between;align-items:center">'+
@@ -16469,7 +16513,7 @@ function exportYearWisePDF(fyStart) {
     '.sum-label{font-size:9px;text-transform:uppercase;color:#6b7280;font-weight:700}'+
     '.sum-val{font-size:16px;font-weight:700;color:#1a6b3c;margin-top:2px}'+
     '.paid{color:#166534}.due{color:#dc2626}.partial{color:#d97706}'+
-    '.tfoot{background:#f0fdf4;font-weight:700}@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
+    '.tfoot{background:#f0fdf4;font-weight:700}@page{margin:5mm 4mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
   h+='<div class="no-print" style="margin-bottom:12px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer;font-size:12px">Print / Save PDF</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:12px">✕ Close</button></div>';
   h+='<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">';
   h+='<div><h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280">'+cfg.address+' | '+cfg.phone+(cfg.gstin?' | GSTIN: '+cfg.gstin:'')+'</div></div>';
@@ -16781,7 +16825,7 @@ function pgBrokerage() {
       'td{padding:4px 8px;border-bottom:1px solid #e5e7eb}.r{text-align:right}.brok{color:#d97706;font-weight:700}'+
       '.total{background:#fffbeb;font-weight:700;border-top:2px solid #d97706}'+
       '.grand{background:#fff7ed;padding:12px;border:2px solid #d97706;border-radius:6px;margin-top:10px;display:flex;gap:20px}'+
-      '@page{margin:8mm 6mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
+      '@page{margin:5mm 4mm;size:auto}@media print{.no-print{display:none}}</style></head><body>';
     h+='<div class="no-print" style="margin-bottom:10px;display:flex;gap:8px"><button onclick="window.print()" style="background:#1a6b3c;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:6px 14px;border-radius:5px;cursor:pointer">✕ Close</button></div>';
     h+='<h2>'+cfg.company+'</h2><div style="font-size:10px;color:#6b7280;margin-bottom:8px">'+cfg.address+'</div>';
     h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px">'+
@@ -22224,8 +22268,13 @@ function pgAIRules() {
   // ─── Bill Import Guide Card ───
   var biGuideCard=document.createElement('div');biGuideCard.className='card';biGuideCard.style.marginBottom='14px';
   var biGH=document.createElement('div');biGH.className='card-head';
-  biGH.innerHTML='<h4 style="color:#d97706">\U0001f4e5 Bill Import — AI Guide</h4>'+
-    '<a href="#" onclick="go(\'bill-import\');return false;" style="font-size:11px;color:#1d4ed8;text-decoration:none">Open Bill Import \u2192</a>';
+  var biEditBtn=el('button',{cls:'btn btn-outline btn-sm',text:'✏️ Edit Guide'});
+  var biSaveBtn=el('button',{cls:'btn btn-green btn-sm',text:'💾 Save',style:'display:none'});
+  biGH.innerHTML='<h4 style="color:#d97706">\U0001f4e5 Bill Import — AI Guide</h4>';
+  var biGHright=document.createElement('div');biGHright.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  biGHright.innerHTML='<a href="#" onclick="go(\'bill-import\');return false;" style="font-size:11px;color:#1d4ed8;text-decoration:none">Open Bill Import \u2192</a>';
+  biGHright.appendChild(biEditBtn);biGHright.appendChild(biSaveBtn);
+  biGH.appendChild(biGHright);
   biGuideCard.appendChild(biGH);
   var biGB=document.createElement('div');biGB.style.cssText='padding:14px 16px';
 
@@ -22277,6 +22326,20 @@ function pgAIRules() {
   guidePre.style.cssText='white-space:pre-wrap;font-size:11px;font-family:monospace;line-height:1.6;color:#374151;background:#f9fafb;padding:12px;border-radius:6px;border:1px solid #e5e7eb;max-height:280px;overflow-y:auto;margin:0 0 10px 0';
   guidePre.textContent=guideText;
 
+  var biGuideTA=document.createElement('textarea');
+  biGuideTA.style.cssText='width:100%;min-height:200px;font-size:11px;font-family:monospace;padding:12px;border:1.5px solid #d97706;border-radius:6px;line-height:1.6;display:none;box-sizing:border-box';
+  biGuideTA.value=guideText;
+  biGB.appendChild(biGuideTA);
+  var _biGuideKey='cp_bill_import_guide';
+  var _savedBiGuide=localStorage.getItem(_biGuideKey)||DB.getObj('_biGuide','');
+  if(_savedBiGuide&&typeof _savedBiGuide==='string'&&_savedBiGuide.length>50){guidePre.textContent=_savedBiGuide;biGuideTA.value=_savedBiGuide;}
+  biEditBtn.addEventListener('click',function(){guidePre.style.display='none';biGuideTA.style.display='block';biEditBtn.style.display='none';biSaveBtn.style.display='';biGuideTA.focus();});
+  biSaveBtn.addEventListener('click',function(){
+    var txt=biGuideTA.value;
+    localStorage.setItem(_biGuideKey,txt);DB.setObj('_biGuide',txt);
+    guidePre.textContent=txt;biGuideTA.style.display='none';guidePre.style.display='';biEditBtn.style.display='';biSaveBtn.style.display='none';
+    toast('✅ Bill Import Guide saved!');
+  });
   var copyGuideBtn=el('button',{cls:'btn btn-green btn-sm',text:'\U0001f4cb Copy AI Guide'});
   copyGuideBtn.addEventListener('click',function(){
     try{
@@ -22294,8 +22357,12 @@ function pgAIRules() {
   // ─── Bank Upload Guide Card ───
   var buGuideCard=document.createElement('div');buGuideCard.className='card';buGuideCard.style.marginBottom='14px';
   var buGH=document.createElement('div');buGH.className='card-head';
-  buGH.innerHTML='<h4 style="color:#1d4ed8">🏦 Bank Statement Upload — AI Guide</h4>'+
-    '<span style="font-size:11px;color:#6b7280">ICICI PDF + DueList + PartyMaster → Payment Upload file</span>';
+  var buEditBtn=el('button',{cls:'btn btn-outline btn-sm',text:'✏️ Edit Guide'});
+  var buSaveBtn=el('button',{cls:'btn btn-green btn-sm',text:'💾 Save',style:'display:none'});
+  buGH.innerHTML='<h4 style="color:#1d4ed8">🏦 Bank Statement Upload — AI Guide</h4>';
+  var buGHR=document.createElement('div');buGHR.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  buGHR.innerHTML='<span style="font-size:11px;color:#6b7280">ICICI PDF + DueList + PartyMaster → Payment Upload file</span>';
+  buGHR.appendChild(buEditBtn);buGHR.appendChild(buSaveBtn);buGH.appendChild(buGHR);
   buGuideCard.appendChild(buGH);
   var buGB=document.createElement('div');buGB.style.padding='12px 16px';
 
@@ -22341,6 +22408,20 @@ function pgAIRules() {
   var buPre=document.createElement('pre');
   buPre.style.cssText='white-space:pre-wrap;font-size:11px;font-family:monospace;line-height:1.6;color:#374151;background:#f9fafb;padding:12px;border-radius:6px;border:1px solid #e5e7eb;max-height:280px;overflow-y:auto;margin:0 0 10px 0';
   buPre.textContent=buGuideText;
+  var buGuideTA=document.createElement('textarea');
+  buGuideTA.style.cssText='width:100%;min-height:200px;font-size:11px;font-family:monospace;padding:12px;border:1.5px solid #1d4ed8;border-radius:6px;line-height:1.6;display:none;box-sizing:border-box';
+  buGuideTA.value=buGuideText;
+  buGB.appendChild(buGuideTA);
+  var _buKey='cp_bank_upload_guide';
+  var _savedBu=localStorage.getItem(_buKey)||DB.getObj('_buGuide','');
+  if(_savedBu&&typeof _savedBu==='string'&&_savedBu.length>50){buPre.textContent=_savedBu;buGuideTA.value=_savedBu;}
+  buEditBtn.addEventListener('click',function(){buPre.style.display='none';buGuideTA.style.display='block';buEditBtn.style.display='none';buSaveBtn.style.display='';buGuideTA.focus();});
+  buSaveBtn.addEventListener('click',function(){
+    var txt=buGuideTA.value;
+    localStorage.setItem(_buKey,txt);DB.setObj('_buGuide',txt);
+    buPre.textContent=txt;buGuideTA.style.display='none';buPre.style.display='';buEditBtn.style.display='';buSaveBtn.style.display='none';
+    toast('✅ Bank Upload Guide saved to cloud!');
+  });
   var copyBuBtn=el('button',{cls:'btn btn-green btn-sm',text:'📋 Copy Bank Upload Guide'});
   copyBuBtn.addEventListener('click',function(){
     navigator.clipboard.writeText(buGuideText).then(function(){toast('✅ Bank Upload Guide copied!');}).catch(function(){
@@ -23606,7 +23687,7 @@ function printReceiptLedger(){
     +'td{padding:4px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top}'
     +'.gross{background:#dbeafe!important;font-weight:700}'
     +'.sumbar{display:flex;gap:20px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;margin-bottom:10px;font-weight:600}'
-    +'@page{margin:8mm 6mm;size:auto}@media print{button{display:none}}</style></head><body>'
+    +'@page{margin:5mm 4mm;size:auto}@media print{button{display:none}}</style></head><body>'
     +'<div style="display:flex;gap:8px;margin-bottom:10px"><button onclick="window.print()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:4px;cursor:pointer">Print</button><button onclick="window.close()" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:5px 12px;border-radius:4px;cursor:pointer">✕ Close</button></div>'
     +'<h2>'+(cfg.company||'JAI SHREE CASHEW INDUSTRIES')+' \u2014 Receipt Ledger</h2>'
     +'<div style="font-size:11px;color:#1d4ed8;font-weight:600;margin-bottom:4px">Filter: '+filterDesc+'</div>'
