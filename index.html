@@ -1641,16 +1641,20 @@ var _advanceIndex = null; // linkedBillId → advances array
 function _buildPaymentIndex() {
   _paymentIndex = {};
   payments.forEach(function(p) {
+    // REVERSED payments ko skip karo — bill balance restore honi chahiye
+    if (p.status === 'REVERSED') return;
     // DETAIL rows settle individual bills under a GROSS payment — MUST include
     // They do NOT double-count because GROSS payment itself is not in payments[]
-    if (!_paymentIndex[p.billId]) _paymentIndex[p.billId] = [];
-    _paymentIndex[p.billId].push(p);
+    var bid = String(p.billId); // String comparison for type safety
+    if (!_paymentIndex[bid]) _paymentIndex[bid] = [];
+    _paymentIndex[bid].push(p);
   });
   _advanceIndex = {};
   advances.forEach(function(a) {
     if (!a.linkedBillId) return;
-    if (!_advanceIndex[a.linkedBillId]) _advanceIndex[a.linkedBillId] = [];
-    _advanceIndex[a.linkedBillId].push(a);
+    var aid = String(a.linkedBillId);
+    if (!_advanceIndex[aid]) _advanceIndex[aid] = [];
+    _advanceIndex[aid].push(a);
   });
 }
 
@@ -1682,7 +1686,7 @@ function getPartyCarryForward(party) {
 
   partyBills.forEach(function(b) {
     // Is bill ke direct payments
-    var bPays = _paymentIndex[b.id] || [];
+    var bPays = _paymentIndex[String(b.id)] || [];
     // Cash actually received
     var directCash = bPays.reduce(function(s, p) { return s + (p.amount || 0); }, 0);
     // Rebate: humne diya discount — effective credit mein count hota hai (cash + rebate = bill settle hua)
@@ -1692,7 +1696,7 @@ function getPartyCarryForward(party) {
     // Rebate + Interest combined (sirf clearance check ke liye)
     var directRebInt = directRebate + directInterest;
     // Linked advances
-    var bAdv = _advanceIndex[b.id] || [];
+    var bAdv = _advanceIndex[String(b.id)] || [];
     var linkedAdv = bAdv.reduce(function(s, a) { return s + (a.amount || 0); }, 0);
 
     // Is bill ke liye pichle bills se kitna credit carry forward hua — yahi carryMap mein store hoga
@@ -1965,8 +1969,8 @@ function getBillStatus(bill) {
   // Build index on first use (lazy)
   if (!_paymentIndex) _buildPaymentIndex();
 
-  var billPayments = _paymentIndex[bill.id] || [];
-  var billAdvances = _advanceIndex[bill.id] || [];
+  var billPayments = _paymentIndex[String(bill.id)] || [];
+  var billAdvances = _advanceIndex[String(bill.id)] || [];
 
   var paid=billPayments.reduce(function(s,p){return s+(p.amount||0)+(p.rebate||0)+(p.interest||0);},0);
   var _tReb=billPayments.reduce(function(s,p){return s+(p.rebate||0);},0);
@@ -3664,6 +3668,7 @@ function pgNewBill() {
     }
     saveUndo('Bill Create: ' + data.party + ' \u20b9' + fmt(data.netAmt), 'bill');
     bills.unshift(data);
+    invalidateBillStatusCache();
     DB.set('bills', bills);
     _dirtyForm=false;
     toast('✅ Bill saved! ' + data.party + ' — \u20b9' + fmt(data.netAmt));
@@ -7414,7 +7419,7 @@ function pgPartyLedger(party) {
 
   pb.forEach(function(b,bi){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);}).sort(function(a,bb){return toISO(a.date||'').localeCompare(toISO(bb.date||''));});
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id) && p.status!=='REVERSED';}).sort(function(a,bb){return toISO(a.date||'').localeCompare(toISO(bb.date||''));});
     var daysOld=Math.floor((new Date()-new Date(toISO(b.date||'')))/86400000);
     var gradeStr=(b.rows||[]).map(function(r){return r.grade+(r.rate?'@'+r.rate:'');}).join(', ')||'—';
     var totalWt=(b.rows||[]).reduce(function(acc,r){return acc+(r.weight||0);},0);
@@ -10057,7 +10062,7 @@ function printMultipleBills(billList){
     +'<button onclick="window.close()" style="background:#f3f4f6;border:none;padding:7px 18px;border-radius:6px;cursor:pointer">Close</button></div>';
   billList.forEach(function(bill){
     var s=getBillStatus(bill);
-    var bPays=payments.filter(function(p){return p.billId===bill.id;});
+    var bPays=payments.filter(function(p){return String(p.billId)===String(bill.id);});
     var gr=(bill.rows||[]).map(function(r,i){return'<tr><td>'+(i+1)+'</td><td>'+r.grade+'</td><td>'+(r.qty||0)+'</td><td>'+r.weight+' kg</td><td>\u20b9'+fmt(r.rate)+'</td><td>\u20b9'+fmt(r.taxable)+'</td></tr>';}).join('');
     var payRows='';
     if(bPays.length){
@@ -14077,7 +14082,7 @@ function pgInterest() {
   // Outstanding: end date = asOf
   function calcBillInterest(b) {
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);})
       .map(function(p){
         var adjStr=state.payDateAdj[p.id]||'';
         return {
@@ -14992,7 +14997,7 @@ function pgPartialTracking() {
 
   filtBills.forEach(function(b,ri){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;});
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);});
     var pct=b.netAmt>0?Math.round(s.recv/b.netAmt*100):0;
     var tr3=document.createElement('tr');tr3.style.cssText='border-bottom:1px solid #f3f4f6;background:'+(ri%2?'#fafafa':'#fff');
 
@@ -15043,7 +15048,7 @@ function pgPartialTracking() {
   function exportPartialExcel(){
     var rows4=filtBills.map(function(b){
       var s=getBillStatus(b);
-      var bPays=payments.filter(function(p){return p.billId===b.id;});
+      var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);});
       var pct=b.netAmt>0?Math.round(s.recv/b.netAmt*100):0;
       var lastPay=bPays.length?fmtDate(bPays[bPays.length-1].date):'';
       return{'Bill#':b.billNo,'Date':fmtDate(b.date),'Party':b.party,'Broker':b.broker||'',
@@ -15246,7 +15251,7 @@ function printPartyStatement(party, plState) {
 
   pb2.forEach(function(b){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,bb){return toISO(a.date||'').localeCompare(toISO(bb.date||''));});
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);}).sort(function(a,bb){return toISO(a.date||'').localeCompare(toISO(bb.date||''));});
     var gradeStr=(b.rows||[]).map(function(r){return r.grade+(r.rate?'@'+r.rate:'');}).join(', ')||'—';
     var totalWt=(b.rows||[]).reduce(function(acc,r){return acc+(r.weight||0);},0);
     var stCls=s.status==='paid'?'status-paid':s.status==='partial'?'status-partial':'status-due';
@@ -15505,7 +15510,7 @@ function printInterestStatement() {
   });
   function calcBI(b){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);})
       .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
       .sort(function(a,b2){return a.date-b2.date;});
     var isPaid=s.status==='paid';
@@ -15625,7 +15630,7 @@ function exportInterestExcel() {
   if(!filteredBills.length){toast('Koi data nahi!','err');return;}
   function calcBI2(b){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;})
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);})
       .map(function(p){var adj=(st.payDateAdj||{})[p.id]||'';return{amount:p.amount+(p.rebate||0),date:new Date(toISO(adj||p.date||today()))};})
       .sort(function(a,b2){return a.date-b2.date;});
     var isPaid=s.status==='paid';
@@ -23285,12 +23290,14 @@ function openPaymentEditModal(payId) {
   var relinkParty=b.party||'';
   var relinkBills=bills.filter(function(x){return x.party===relinkParty;});
   if(!relinkBills.length) relinkBills=bills;
+  // Date-wise sort — newest first
+  relinkBills=relinkBills.slice().sort(function(a,b2){return toISO(b2.date||'').localeCompare(toISO(a.date||''));});
   var rBO=document.createElement('option');rBO.value='';rBO.textContent='— Bill select karo —';relinkS.appendChild(rBO);
   relinkBills.forEach(function(x){
     var st=getBillStatus(x);
     var op=document.createElement('option');op.value=x.id;
-    op.textContent='#'+x.billNo+' — '+x.party+' (Bal:₹'+fmt(st.bal)+')';
-    if(x.id===p.billId)op.selected=true;
+    op.textContent='#'+x.billNo+' | '+fmtDate(x.date)+' | ₹'+fmt(x.netAmt)+' | Bal:₹'+fmt(st.bal)+' ('+st.status+')';
+    if(String(x.id)===String(p.billId))op.selected=true;
     relinkS.appendChild(op);
   });
   relinkD.appendChild(relinkL);relinkD.appendChild(relinkS);
