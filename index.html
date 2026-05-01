@@ -6085,7 +6085,10 @@ function openPhoneBook() {
 }
 
 function exportDueExcel() {
-  var data = bills.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b) {
+  var _activeFY = getActiveFY();
+  var _fyLabel = getFYLabel(_activeFY);
+  var fyBillsForDue = getFYBills(_activeFY);
+  var data = fyBillsForDue.filter(function(b){return getBillStatus(b).status!=='paid';}).map(function(b) {
     var s = getBillStatus(b);
     return { 'Bill No':b.billNo||'', Date:fmtDate(b.date), Party:b.party, Broker:b.broker||'',
              Grade:(b.rows||[]).map(function(r){return r.grade;}).join(', ')||'',
@@ -6096,8 +6099,8 @@ function exportDueExcel() {
   var ws = XLSX.utils.json_to_sheet(data);
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'DueList');
-  XLSX.writeFile(wb, 'DueList_' + today() + '.xlsx');
-  toast('✅ Excel exported!');
+  XLSX.writeFile(wb, 'DueList_' + _fyLabel + '_' + today() + '.xlsx');
+  toast('✅ Excel exported! (' + _fyLabel + ' — ' + data.length + ' bills)');
 }
 
 function printDueListReport(data,gcFn) {
@@ -7411,7 +7414,7 @@ function pgPartyLedger(party) {
 
   pb.forEach(function(b,bi){
     var s=getBillStatus(b);
-    var bPays=payments.filter(function(p){return p.billId===b.id;}).sort(function(a,bb){return toISO(a.date||'').localeCompare(toISO(bb.date||''));});
+    var bPays=payments.filter(function(p){return String(p.billId)===String(b.id);}).sort(function(a,bb){return toISO(a.date||'').localeCompare(toISO(bb.date||''));});
     var daysOld=Math.floor((new Date()-new Date(toISO(b.date||'')))/86400000);
     var gradeStr=(b.rows||[]).map(function(r){return r.grade+(r.rate?'@'+r.rate:'');}).join(', ')||'—';
     var totalWt=(b.rows||[]).reduce(function(acc,r){return acc+(r.weight||0);},0);
